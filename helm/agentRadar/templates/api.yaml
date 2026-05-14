@@ -17,29 +17,13 @@ spec:
     metadata:
       labels:
         app: {{ .Release.Name }}-api
-        azure.workload.identity/use: "true"
     spec:
-      {{- with .Values.affinity }}
-      affinity: {{- toYaml . | nindent 8 }}
-      {{- end }}
-      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      volumes:
-        - name: secrets-store
-          csi:
-            driver: secrets-store.csi.k8s.io
-            readOnly: true
-            volumeAttributes:
-              secretProviderClass: {{ .Release.Name }}-secrets
       containers:
         - name: api
           image: {{ .Values.global.imageRegistry }}/{{ .Values.images.api }}:{{ .Values.global.imageTag }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           ports:
             - containerPort: 4000
-          volumeMounts:
-            - name: secrets-store
-              mountPath: /mnt/secrets
-              readOnly: true
           env:
             - name: NODE_ENV
               value: production
@@ -61,17 +45,29 @@ spec:
               value: {{ .Values.redis.port | quote }}
             - name: REDIS_TLS
               value: {{ .Values.redis.tls | quote }}
-            - name: SCAN_RANGES
-              value: {{ .Values.scanner.scanRanges | quote }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-secrets
+                  key: db-password
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-secrets
+                  key: jwt-secret
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-secrets
+                  key: redis-password
           resources: {{- toYaml .Values.resources.api | nindent 12 }}
-          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
           livenessProbe:
             httpGet: { path: /health, port: 4000 }
-            initialDelaySeconds: 20
+            initialDelaySeconds: 30
             periodSeconds: 20
           readinessProbe:
             httpGet: { path: /health, port: 4000 }
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 10
 ---
 apiVersion: v1
@@ -108,35 +104,3 @@ spec:
           type: Utilization
           averageUtilization: {{ .Values.autoscaling.api.targetCPUUtilizationPercentage }}
 {{- end }}
----
-# SecretProviderClass — mounts Key Vault secrets via CSI driver (no K8s Secrets needed)
-apiVersion: secrets-store.csi.x-k8s.io/v1
-kind: SecretProviderClass
-metadata:
-  name: {{ .Release.Name }}-secrets
-  namespace: {{ .Release.Namespace }}
-spec:
-  provider: azure
-  parameters:
-    usePodIdentity: "false"
-    clientID: {{ .Values.managedIdentity.clientId | quote }}
-    keyvaultName: {{ .Values.keyvault.vaultUri | trimPrefix "https://" | trimSuffix ".vault.azure.net/" | quote }}
-    cloudName: ""
-    objects: |
-      array:
-        - |
-          objectName: {{ .Values.keyvault.secretNames.dbPassword }}
-          objectType: secret
-        - |
-          objectName: {{ .Values.keyvault.secretNames.jwtSecret }}
-          objectType: secret
-        - |
-          objectName: {{ .Values.keyvault.secretNames.encryptionKey }}
-          objectType: secret
-        - |
-          objectName: {{ .Values.keyvault.secretNames.redisPassword }}
-          objectType: secret
-        - |
-          objectName: {{ .Values.keyvault.secretNames.aiApiKey }}
-          objectType: secret
-    tenantId: {{ .Values.managedIdentity.tenantId | quote }}
