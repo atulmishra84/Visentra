@@ -29,9 +29,9 @@ autoscaling:
 
 # ── Images ────────────────────────────────────────────────
 images:
-  frontend:     agentRadar-frontend
-  api:          agentRadar-api
-  webhook:      agentRadar-webhook
+  frontend:     agentradar-frontend
+  api:          agentradar-api
+  webhook:      agentradar-webhook
   orchestrator: agentRadar-orchestrator
 
 # ── Ingress (NGINX — installed by AKS Terraform module) ──
