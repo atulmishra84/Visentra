@@ -204,20 +204,12 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_USE_OIDC:        "true"
 
-      - name: Terraform plan
+      - name: Terraform plan and apply
         run: |
-          terraform plan \
+          terraform apply -auto-approve \
             -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
             -var="anthropic_api_key=${{ secrets.AI_API_KEY || '' }}" \
-            -input=false -no-color -out=tfplan 2>&1 | tail -20
-        env:
-          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_USE_OIDC:        "true"
-
-      - name: Terraform apply
-        run: terraform apply -auto-approve -input=false tfplan
+            -input=false 2>&1 | tail -30
         env:
           ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
           ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
