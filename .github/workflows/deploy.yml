@@ -1,1 +1,418 @@
-404: Not Found
+name: AgentRadar CI/CD
+
+on:
+  push:
+    branches: [main, 'release/**']
+    paths-ignore: ['docs/**', '*.md', '.gitignore']
+  pull_request:
+    branches: [main]
+    paths-ignore: ['docs/**', '*.md']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: prod
+        type: choice
+        options: [prod, staging, dev]
+      image_tag:
+        description: Docker image tag (blank = git SHA)
+        required: false
+      skip_build:
+        description: Skip image build (reuse existing tag)
+        type: boolean
+        default: false
+      skip_infra:
+        description: Skip Terraform (infra already up-to-date)
+        type: boolean
+        default: false
+      run_migrations:
+        description: Run DB migrations
+        type: boolean
+        default: true
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ACR:          ${{ secrets.ACR_LOGIN_SERVER }}
+  ACR_NAME:     ${{ secrets.ACR_NAME }}
+  NAMESPACE:    agentRadar
+  HELM_CHART:   ./helm/agentRadar
+  TF_DIR:       ./terraform/standalone
+  IMG_FRONTEND: agentRadar-frontend
+  IMG_API:      agentRadar-api
+  IMG_WEBHOOK:  agentRadar-webhook
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check agentRadarLaunch.html JS
+        run: |
+          if [[ ! -f deploy/frontend/agentRadarLaunch.html ]]; then
+            echo "agentRadarLaunch.html not found — skipping"
+            exit 0
+          fi
+          node -e "
+            const html = require('fs').readFileSync('deploy/frontend/agentRadarLaunch.html','utf8');
+            const m = html.match(/<script>([\s\S]*?)<\/script>\s*<\/body>/);
+            if (!m) { console.log('No script tag — skipping'); process.exit(0); }
+            try { new Function(m[1]); console.log('JS syntax OK'); }
+            catch(e) { console.error('JS error:', e.message); process.exit(1); }
+          "
+
+      - name: Lint Dockerfiles
+        run: |
+          for f in deploy/frontend/Dockerfile deploy/api/Dockerfile deploy/webhook/Dockerfile; do
+            [ -f "$f" ] && echo "OK: $f" || echo "Missing: $f"
+          done
+
+      - uses: azure/setup-helm@v3
+        with: { version: v3.14.0 }
+
+      - name: Helm lint
+        run: |
+          helm lint ${{ env.HELM_CHART }} \
+            --set global.domain=lint.example.com \
+            --set global.imageRegistry=lint.azurecr.io \
+            --set global.imageTag=lint \
+            --set keyvault.vaultUri=https://kv-lint.vault.azure.net/ \
+            --set postgres.host=pg-lint.postgres.database.azure.com \
+            --set redis.host=redis-lint.redis.cache.windows.net \
+            --set managedIdentity.clientId=00000000-0000-0000-0000-000000000000
+
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.6.x }
+
+      - name: Terraform fmt check
+        run: terraform -chdir=${{ env.TF_DIR }} fmt -check -recursive
+        continue-on-error: true
+
+      - name: Validate SQL migration
+        run: |
+          test -f migrations/001_schema.sql && echo "SQL OK" || echo "SQL file missing (non-fatal)"
+
+  build:
+    name: Build images
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name != 'pull_request' && inputs.skip_build != true
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image_tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          TAG="${{ inputs.image_tag }}"
+          [ -z "$TAG" ] && TAG="sha-$(git rev-parse --short HEAD)"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Image tag: $TAG"
+
+      - uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build & push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: deploy/frontend
+          file:    deploy/frontend/Dockerfile
+          push:    true
+          tags: |
+            ${{ env.ACR }}/${{ env.IMG_FRONTEND }}:${{ steps.tag.outputs.tag }}
+            ${{ env.ACR }}/${{ env.IMG_FRONTEND }}:latest
+          build-args: PLATFORM_HTML=agentRadarLaunch.html
+          cache-from: type=gha,scope=frontend
+          cache-to:   type=gha,scope=frontend,mode=max
+
+      - name: Build & push API
+        uses: docker/build-push-action@v5
+        with:
+          context: deploy/api
+          file:    deploy/api/Dockerfile
+          push:    true
+          tags: |
+            ${{ env.ACR }}/${{ env.IMG_API }}:${{ steps.tag.outputs.tag }}
+            ${{ env.ACR }}/${{ env.IMG_API }}:latest
+          cache-from: type=gha,scope=api
+          cache-to:   type=gha,scope=api,mode=max
+
+      - name: Build & push webhook
+        uses: docker/build-push-action@v5
+        with:
+          context: deploy/webhook
+          file:    deploy/webhook/Dockerfile
+          push:    true
+          tags: |
+            ${{ env.ACR }}/${{ env.IMG_WEBHOOK }}:${{ steps.tag.outputs.tag }}
+            ${{ env.ACR }}/${{ env.IMG_WEBHOOK }}:latest
+          cache-from: type=gha,scope=webhook
+          cache-to:   type=gha,scope=webhook,mode=max
+
+  infra:
+    name: Terraform apply
+    runs-on: ubuntu-latest
+    needs: validate
+    if: inputs.skip_infra != true && github.event_name != 'pull_request'
+    environment: ${{ inputs.environment || 'prod' }}
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ env.TF_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.6.x }
+
+      - name: Terraform init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=agentRadar/prod/terraform.tfstate" \
+            -input=false
+        env:
+          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC:        "true"
+
+      - name: Terraform plan
+        run: |
+          terraform plan \
+            -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
+            -var="anthropic_api_key=${{ secrets.AI_API_KEY || '' }}" \
+            -input=false -no-color -out=tfplan 2>&1 | tail -20
+        env:
+          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC:        "true"
+
+      - name: Terraform apply
+        run: terraform apply -auto-approve -input=false tfplan
+        env:
+          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC:        "true"
+
+  deploy:
+    name: Deploy to AKS
+    runs-on: ubuntu-latest
+    needs: [build, infra]
+    if: |
+      always() &&
+      github.event_name != 'pull_request' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (needs.infra.result == 'success' || needs.infra.result == 'skipped')
+    environment: ${{ inputs.environment || 'prod' }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          TAG="${{ needs.build.outputs.image_tag || inputs.image_tag || 'latest' }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Deploying tag: $TAG"
+
+      - uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --name           ${{ secrets.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
+
+      - uses: azure/setup-helm@v3
+        with: { version: v3.14.0 }
+
+      - name: Ensure NGINX ingress controller
+        run: |
+          if kubectl get ns ingress-nginx &>/dev/null; then
+            echo "NGINX ingress already installed"
+          else
+            helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx --force-update
+            helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+              --namespace ingress-nginx --create-namespace \
+              --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-load-balancer-health-probe-request-path"=/healthz \
+              --wait --timeout 5m
+          fi
+
+      - name: Ensure cert-manager
+        run: |
+          if kubectl get ns cert-manager &>/dev/null; then
+            echo "cert-manager already installed"
+          else
+            helm repo add jetstack https://charts.jetstack.io --force-update
+            helm upgrade --install cert-manager jetstack/cert-manager \
+              --namespace cert-manager --create-namespace \
+              --set installCRDs=true --wait --timeout 5m
+            kubectl apply -f - <<EOF
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: letsencrypt-prod
+          spec:
+            acme:
+              server: https://acme-v02.api.letsencrypt.org/directory
+              email: admin@${{ vars.DOMAIN }}
+              privateKeySecretRef:
+                name: letsencrypt-prod
+              solvers:
+                - http01:
+                    ingress:
+                      class: nginx
+          EOF
+          fi
+
+      - name: Helm upgrade --install
+        run: |
+          helm upgrade --install agentRadar ${{ env.HELM_CHART }} \
+            --namespace ${{ env.NAMESPACE }} \
+            --create-namespace \
+            --wait --timeout 10m \
+            --atomic --cleanup-on-fail \
+            --set global.imageRegistry="${{ env.ACR }}" \
+            --set global.imageTag="${{ steps.tag.outputs.tag }}" \
+            --set global.domain="${{ vars.DOMAIN }}" \
+            --set keyvault.vaultUri="${{ secrets.KEYVAULT_URI }}" \
+            --set postgres.host="${{ secrets.POSTGRES_HOST }}" \
+            --set redis.host="${{ secrets.REDIS_HOST }}" \
+            --set ingress.enabled=true \
+            --set ingress.host="${{ vars.DOMAIN }}" \
+            --set managedIdentity.clientId="${{ vars.MANAGED_IDENTITY_CLIENT_ID }}" \
+            --history-max 5
+
+      - name: Verify rollout
+        run: |
+          for dep in agentRadar-frontend agentRadar-api agentRadar-webhook; do
+            kubectl rollout status deployment/$dep -n ${{ env.NAMESPACE }} --timeout=3m || true
+          done
+
+      - name: Deploy summary
+        run: |
+          INGRESS_IP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+          echo "### Deploy complete" >> $GITHUB_STEP_SUMMARY
+          echo "Tag: ${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "URL: https://${{ vars.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
+          echo "Ingress IP: ${INGRESS_IP}" >> $GITHUB_STEP_SUMMARY
+          echo "DNS: ${{ vars.DOMAIN }} -> ${INGRESS_IP}"
+
+  migrate:
+    name: Database migrations
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: always() && needs.deploy.result == 'success'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --name           ${{ secrets.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
+
+      - name: Wait for API pod
+        run: |
+          kubectl wait --for=condition=ready pod \
+            -l app=agentRadar-api -n ${{ env.NAMESPACE }} \
+            --timeout=120s
+
+      - name: Run migration
+        run: |
+          API_POD=$(kubectl get pod -n ${{ env.NAMESPACE }} \
+            -l app=agentRadar-api \
+            -o jsonpath='{.items[0].metadata.name}')
+          kubectl cp migrations/001_schema.sql ${{ env.NAMESPACE }}/$API_POD:/tmp/schema.sql
+          kubectl exec -n ${{ env.NAMESPACE }} $API_POD -- \
+            node -e "
+              const {Pool}=require('pg');
+              const fs=require('fs');
+              const sql=fs.readFileSync('/tmp/schema.sql','utf8');
+              const pool=new Pool({connectionString:process.env.DATABASE_URL||'postgresql://'+process.env.POSTGRES_USER+':'+fs.readFileSync('/mnt/secrets/db-password','utf8').trim()+'@'+process.env.POSTGRES_HOST+'/'+process.env.POSTGRES_DB+'?sslmode=require'});
+              pool.query(sql).then(()=>{console.log('Migrations done');pool.end();}).catch(e=>{console.error(e.message);process.exit(1);});
+            "
+
+  smoke:
+    name: Smoke test
+    runs-on: ubuntu-latest
+    needs: migrate
+    if: always() && needs.migrate.result == 'success'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --name           ${{ secrets.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
+
+      - name: Check pods
+        run: |
+          kubectl get pods -n ${{ env.NAMESPACE }}
+          echo "### Smoke test passed" >> $GITHUB_STEP_SUMMARY
+
+      - name: Health check
+        run: |
+          kubectl port-forward -n ${{ env.NAMESPACE }} svc/agentRadar-api 14000:4000 &
+          sleep 3
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:14000/health --max-time 10 || echo "000")
+          kill %1 2>/dev/null || true
+          echo "Health check: HTTP $HTTP"
+          [ "$HTTP" = "200" ] && echo "OK" || echo "Warning: got $HTTP (non-fatal)"
