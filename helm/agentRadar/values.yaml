@@ -3,7 +3,7 @@
 #   helm upgrade agentRadar ./helm/agentRadar -f values-prod.yaml
 
 global:
-  domain:          agentRadar.yourcompany.com
+  domain:          agentradar.yourcompany.com
   imageRegistry:   agentRadarprod.azurecr.io
   imageTag:        latest
   imagePullPolicy: IfNotPresent
@@ -38,14 +38,14 @@ images:
 ingress:
   enabled:   true
   className: nginx
-  host:      agentRadar.yourcompany.com
+  host:      agentradar.yourcompany.com
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
   tls:
     enabled:    true
-    secretName: agentRadar-tls
+    secretName: agentradar-tls
 
 # ── Key Vault (Managed Identity — no stored secrets in K8s)
 keyvault:
