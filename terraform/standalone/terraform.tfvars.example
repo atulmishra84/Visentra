@@ -1,0 +1,72 @@
+##############################################################
+# AgentRadar Standalone — Customer Configuration
+# 1. Copy this file:  cp terraform.tfvars.example terraform.tfvars
+# 2. Fill in all values below
+# 3. Run:  terraform init && terraform plan && terraform apply
+##############################################################
+
+# ── Your Azure subscription ───────────────────────────────
+subscription_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# ── Where to deploy ───────────────────────────────────────
+location       = "westeurope"      # or eastus, uksouth, etc.
+location_short = "we"
+env            = "prod"
+
+# ── Public domain ─────────────────────────────────────────
+# Point an A/CNAME record to the AKS ingress IP after deploy
+domain = "agentRadar.yourcompany.com"
+
+# ── Alerts ────────────────────────────────────────────────
+alert_email = "security-team@yourcompany.com"
+
+# ── Docker image ──────────────────────────────────────────
+# After pushing to ACR: ghcr.io/agentRadar/agentRadar:v1.0.0
+# Or use "latest" during first deploy
+image_tag = "latest"
+
+# ── Networking ────────────────────────────────────────────
+# Option A: Let Terraform create a new VNet
+create_vnet        = true
+vnet_address_space = "10.1.0.0/16"
+aks_subnet_cidr    = "10.1.0.0/22"
+data_subnet_cidr   = "10.1.8.0/24"
+appgw_subnet_cidr  = "10.1.9.0/24"
+
+# Option B: Use your existing VNet (set create_vnet = false)
+# create_vnet             = false
+# existing_vnet_id        = "/subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/your-vnet"
+# existing_aks_subnet_id  = "/subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/your-vnet/subnets/aks-subnet"
+# existing_data_subnet_id = "/subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/your-vnet/subnets/data-subnet"
+
+# ── Compute sizing ────────────────────────────────────────
+# Pilot (small): Standard_D2s_v3 nodes, 2 app nodes
+# Production:    Standard_D4s_v3 nodes, 3+ app nodes
+aks_system_vm_size    = "Standard_D2s_v3"
+aks_system_node_count = 1
+aks_app_vm_size       = "Standard_D4s_v3"
+aks_app_min_count     = 2
+aks_app_max_count     = 8
+
+# ── PostgreSQL ────────────────────────────────────────────
+postgres_sku        = "Standard_D2ds_v5"
+postgres_storage_mb = 102400
+postgres_ha_enabled = true   # set false to save ~$90/mo on pilot
+postgres_backup_days = 35
+
+# ── Redis ─────────────────────────────────────────────────
+redis_sku      = "Standard"
+redis_family   = "C"
+redis_capacity = 2
+
+# ── ACR ───────────────────────────────────────────────────
+acr_sku = "Basic"   # Basic | Standard | Premium
+
+# ── Scanner ───────────────────────────────────────────────
+# Your internal subnets for the AI agent network scanner
+scan_ranges = "10.0.0.0/8,192.168.0.0/16"
+
+# ── AI provider key (stored encrypted in Key Vault) ───────
+# Leave empty to use demo mode. Set here or pass as env var:
+#   export TF_VAR_anthropic_api_key="sk-ant-..."
+anthropic_api_key = ""

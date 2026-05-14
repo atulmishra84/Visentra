@@ -1,0 +1,139 @@
+# AgentRadar — Helm Chart Values (Azure Standalone)
+# These are the default values. Override per environment with:
+#   helm upgrade agentRadar ./helm/agentRadar -f values-prod.yaml
+
+global:
+  domain:          agentRadar.yourcompany.com
+  imageRegistry:   agentRadarprod.azurecr.io
+  imageTag:        latest
+  imagePullPolicy: IfNotPresent
+
+# ── Replica counts ────────────────────────────────────────
+replicaCount:
+  frontend:    2
+  api:         2
+  webhook:     1
+  orchestrator: 1
+
+# ── Autoscaling ───────────────────────────────────────────
+autoscaling:
+  enabled: true
+  api:
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+  frontend:
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+
+# ── Images ────────────────────────────────────────────────
+images:
+  frontend:     agentRadar-frontend
+  api:          agentRadar-api
+  webhook:      agentRadar-webhook
+  orchestrator: agentRadar-orchestrator
+
+# ── Ingress (NGINX — installed by AKS Terraform module) ──
+ingress:
+  enabled:   true
+  className: nginx
+  host:      agentRadar.yourcompany.com
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+  tls:
+    enabled:    true
+    secretName: agentRadar-tls
+
+# ── Key Vault (Managed Identity — no stored secrets in K8s)
+keyvault:
+  enabled:       true
+  vaultUri:      ""       # set via --set keyvault.vaultUri=...
+  secretNames:
+    dbPassword:     db-password
+    jwtSecret:      jwt-secret
+    encryptionKey:  encryption-key
+    redisPassword:  redis-password
+    internalApiKey: internal-api-key
+    aiApiKey:       anthropic-api-key
+
+# ── Managed Identity ──────────────────────────────────────
+managedIdentity:
+  enabled:  true
+  clientId: ""          # set via --set managedIdentity.clientId=...
+
+# ── PostgreSQL connection ─────────────────────────────────
+postgres:
+  host: ""              # set via --set postgres.host=...
+  port: 5432
+  name: agentRadar
+  user: agentRadar
+  sslMode: require
+
+# ── Redis connection ──────────────────────────────────────
+redis:
+  host: ""              # set via --set redis.host=...
+  port: 6380
+  tls:  true
+
+# ── Scanner ───────────────────────────────────────────────
+scanner:
+  scanRanges:   "10.0.0.0/8"
+  interval:     3600
+  networkMode:  host
+
+# ── Resource limits ───────────────────────────────────────
+resources:
+  frontend:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 256Mi }
+  api:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits:   { cpu: 1,    memory: 1Gi   }
+  webhook:
+    requests: { cpu: 50m,  memory: 128Mi }
+    limits:   { cpu: 250m, memory: 256Mi }
+  orchestrator:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+
+# ── Pod security ──────────────────────────────────────────
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser:    1001
+  fsGroup:      1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem:   true
+  capabilities: { drop: [ALL] }
+
+# ── Node affinity — schedule app pods on app node pool ───
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key:      workload
+              operator: In
+              values:   [app]
+
+# ── Service ports ─────────────────────────────────────────
+service:
+  type: ClusterIP
+  frontend: { port: 80 }
+  api:      { port: 4000 }
+  webhook:  { port: 4002 }
+
+# ── Health checks ─────────────────────────────────────────
+livenessProbe:
+  httpGet: { path: /health, port: 80 }
+  initialDelaySeconds: 15
+  periodSeconds:       20
+
+readinessProbe:
+  httpGet: { path: /health, port: 80 }
+  initialDelaySeconds: 5
+  periodSeconds:       10
