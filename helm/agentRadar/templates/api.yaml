@@ -139,4 +139,4 @@ spec:
         - |
           objectName: {{ .Values.keyvault.secretNames.aiApiKey }}
           objectType: secret
-    tenantId: {{ .Values.managedIdentity.tenantId | default "" | quote }}
+    tenantId: {{ .Values.managedIdentity.tenantId | quote }}

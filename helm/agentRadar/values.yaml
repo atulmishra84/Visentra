@@ -107,7 +107,7 @@ podSecurityContext:
 
 securityContext:
   allowPrivilegeEscalation: false
-  readOnlyRootFilesystem:   true
+  readOnlyRootFilesystem:   false
   capabilities: { drop: [ALL] }
 
 # ── Node affinity — schedule app pods on app node pool ───
@@ -137,3 +137,6 @@ readinessProbe:
   httpGet: { path: /health, port: 80 }
   initialDelaySeconds: 5
   periodSeconds:       10
+
+managedIdentity:
+  tenantId: "71ee5ddd-1b7c-436d-acb1-0b260b2b2061"
