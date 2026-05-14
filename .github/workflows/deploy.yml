@@ -38,7 +38,7 @@ concurrency:
 env:
   ACR:          ${{ secrets.ACR_LOGIN_SERVER }}
   ACR_NAME:     ${{ secrets.ACR_NAME }}
-  NAMESPACE:    agentRadar
+  NAMESPACE:    agentradar
   HELM_CHART:   ./helm/agentRadar
   TF_DIR:       ./terraform/standalone
   IMG_FRONTEND: agentradar-frontend
@@ -296,7 +296,7 @@ jobs:
 
       - name: Helm upgrade --install
         run: |
-          helm upgrade --install agentRadar ${{ env.HELM_CHART }} \
+          helm upgrade --install agentradar ${{ env.HELM_CHART }} \
             --namespace ${{ env.NAMESPACE }} \
             --create-namespace \
             --wait --timeout 10m \
