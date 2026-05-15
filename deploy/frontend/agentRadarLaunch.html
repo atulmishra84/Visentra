@@ -1776,7 +1776,7 @@ pre.iac-code .key { color:#f59e0b; }
 
 /* ── MFA MODAL ── */
 .mfa-box{text-align:center;padding:24px}
-.mfa-qr{width:140px;height:140px;margin:12px auto;background:#f1f5f9;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#64748b}
+.mfa-qr{width:160px;height:160px;margin:12px auto;background:#fff;border:1px solid rgba(200,210,240,0.4);border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .mfa-code-row{display:flex;gap:8px;justify-content:center;margin:14px 0}
 .mfa-digit{width:40px;height:48px;border:1.5px solid rgba(200,210,240,.5);border-radius:8px;font-size:22px;font-weight:700;text-align:center;background:rgba(255,255,255,.7);color:var(--text-primary);outline:none}
 .mfa-digit:focus{border-color:var(--brand)}
@@ -1848,6 +1848,7 @@ input[type=checkbox]{accent-color:var(--brand)}
 /* Scrolling threat ticker */
 .ticker-track:hover{animation-play-state:paused}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
 <div id="app">
@@ -1863,7 +1864,7 @@ input[type=checkbox]{accent-color:var(--brand)}
     </div>
     <div class="tenant-pill" onclick="cycleTenant()">
       <div class="tenant-dot" id="tdot"></div>
-      <span class="tenant-name" id="tname">FinCorp Global</span>
+      <span class="tenant-name" id="tname">Healthcare Global Global</span>
       <svg class="tenant-chevron" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
     </div>
   </div>
@@ -1975,16 +1976,19 @@ input[type=checkbox]{accent-color:var(--brand)}
     </div>
     <!-- Topbar actions -->
     <button id="dark-toggle" onclick="toggleDark()" title="Toggle dark mode (D)">🌙</button>
+    <button onclick="if(_apiToken){loadLiveAgents().then(()=>{go(cv);});}else{alert('Connect to API first — enter credentials and sign in');}" title="Refresh live data from API" style="background:transparent;border:1px solid var(--glass-border-dim);border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:14px" id="btn-api-refresh">↻</button>
     <button class="btn sm" onclick="toggleHelp()" title="Help" style="font-size:14px">?</button>
     <button class="btn sm" onclick="document.getElementById('shortcuts-panel').classList.toggle('hidden')" title="Keyboard shortcuts (?)">⌨</button>
     <button class="btn sm" onclick="openModal('modal-evidence')" title="Export evidence package (⌘E)">📋</button>
     <div class="user-area">
-      <div class="user-info"><div class="user-name" id="login-user-name">Sarah Chen</div><div class="user-role" id="login-user-role">CISO</div></div>
+      <div class="user-info"><div class="user-name" id="login-user-name">Admin User</div><div class="user-role" id="login-user-role">CISO</div></div>
       <div class="notif-btn" onclick="go('notifications')">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1a3 3 0 0 0-3 3v2.5L2.5 8h9L10 6.5V4a3 3 0 0 0-3-3z"/><path d="M5.5 8a1.5 1.5 0 0 0 3 0"/></svg>
         <div class="notif-dot" id="nb-notif-dot">3</div>
       </div>
-      <div class="user-avatar" id="login-avatar">SC</div>
+      <button id="btn-mode-switch" onclick="toggleScannerMode()" title="Switch Demo / Production" style="background:transparent;border:1px solid var(--glass-border-dim);border-radius:7px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:600;color:var(--text-muted);white-space:nowrap">⇄ Demo</button>
+      <button onclick="doSignOut()" title="Sign out" style="background:transparent;border:1px solid var(--glass-border-dim);border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:15px;color:var(--text-muted);display:inline-flex;align-items:center;justify-content:center" aria-label="Sign out">⏻</button>
+      <div class="user-avatar" id="login-avatar">AU</div>
     </div>
   </div>
 
@@ -3382,7 +3386,8 @@ findscu -v -S -k 0008,0052=STUDY \
     </div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6">AI Governance Platform — sign in to continue</div>
     <div class="login-field"><div class="login-lbl">Email</div><input class="login-inp" id="login-email" type="email" placeholder="you@company.com" value="admin@agentradar.local"></div>
-    <div class="login-field"><div class="login-lbl">Password</div><input class="login-inp" id="login-password" type="password" placeholder="Password" value="ChangeMe123!"></div>
+    <div class="login-field"><div class="login-lbl">Password</div><input class="login-inp" id="login-password" type="password" placeholder="Password" value="ChangeMe123!" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div id="login-api-err" style="font-size:11px;color:#dc2626;margin-bottom:8px;display:none">Connecting in demo mode — API unavailable</div>
     <div class="login-field"><div class="login-lbl">Select your role</div>
       <div class="role-grid">
         <div class="role-card selected" id="role-ciso" onclick="selectRole('ciso')"><div class="role-name">CISO</div><div class="role-desc">Full access — all views, actions, exports</div><span class="role-badge rb-ciso">Full admin</span></div>
@@ -3534,13 +3539,8 @@ findscu -v -S -k 0008,0052=STUDY \
     <div class="mfa-box" id="mfa-body">
       <div id="mfa-setup-phase">
         <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Scan this QR code with your authenticator app (Google Authenticator, Authy, 1Password)</div>
-        <div class="mfa-qr" id="mfa-qr">
-          <div style="text-align:center">
-            <div style="font-size:24px;margin-bottom:6px">📱</div>
-            <div>TOTP QR code</div>
-            <div style="font-family:monospace;font-size:9px;margin-top:4px" id="mfa-secret">Loading…</div>
-          </div>
-        </div>
+        <div id="mfa-qr" style="width:160px;height:160px;margin:12px auto;background:#fff;border:1px solid #e2e8f0;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden"></div>
+        <div style="font-family:monospace;font-size:11px;text-align:center;margin:6px 0;color:var(--text-secondary);word-break:break-all;padding:0 8px" id="mfa-secret">Loading…</div>
         <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">Or enter this secret key manually in your authenticator app</div>
         <button class="btn sm primary" onclick="showMFAVerify()">I've scanned the code →</button>
       </div>
@@ -3829,16 +3829,16 @@ const SK='arLaunch_v1';
 const DEF={
   agents:[
     {id:1,name:"GPT-4 Automation Hub",type:"agent",env:"Cloud",protocols:["REST","OpenAI API","Webhook"],lastSeen:"2m ago",risk:"critical",shadow:true,detect:"Network anomaly",dataAccess:"Customer PII, Contracts",pii:true,phi:false,domain:null,notes:"Unrestricted PII access. No DPA. Unknown operator.",controls:{soc2:"fail",iso27001:"fail",gdpr:"fail",nist:"fail",euai:"fail",hipaa:"fail",hitrust:"fail",fda_samd:"fail"},firstDet:"2025-04-07",owner:null,ver:"2024"},
-    {id:2,name:"ServiceDesk Bot",type:"bot",env:"On-Prem",protocols:["HTTPS","SMTP","IMAP"],lastSeen:"5m ago",risk:"medium",shadow:false,detect:"Registered",dataAccess:"Ticket data",pii:false,phi:false,domain:null,notes:"Missing GDPR lawful basis documentation.",controls:{soc2:"pass",iso27001:"pass",gdpr:"warn",nist:"warn",euai:"warn",hipaa:"pass",hitrust:"pass",fda_samd:"pass"},firstDet:"2025-03-01",owner:"ops-team@fincorp.com",ver:"2024"},
+    {id:2,name:"ServiceDesk Bot",type:"bot",env:"On-Prem",protocols:["HTTPS","SMTP","IMAP"],lastSeen:"5m ago",risk:"medium",shadow:false,detect:"Registered",dataAccess:"Ticket data",pii:false,phi:false,domain:null,notes:"Missing GDPR lawful basis documentation.",controls:{soc2:"pass",iso27001:"pass",gdpr:"warn",nist:"warn",euai:"warn",hipaa:"pass",hitrust:"pass",fda_samd:"pass"},firstDet:"2025-03-01",owner:"ops-team@healthcareglobal.com",ver:"2024"},
     {id:3,name:"LangChain Orchestrator",type:"agent",env:"Cloud",protocols:["gRPC","REST","LangChain"],lastSeen:"12m ago",risk:"high",shadow:true,detect:"DNS query pattern",dataAccess:"Internal docs, Slack",pii:true,phi:false,domain:null,notes:"Exfiltrating Slack content to external LLM without consent.",controls:{soc2:"fail",iso27001:"warn",gdpr:"fail",nist:"fail",euai:"fail",hipaa:"fail",hitrust:"fail",fda_samd:"fail"},firstDet:"2025-04-08",owner:null,ver:"2024"},
-    {id:4,name:"Salesforce AI Assist",type:"agent",env:"Cloud",protocols:["Salesforce API","REST","OAuth 2.0"],lastSeen:"1h ago",risk:"low",shadow:false,detect:"Registered",dataAccess:"CRM records",pii:false,phi:false,domain:null,notes:"EU AI Act conformity assessment pending.",controls:{soc2:"pass",iso27001:"pass",gdpr:"pass",nist:"pass",euai:"warn",hipaa:"pass",hitrust:"pass",fda_samd:"pass"},firstDet:"2025-02-14",owner:"crm@fincorp.com",ver:"2024"},
+    {id:4,name:"Salesforce AI Assist",type:"agent",env:"Cloud",protocols:["Salesforce API","REST","OAuth 2.0"],lastSeen:"1h ago",risk:"low",shadow:false,detect:"Registered",dataAccess:"CRM records",pii:false,phi:false,domain:null,notes:"EU AI Act conformity assessment pending.",controls:{soc2:"pass",iso27001:"pass",gdpr:"pass",nist:"pass",euai:"warn",hipaa:"pass",hitrust:"pass",fda_samd:"pass"},firstDet:"2025-02-14",owner:"crm@healthcareglobal.com",ver:"2024"},
     {id:5,name:"Shadow Crawler v2",type:"bot",env:"On-Prem",protocols:["HTTP","Unknown:8899"],lastSeen:"3h ago",risk:"critical",shadow:true,detect:"Port scan :8899",dataAccess:"File shares, DB",pii:true,phi:false,domain:null,notes:"Scanning internal network without registration. File share access confirmed.",controls:{soc2:"fail",iso27001:"fail",gdpr:"fail",nist:"fail",euai:"fail",hipaa:"fail",hitrust:"fail",fda_samd:"fail"},firstDet:"2025-04-09",owner:null,ver:"2024"},
-    {id:6,name:"HR Resume Screener",type:"agent",env:"Cloud",protocols:["AWS S3","REST","Webhook"],lastSeen:"30m ago",risk:"high",shadow:false,detect:"Registered",dataAccess:"CV data, Personal info",pii:true,phi:false,domain:null,notes:"EU AI Act Article 22 violation. No human review loop.",controls:{soc2:"pass",iso27001:"warn",gdpr:"fail",nist:"warn",euai:"fail",hipaa:"pass",hitrust:"warn",fda_samd:"pass"},firstDet:"2025-03-20",owner:"hr@fincorp.com",ver:"2024"},
-    {id:7,name:"FinBot Analyzer",type:"bot",env:"Hybrid",protocols:["FIX Protocol","REST","WebSocket"],lastSeen:"15m ago",risk:"medium",shadow:false,detect:"Registered",dataAccess:"Trade data",pii:false,phi:false,domain:null,notes:"NIST RMF documentation incomplete for autonomous decisions.",controls:{soc2:"pass",iso27001:"pass",gdpr:"pass",nist:"warn",euai:"warn",hipaa:"pass",hitrust:"pass",fda_samd:"pass"},firstDet:"2025-02-28",owner:"trading@fincorp.com",ver:"2024"},
-    {id:8,name:"Claude Ops Agent",type:"agent",env:"Cloud",protocols:["Anthropic API","REST"],lastSeen:"1m ago",risk:"low",shadow:false,detect:"Registered",dataAccess:"Internal tooling",pii:false,phi:false,domain:null,notes:"Fully compliant. All controls pass.",controls:{soc2:"pass",iso27001:"pass",gdpr:"pass",nist:"pass",euai:"pass",hipaa:"pass",hitrust:"pass",fda_samd:"pass"},firstDet:"2025-01-15",owner:"devops@fincorp.com",ver:"2024"},
+    {id:6,name:"HR Resume Screener",type:"agent",env:"Cloud",protocols:["AWS S3","REST","Webhook"],lastSeen:"30m ago",risk:"high",shadow:false,detect:"Registered",dataAccess:"CV data, Personal info",pii:true,phi:false,domain:null,notes:"EU AI Act Article 22 violation. No human review loop.",controls:{soc2:"pass",iso27001:"warn",gdpr:"fail",nist:"warn",euai:"fail",hipaa:"pass",hitrust:"warn",fda_samd:"pass"},firstDet:"2025-03-20",owner:"hr@healthcareglobal.com",ver:"2024"},
+    {id:7,name:"FinBot Analyzer",type:"bot",env:"Hybrid",protocols:["FIX Protocol","REST","WebSocket"],lastSeen:"15m ago",risk:"medium",shadow:false,detect:"Registered",dataAccess:"Trade data",pii:false,phi:false,domain:null,notes:"NIST RMF documentation incomplete for autonomous decisions.",controls:{soc2:"pass",iso27001:"pass",gdpr:"pass",nist:"warn",euai:"warn",hipaa:"pass",hitrust:"pass",fda_samd:"pass"},firstDet:"2025-02-28",owner:"trading@healthcareglobal.com",ver:"2024"},
+    {id:8,name:"Claude Ops Agent",type:"agent",env:"Cloud",protocols:["Anthropic API","REST"],lastSeen:"1m ago",risk:"low",shadow:false,detect:"Registered",dataAccess:"Internal tooling",pii:false,phi:false,domain:null,notes:"Fully compliant. All controls pass.",controls:{soc2:"pass",iso27001:"pass",gdpr:"pass",nist:"pass",euai:"pass",hipaa:"pass",hitrust:"pass",fda_samd:"pass"},firstDet:"2025-01-15",owner:"devops@healthcareglobal.com",ver:"2024"},
     {id:9,name:"Unknown ML Endpoint",type:"agent",env:"On-Prem",protocols:["Unknown"],lastSeen:"2h ago",risk:"critical",shadow:true,detect:"Network anomaly",dataAccess:"Unknown — scanning",pii:true,phi:false,domain:null,notes:"Unidentified ML service. Blocked egress attempts to external IPs.",controls:{soc2:"fail",iso27001:"fail",gdpr:"fail",nist:"fail",euai:"fail",hipaa:"fail",hitrust:"fail",fda_samd:"fail"},firstDet:"2025-04-09",owner:null,ver:"2024"},
     {id:10,name:"Zapier AI Actions",type:"bot",env:"Cloud",protocols:["Zapier","REST","OAuth"],lastSeen:"45m ago",risk:"high",shadow:true,detect:"API token trace",dataAccess:"Email, Calendar, Drive",pii:true,phi:false,domain:null,notes:"Unauthorized OAuth grants to email/calendar without IT approval.",controls:{soc2:"warn",iso27001:"warn",gdpr:"warn",nist:"fail",euai:"warn",hipaa:"fail",hitrust:"warn",fda_samd:"fail"},firstDet:"2025-04-06",owner:null,ver:"2024"},
-    {id:11,name:"DataSync ETL Bot",type:"bot",env:"Hybrid",protocols:["JDBC","SFTP","REST"],lastSeen:"20m ago",risk:"low",shadow:false,detect:"Registered",dataAccess:"DB replicas (anonymized)",pii:false,phi:false,domain:null,notes:"Fully compliant. Registered and audited.",controls:{soc2:"pass",iso27001:"pass",gdpr:"pass",nist:"pass",euai:"pass",hipaa:"pass",hitrust:"pass",fda_samd:"pass"},firstDet:"2025-01-10",owner:"data-eng@fincorp.com",ver:"2024"},
+    {id:11,name:"DataSync ETL Bot",type:"bot",env:"Hybrid",protocols:["JDBC","SFTP","REST"],lastSeen:"20m ago",risk:"low",shadow:false,detect:"Registered",dataAccess:"DB replicas (anonymized)",pii:false,phi:false,domain:null,notes:"Fully compliant. Registered and audited.",controls:{soc2:"pass",iso27001:"pass",gdpr:"pass",nist:"pass",euai:"pass",hipaa:"pass",hitrust:"pass",fda_samd:"pass"},firstDet:"2025-01-10",owner:"data-eng@healthcareglobal.com",ver:"2024"},
     {id:12,name:"AutoGPT Instance",type:"agent",env:"On-Prem",protocols:["REST","Python SDK","Local exec"],lastSeen:"6h ago",risk:"critical",shadow:true,detect:"Process scan",dataAccess:"Local FS, Prod APIs",pii:true,phi:false,domain:null,notes:"Self-directed agent with prod API keys on unmanaged workstation.",controls:{soc2:"fail",iso27001:"fail",gdpr:"fail",nist:"fail",euai:"fail",hipaa:"fail",hitrust:"fail",fda_samd:"fail"},firstDet:"2025-04-08",owner:null,ver:"2024"},
     // Healthcare agents
     {id:13,name:"Patient Classifier API",type:"agent",env:"Cloud",protocols:["FHIR R4","REST","HTTP"],lastSeen:"4m ago",risk:"high",shadow:false,detect:"Registered",dataAccess:"Patient records, Diagnosis codes",pii:true,phi:true,domain:"clinical",notes:"Classifies patients for risk stratification. PHI access without full HIPAA BAA in place.",controls:{soc2:"warn",iso27001:"warn",gdpr:"pass",nist:"warn",euai:"warn",hipaa:"fail",hitrust:"warn",fda_samd:"warn"},firstDet:"2025-03-10",owner:"clinical@healthsys.org",ver:"2024"},
@@ -3883,9 +3883,9 @@ const DEF={
     {id:1,aid:1,stage:"pending",by:"system",note:"Auto-flagged by scanner.",at:"2025-04-09"},
     {id:2,aid:5,stage:"pending",by:"system",note:"Port 8899 scan detected.",at:"2025-04-09"},
     {id:3,aid:9,stage:"review",by:"system",note:"Unknown ML endpoint — investigating.",at:"2025-04-08"},
-    {id:4,aid:3,stage:"pending",by:"user@fincorp.com",note:"Employee using LangChain for doc search.",at:"2025-04-08"},
-    {id:5,aid:10,stage:"review",by:"user@fincorp.com",note:"Zapier for workflow automation.",at:"2025-04-06"},
-    {id:6,aid:12,stage:"pending",by:"dev@fincorp.com",note:"Developer using AutoGPT locally.",at:"2025-04-07"},
+    {id:4,aid:3,stage:"pending",by:"user@healthcareglobal.com",note:"Employee using LangChain for doc search.",at:"2025-04-08"},
+    {id:5,aid:10,stage:"review",by:"user@healthcareglobal.com",note:"Zapier for workflow automation.",at:"2025-04-06"},
+    {id:6,aid:12,stage:"pending",by:"dev@healthcareglobal.com",note:"Developer using AutoGPT locally.",at:"2025-04-07"},
   ],
   apprHist:[
     {t:"DataSync ETL Bot approved",m:"Admin · 2025-03-15",c:"#10b981"},
@@ -3906,7 +3906,7 @@ const DEF={
     {type:"reg",t:"DataSync ETL Bot registered",m:"Admin · 3h ago",c:"#10b981"},
     {type:"policy",t:"Policy violation: GPT-4 Hub (PII+GDPR)",m:"Policy Engine · 4h ago",c:"#f59e0b"},
   ],
-  tenants:[{n:"FinCorp Global",c:"#10b981"},{n:"FinCorp APAC",c:"#3b82f6"},{n:"FinCorp EU",c:"#8b5cf6"}],
+  tenants:[{n:"Healthcare Global Global",c:"#10b981"},{n:"Healthcare Global APAC",c:"#3b82f6"},{n:"Healthcare Global EU",c:"#8b5cf6"}],
   ct:0, lastScan:null,
 };
 
@@ -4465,7 +4465,7 @@ let scTabFilter='all';
 const scRunning={};
 SCANNERS.forEach(s=>scRunning[s.id]=s.status==='active'||s.status==='alert');
 
-let scannerMode='prod';
+let scannerMode='demo';
 const scanState={};
 SCANNERS.forEach(s=>{scanState[s.id]='idle';});
 
@@ -4545,7 +4545,7 @@ const SCAN_POOLS={
   'sc-splunk':{findings:[{src:'10.2.4.18',dest:'api.openai.com',events:847,proc:'python3',bytes:'2.1GB'},{src:'10.1.22.5',dest:'10.1.8.44:2575',events:12,proc:'shadow-hl7',bytes:'4.2MB'},{src:'10.2.4.22',dest:'api.anthropic.com',events:234,proc:'clinical-ai',bytes:'180MB'}],logFn:(f)=>`[SIEM] ${f.src} to ${f.dest}: ${f.events} events, ${f.bytes} (proc: ${f.proc})`},
   'sc-idp-oauth':{grants:[
       // OAuth grants for AI platforms discovered from Okta / Azure AD / Google Workspace
-      {app:'Dify (dify.ai)',            user:'dr.sarah.chen@healthsys.org', grantedBy:'sarah.chen', scopes:['read:profile','read:email','offline_access'], risk:'high',   hosted:true, claudeAgent:true,  date:'2024-11-12', idp:'Okta',     note:'User built Claude agent on Dify cloud platform'},
+      {app:'Dify (dify.ai)',            user:'dr.admin@healthcareglobal.com', grantedBy:'sarah.chen', scopes:['read:profile','read:email','offline_access'], risk:'high',   hosted:true, claudeAgent:true,  date:'2024-11-12', idp:'Okta',     note:'User built Claude agent on Dify cloud platform'},
       {app:'GitHub Copilot',            user:'dev-mike@healthsys.org',      grantedBy:'dev-mike',   scopes:['repo','read:user'],                          risk:'high',   hosted:true, claudeAgent:false, date:'2024-10-03', idp:'Okta',     note:'AI code completion — code shared with external AI'},
       {app:'Cursor IDE',                user:'dev-john@healthsys.org',      grantedBy:'dev-john',   scopes:['read:user','repo'],                          risk:'high',   hosted:true, claudeAgent:false, date:'2024-11-01', idp:'Okta',     note:'AI IDE — code including patient-adjacent configs shared'},
       {app:'Voiceflow',                 user:'ops-team@healthsys.org',      grantedBy:'admin',      scopes:['openid','profile','email'],                  risk:'high',   hosted:true, claudeAgent:true,  date:'2024-10-28', idp:'Azure AD', note:'External Claude agent for patient support chatbot'},
@@ -5414,7 +5414,7 @@ function generateScanResults(scannerId,pool,scanner){const results=[];const pick
       }
       break;}}return results;}
 function runAllScanners(){SCANNERS.filter(s=>scRunning[s.id]).forEach((s,i)=>{setTimeout(()=>runScannerById(s.id),i*800);});}
-function toggleScannerMode(){scannerMode=scannerMode==='demo'?'prod':'demo';const banner=document.getElementById('mode-banner');const dot=document.getElementById('mode-dot');const label=document.getElementById('mode-label');const sub=document.getElementById('mode-sub');const toggle=document.getElementById('mode-toggle');if(scannerMode==='prod'){banner.className='mode-banner prod';dot.style.background='#10b981';dot.style.animation='none';label.style.color='#065f46';label.textContent='Production Mode - Real backend API code';sub.textContent='Each scanner card shows the actual backend code you need to deploy. Demo data is shown for safe demonstration.';toggle.className='mode-toggle prod';}else{banner.className='mode-banner demo';dot.style.background='#f59e0b';dot.style.animation='livePulse 2s infinite';label.style.color='#92400e';label.textContent='Demo Mode - Realistic dummy data';sub.textContent='All scanners simulate real discovery pipelines with randomised realistic data.';toggle.className='mode-toggle demo';}renderScannerGrid();}
+function toggleScannerMode(){const _mb=document.getElementById('btn-mode-switch');if(_mb)setTimeout(()=>{_mb.textContent=scannerMode==='prod'?'⇄ Live':'⇄ Demo';},50);scannerMode=scannerMode==='demo'?'prod':'demo';if(scannerMode==='prod'&&_apiToken){loadLiveAgents().then(()=>{renderDashboard&&go(cv);});};const banner=document.getElementById('mode-banner');const dot=document.getElementById('mode-dot');const label=document.getElementById('mode-label');const sub=document.getElementById('mode-sub');const toggle=document.getElementById('mode-toggle');if(scannerMode==='prod'){banner.className='mode-banner prod';dot.style.background='#10b981';dot.style.animation='none';label.style.color='#065f46';label.textContent='Production Mode - Real backend API code';sub.textContent='Each scanner card shows the actual backend code you need to deploy. Demo data is shown for safe demonstration.';toggle.className='mode-toggle prod';}else{banner.className='mode-banner demo';dot.style.background='#f59e0b';dot.style.animation='livePulse 2s infinite';label.style.color='#92400e';label.textContent='Demo Mode - Realistic dummy data';sub.textContent='All scanners simulate real discovery pipelines with randomised realistic data.';toggle.className='mode-toggle demo';}renderScannerGrid();}
 
 /* -- SHADOW
 
@@ -7233,9 +7233,17 @@ function quarantine(id){
   a.risk='low';a.lastSeen='Quarantined';DB.risks=DB.risks.filter(r=>r.aid!==id);
   addAct('alert',`Agent quarantined: ${a.name}`,'Admin · just now','#ef4444');save();({dashboard:renderDashboard,discovery:renderDisc,shadow:renderShadow}[cv]||(() =>{}))();updateStats();
 }
-function submitAgent(){
+async function submitAgent(){
   const n=document.getElementById('f-name').value.trim();if(!n){alert('Enter a name.');return;}
-  DB.agents.push({id:Date.now(),name:n,type:document.getElementById('f-type').value,env:document.getElementById('f-env').value,protocols:document.getElementById('f-proto').value.split(',').map(p=>p.trim()).filter(Boolean),lastSeen:'just now',risk:document.getElementById('f-risk').value,shadow:false,detect:'Manually registered',dataAccess:document.getElementById('f-data').value||'Not specified',pii:false,phi:false,domain:null,notes:document.getElementById('f-notes').value||'Manually registered.',controls:{soc2:'warn',iso27001:'warn',gdpr:'warn',nist:'warn',euai:'warn',hipaa:'warn',hitrust:'warn',fda_samd:'warn'},firstDet:new Date().toISOString().split('T')[0],owner:null,ver:'2024'});
+  const agentData={name:n,type:document.getElementById('f-type').value,env:document.getElementById('f-env').value,protocols:document.getElementById('f-proto').value.split(',').map(p=>p.trim()).filter(Boolean),risk:document.getElementById('f-risk').value,notes:document.getElementById('f-notes').value||'Manually registered.'};
+  // Save to local DB first
+  DB.agents.push({id:Date.now(),...agentData,lastSeen:'just now',shadow:false,detect:'Manually registered',dataAccess:document.getElementById('f-data').value||'Not specified',pii:false,phi:false,domain:null,controls:{soc2:'warn',iso27001:'warn',gdpr:'warn',nist:'warn',euai:'warn',hipaa:'warn',hitrust:'warn',fda_samd:'warn'},firstDet:new Date().toISOString().split('T')[0],owner:null,ver:'2024'});
+  // Also persist to real API if connected
+  if(_apiToken){
+    try{
+      await fetch('/api/agents',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_apiToken},body:JSON.stringify(agentData)});
+    }catch(e){console.log('[AgentRadar] API save failed:',e.message);}
+  }
   addAct('reg',`Agent registered: ${n}`,'Admin · just now','#10b981');save();closeModal('modal-add');({discovery:renderDisc}[cv]||(() =>{}))();updateStats();
   ['f-name','f-proto','f-data','f-notes'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
 }
@@ -7294,7 +7302,7 @@ const ROLES = {
   viewer:  {label:'Viewer',    can:{view:true}},
 };
 let currentRole = 'ciso';
-let currentUser = 'Sarah Chen';
+let currentUser = 'Admin User';
 
 function can(action) {
   const r = ROLES[currentRole];
@@ -7307,30 +7315,33 @@ function selectRole(role) {
   document.getElementById('role-'+role)?.classList.add('selected');
 }
 
+let _apiToken = '';
+let _apiMode = false;
+
 async function doLogin() {
   const email = document.getElementById('login-email')?.value || 'admin@agentradar.local';
-  const pwEl = document.getElementById('login-password');
-  const password = pwEl ? pwEl.value : 'ChangeMe123!';
+  const password = document.getElementById('login-password')?.value || '';
+  const errEl = document.getElementById('login-api-err');
+  if (errEl) errEl.style.display = 'none';
 
-  // Try real API login first
+  // Try real API authentication first
   try {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({email, password})
     });
     const data = await res.json();
     if (data.token) {
-      sessionStorage.setItem('ar-api-token', data.token);
-      sessionStorage.setItem('ar-api-user', JSON.stringify(data.user));
-      // Map API role to frontend role
-      const roleMap = {ciso:'ciso', analyst:'analyst', auditor:'auditor', viewer:'viewer'};
-      currentRole = roleMap[data.user.role] || 'viewer';
-      // Load live agents from API
-      await loadLiveAgents(data.token);
+      _apiToken = data.token;
+      _apiMode = true;
+      // Load live agents from API into DB
+      await loadLiveAgents();
+    } else {
+      if (errEl) { errEl.textContent = 'Invalid credentials — using demo data'; errEl.style.display = 'block'; }
     }
   } catch(e) {
-    console.log('[auth] API login failed, using local mode:', e.message);
+    if (errEl) { errEl.textContent = 'API unavailable — running in demo mode'; errEl.style.display = 'block'; }
   }
 
   const name = email.split('@')[0].replace('.',' ').replace(/\b\w/g,l=>l.toUpperCase());
@@ -7350,48 +7361,70 @@ async function doLogin() {
   if (!localStorage.getItem('ar-onboarded')) showOnboarding();
 }
 
-async function loadLiveAgents(token) {
+async function loadLiveAgents() {
   try {
     const res = await fetch('/api/agents', {
-      headers: {'Authorization': 'Bearer ' + token}
+      headers: {'Authorization': 'Bearer ' + _apiToken}
     });
-    const agents = await res.json();
-    if (Array.isArray(agents) && agents.length > 0) {
-      // Map API agents to frontend DB format
-      const mapped = agents.map(a => ({
-        id: a.id,
-        name: a.name,
-        type: a.type || 'unknown',
+    const liveAgents = await res.json();
+    if (Array.isArray(liveAgents) && liveAgents.length > 0) {
+      // Map API format to frontend DB format
+      const mapped = liveAgents.map((a, i) => ({
+        id: a.id || (1000 + i),
+        name: a.name || 'Unknown Agent',
+        type: a.type || 'agent',
         env: a.env || 'Cloud',
+        protocols: a.protocols || [],
+        lastSeen: a.last_seen ? new Date(a.last_seen).toLocaleString() : 'Just now',
         risk: a.risk || 'medium',
         shadow: a.shadow || false,
-        phi: a.phi || false,
-        pii: a.pii || false,
-        hosted: a.hosted || false,
-        quarantined: a.quarantined || false,
-        approved: a.approved || false,
-        owner: a.owner || null,
-        domain: a.domain || null,
-        ip: a.ip || null,
-        version: a.version || null,
-        protocols: a.protocols || [],
-        controls: a.controls || {},
-        metadata: a.metadata || {},
-        lastSeen: a.last_seen ? new Date(a.last_seen).toLocaleString() : 'Just now',
-        firstDet: a.first_detected ? a.first_detected.split('T')[0] : new Date().toISOString().split('T')[0],
-        notes: a.notes || '',
         detect: a.detect || 'API registration',
         dataAccess: a.data_access || null,
-        ver: a.version || null
+        pii: a.pii || false,
+        phi: a.phi || false,
+        domain: a.domain || null,
+        notes: a.notes || '',
+        controls: a.controls || {soc2:'pass',iso27001:'pass',gdpr:'pass',nist:'pass',euai:'pass',hipaa:'pass',hitrust:'pass',fda_samd:'pass'},
+        firstDet: a.first_detected ? a.first_detected.split('T')[0] : new Date().toISOString().split('T')[0],
+        owner: a.owner || null,
+        ver: a.version || null,
+        approved: a.approved || false,
+        quarantined: a.quarantined || false,
+        hosted: a.hosted || false,
       }));
       // Replace demo agents with live data
       DB.agents = mapped;
-      saveDB();
-      console.log('[live] Loaded', mapped.length, 'agents from API');
+      // Update banner to show production mode
+      const banner = document.getElementById('mode-banner');
+      const dot = document.getElementById('mode-dot');
+      const label = document.getElementById('mode-label');
+      if (banner) banner.className = 'mode-banner prod';
+      if (dot) { dot.style.background = '#10b981'; dot.style.animation = 'none'; }
+      if (label) { label.style.color = '#065f46'; label.textContent = 'Production — ' + mapped.length + ' live agents'; }
+    }
+    // Load activity
+    const actRes = await fetch('/api/activity', {
+      headers: {'Authorization': 'Bearer ' + _apiToken}
+    });
+    const acts = await actRes.json();
+    if (Array.isArray(acts) && acts.length > 0) {
+      DB.activity = acts;
     }
   } catch(e) {
-    console.log('[live] Could not load agents:', e.message);
+    console.log('[AgentRadar] Live data load failed:', e.message);
   }
+  save();
+  updateStats();
+}
+
+function doSignOut() {
+  if (!confirm('Sign out of AgentRadar?')) return;
+  _apiToken = '';
+  _apiMode = false;
+  sessionStorage.removeItem('ar-role');
+  sessionStorage.removeItem('ar-user');
+  document.getElementById('login-screen').classList.remove('hidden');
+  addAct('reg', 'User signed out', 'System', '#6366f1');
 }
 
 function applyRBAC() {
@@ -7885,7 +7918,12 @@ function doSessionLogout() {
 
 /* ── P0-2: MFA ── */
 const MFA_ROLES = ['ciso'];
-let _mfaSecret  = 'ARMD' + Math.random().toString(36).slice(2,10).toUpperCase();
+let _mfaSecret  = (()=>{
+  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let s='AGRD'; // AgentRadar prefix in Base32
+  for(let i=0;i<12;i++) s+=chars[Math.floor(Math.random()*32)];
+  return s;
+})();
 let _mfaEnabled = JSON.parse(localStorage.getItem('ar-mfa') || '{}');
 let _mfaPending = false;
 
@@ -7899,9 +7937,34 @@ function showMFASetup() {
   document.getElementById('mfa-title').textContent = 'Set up two-factor authentication';
   document.getElementById('mfa-setup-phase').style.display = '';
   document.getElementById('mfa-verify-phase').style.display = 'none';
-  const secret = document.getElementById('mfa-secret');
-  if (secret) secret.textContent = _mfaSecret;
+  const secretEl = document.getElementById('mfa-secret');
+  if (secretEl) secretEl.textContent = _mfaSecret;
   openModal('modal-mfa');
+  // Generate real QR code after modal is visible
+  setTimeout(() => {
+    const qrEl = document.getElementById('mfa-qr');
+    if (!qrEl) return;
+    qrEl.innerHTML = '';
+    const issuer = 'AgentRadar';
+    const user = (currentUser || 'admin').replace(/\s+/g, '').toLowerCase();
+    const otpUrl = 'otpauth://totp/' + encodeURIComponent(issuer + ':' + user) +
+      '?secret=' + _mfaSecret +
+      '&issuer=' + encodeURIComponent(issuer) +
+      '&algorithm=SHA1&digits=6&period=30';
+    if (typeof QRCode !== 'undefined') {
+      new QRCode(qrEl, {
+        text: otpUrl,
+        width: 156,
+        height: 156,
+        colorDark: '#1a1d23',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    } else {
+      // Fallback: show URL as text if library not loaded
+      qrEl.innerHTML = '<div style="font-size:9px;word-break:break-all;padding:8px;text-align:center;color:#64748b">QR library loading...<br><br>' + _mfaSecret + '</div>';
+    }
+  }, 150);
 }
 
 function showMFAVerify() {
