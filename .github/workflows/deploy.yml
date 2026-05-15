@@ -294,6 +294,15 @@ jobs:
           EOF
           fi
 
+      - name: Sync secrets from Key Vault
+        run: |
+          REDIS_KEY=$(az redis list-keys --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} --name redis-agentRadar-prod --query primaryKey -o tsv)
+          DB_PWD=$(az keyvault secret show --vault-name kv-agentradar-prod --name db-password --query value -o tsv)
+          JWT=$(az keyvault secret show --vault-name kv-agentradar-prod --name jwt-secret --query value -o tsv)
+          kubectl create namespace ${{ env.NAMESPACE }} 2>/dev/null || true
+          kubectl create secret generic agentradar-secrets             --namespace ${{ env.NAMESPACE }}             --from-literal=db-password="$DB_PWD"             --from-literal=jwt-secret="$JWT"             --from-literal=redis-password="$REDIS_KEY"             --dry-run=client -o yaml | kubectl apply -f -
+          echo "Secrets synced"
+
       - name: Helm upgrade --install
         run: |
           helm upgrade --install agentradar ${{ env.HELM_CHART }} \
