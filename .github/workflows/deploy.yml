@@ -308,8 +308,7 @@ jobs:
           helm upgrade --install agentradar ${{ env.HELM_CHART }} \
             --namespace ${{ env.NAMESPACE }} \
             --create-namespace \
-            --wait --timeout 10m \
-            --atomic --cleanup-on-fail \
+            --wait --timeout 15m \
             --set global.imageRegistry="${{ env.ACR }}" \
             --set global.imageTag="${{ steps.tag.outputs.tag }}" \
             --set global.domain="${{ vars.DOMAIN }}" \
