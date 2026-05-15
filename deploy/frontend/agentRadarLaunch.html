@@ -3381,7 +3381,8 @@ findscu -v -S -k 0008,0052=STUDY \
       <span class="login-title">AgentRadar</span>
     </div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6">AI Governance Platform — sign in to continue</div>
-    <div class="login-field"><div class="login-lbl">Email</div><input class="login-inp" id="login-email" type="email" placeholder="you@company.com" value="sarah.chen@healthsys.org"></div>
+    <div class="login-field"><div class="login-lbl">Email</div><input class="login-inp" id="login-email" type="email" placeholder="you@company.com" value="admin@agentradar.local"></div>
+    <div class="login-field"><div class="login-lbl">Password</div><input class="login-inp" id="login-password" type="password" placeholder="Password" value="ChangeMe123!"></div>
     <div class="login-field"><div class="login-lbl">Select your role</div>
       <div class="role-grid">
         <div class="role-card selected" id="role-ciso" onclick="selectRole('ciso')"><div class="role-name">CISO</div><div class="role-desc">Full access — all views, actions, exports</div><span class="role-badge rb-ciso">Full admin</span></div>
@@ -4464,7 +4465,7 @@ let scTabFilter='all';
 const scRunning={};
 SCANNERS.forEach(s=>scRunning[s.id]=s.status==='active'||s.status==='alert');
 
-let scannerMode='demo';
+let scannerMode='prod';
 const scanState={};
 SCANNERS.forEach(s=>{scanState[s.id]='idle';});
 
@@ -7306,8 +7307,32 @@ function selectRole(role) {
   document.getElementById('role-'+role)?.classList.add('selected');
 }
 
-function doLogin() {
-  const email = document.getElementById('login-email')?.value || 'admin@agentRadar.io';
+async function doLogin() {
+  const email = document.getElementById('login-email')?.value || 'admin@agentradar.local';
+  const pwEl = document.getElementById('login-password');
+  const password = pwEl ? pwEl.value : 'ChangeMe123!';
+
+  // Try real API login first
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({email, password})
+    });
+    const data = await res.json();
+    if (data.token) {
+      sessionStorage.setItem('ar-api-token', data.token);
+      sessionStorage.setItem('ar-api-user', JSON.stringify(data.user));
+      // Map API role to frontend role
+      const roleMap = {ciso:'ciso', analyst:'analyst', auditor:'auditor', viewer:'viewer'};
+      currentRole = roleMap[data.user.role] || 'viewer';
+      // Load live agents from API
+      await loadLiveAgents(data.token);
+    }
+  } catch(e) {
+    console.log('[auth] API login failed, using local mode:', e.message);
+  }
+
   const name = email.split('@')[0].replace('.',' ').replace(/\b\w/g,l=>l.toUpperCase());
   currentUser = name;
   sessionStorage.setItem('ar-role', currentRole);
@@ -7317,15 +7342,56 @@ function doLogin() {
   document.getElementById('login-user-role').textContent = ROLES[currentRole].label;
   document.getElementById('login-avatar').textContent = name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   applyRBAC();
-  // Session timeout
   _sessionActive = true;
   initSessionTimeout();
-  // MFA for CISO
   if (checkMFARequired && checkMFARequired()) {
     setTimeout(() => showMFASetup(), 300);
   }
-  // Show onboarding on first login
   if (!localStorage.getItem('ar-onboarded')) showOnboarding();
+}
+
+async function loadLiveAgents(token) {
+  try {
+    const res = await fetch('/api/agents', {
+      headers: {'Authorization': 'Bearer ' + token}
+    });
+    const agents = await res.json();
+    if (Array.isArray(agents) && agents.length > 0) {
+      // Map API agents to frontend DB format
+      const mapped = agents.map(a => ({
+        id: a.id,
+        name: a.name,
+        type: a.type || 'unknown',
+        env: a.env || 'Cloud',
+        risk: a.risk || 'medium',
+        shadow: a.shadow || false,
+        phi: a.phi || false,
+        pii: a.pii || false,
+        hosted: a.hosted || false,
+        quarantined: a.quarantined || false,
+        approved: a.approved || false,
+        owner: a.owner || null,
+        domain: a.domain || null,
+        ip: a.ip || null,
+        version: a.version || null,
+        protocols: a.protocols || [],
+        controls: a.controls || {},
+        metadata: a.metadata || {},
+        lastSeen: a.last_seen ? new Date(a.last_seen).toLocaleString() : 'Just now',
+        firstDet: a.first_detected ? a.first_detected.split('T')[0] : new Date().toISOString().split('T')[0],
+        notes: a.notes || '',
+        detect: a.detect || 'API registration',
+        dataAccess: a.data_access || null,
+        ver: a.version || null
+      }));
+      // Replace demo agents with live data
+      DB.agents = mapped;
+      saveDB();
+      console.log('[live] Loaded', mapped.length, 'agents from API');
+    }
+  } catch(e) {
+    console.log('[live] Could not load agents:', e.message);
+  }
 }
 
 function applyRBAC() {
