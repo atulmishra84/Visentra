@@ -312,7 +312,7 @@ jobs:
             --set global.imageRegistry="${{ env.ACR }}" \
             --set global.imageTag="${{ steps.tag.outputs.tag }}" \
             --set global.domain="${{ vars.DOMAIN }}" \
-            --set keyvault.vaultUri="${{ secrets.KEYVAULT_URI }}" \
+            --set keyvault.vaultUri="" \
             --set postgres.host="${{ secrets.POSTGRES_HOST }}" \
             --set redis.host="${{ secrets.REDIS_HOST }}" \
             --set ingress.enabled=true \
