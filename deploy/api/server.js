@@ -414,7 +414,7 @@ const pgSession = require('connect-pg-simple')(session);
 // Session store in PostgreSQL
 app.use(session({
   store: new pgSession({ pool: db, tableName: 'user_sessions', createTableIfMissing: true }),
-  secret: jwtSecret,
+  secret: process.env.JWT_SECRET || 'agentRadar-session-secret-change-in-prod',
   resave: false,
   saveUninitialized: false,
   cookie: { secure: true, httpOnly: true, maxAge: 8 * 60 * 60 * 1000 }
