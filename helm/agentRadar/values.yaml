@@ -68,7 +68,7 @@ managedIdentity:
 postgres:
   host: ""              # set via --set postgres.host=...
   port: 5432
-  name: agentRadar
+  name: agentradar
   user: agentradar
   sslMode: require
 

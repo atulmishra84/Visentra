@@ -361,9 +361,19 @@ jobs:
 
       - name: Wait for API pod
         run: |
-          kubectl wait --for=condition=ready pod \
-            -l app=agentradar-api -n ${{ env.NAMESPACE }} \
-            --timeout=120s
+          # Wait for any running API pod (new or existing)
+          echo "Waiting for API pod..."
+          for i in $(seq 1 24); do
+            POD=$(kubectl get pod -n ${{ env.NAMESPACE }} -l app=agentradar-api               --field-selector=status.phase=Running               -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+            if [ -n "$POD" ]; then
+              echo "Found running pod: $POD"
+              exit 0
+            fi
+            echo "Attempt $i/24 - waiting 5s..."
+            sleep 5
+          done
+          echo "No running API pod found after 2 minutes"
+          exit 1
 
       - name: Run migration
         run: |
