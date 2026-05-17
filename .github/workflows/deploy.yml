@@ -362,13 +362,13 @@ jobs:
       - name: Wait for API pod
         run: |
           kubectl wait --for=condition=ready pod \
-            -l app=agentRadar-api -n ${{ env.NAMESPACE }} \
+            -l app=agentradar-api -n ${{ env.NAMESPACE }} \
             --timeout=120s
 
       - name: Run migration
         run: |
           API_POD=$(kubectl get pod -n ${{ env.NAMESPACE }} \
-            -l app=agentRadar-api \
+            -l app=agentradar-api \
             -o jsonpath='{.items[0].metadata.name}')
           kubectl cp migrations/001_schema.sql ${{ env.NAMESPACE }}/$API_POD:/tmp/schema.sql
           kubectl exec -n ${{ env.NAMESPACE }} $API_POD -- \
