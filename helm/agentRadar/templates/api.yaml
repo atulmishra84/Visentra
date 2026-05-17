@@ -45,6 +45,52 @@ spec:
               value: {{ .Values.redis.port | quote }}
             - name: REDIS_TLS
               value: {{ .Values.redis.tls | quote }}
+            - name: APP_URL
+              value: "https://agentradar.idenaccess.com"
+            - name: AZURE_TENANT_ID
+              value: "71ee5ddd-1b7c-436d-acb1-0b260b2b2061"
+            - name: AZURE_SSO_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-sso
+                  key: azure-sso-client-id
+                  optional: true
+            - name: AZURE_SSO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-sso
+                  key: azure-sso-client-secret
+                  optional: true
+            - name: OKTA_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-sso
+                  key: okta-domain
+                  optional: true
+            - name: OKTA_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-sso
+                  key: okta-client-id
+                  optional: true
+            - name: OKTA_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-sso
+                  key: okta-client-secret
+                  optional: true
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-sso
+                  key: google-client-id
+                  optional: true
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-sso
+                  key: google-client-secret
+                  optional: true
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:

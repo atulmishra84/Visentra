@@ -403,6 +403,150 @@ async function fireWebhook(event, payload) {
   } catch(e) { console.error('[webhook] DB error:', e.message); }
 }
 
+
+// ══════════════════════════════════════════════════════
+// SSO / OIDC — Azure AD, Okta, Google, AWS SSO
+// ══════════════════════════════════════════════════════
+const { Issuer, generators } = require('openid-client');
+const session = require('express-session');
+const pgSession = require('connect-pg-simple')(session);
+
+// Session store in PostgreSQL
+app.use(session({
+  store: new pgSession({ pool: db, tableName: 'user_sessions', createTableIfMissing: true }),
+  secret: jwtSecret,
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: true, httpOnly: true, maxAge: 8 * 60 * 60 * 1000 }
+}));
+
+// SSO provider configs (loaded from env)
+const SSO_PROVIDERS = {
+  azure: {
+    name: 'Azure AD',
+    issuerUrl: `https://login.microsoftonline.com/${process.env.AZURE_TENANT_ID||'common'}/v2.0`,
+    clientId: process.env.AZURE_SSO_CLIENT_ID,
+    clientSecret: process.env.AZURE_SSO_CLIENT_SECRET,
+    scope: 'openid profile email',
+    enabled: !!(process.env.AZURE_SSO_CLIENT_ID)
+  },
+  okta: {
+    name: 'Okta',
+    issuerUrl: `https://${process.env.OKTA_DOMAIN||''}`,
+    clientId: process.env.OKTA_CLIENT_ID,
+    clientSecret: process.env.OKTA_CLIENT_SECRET,
+    scope: 'openid profile email',
+    enabled: !!(process.env.OKTA_CLIENT_ID && process.env.OKTA_DOMAIN)
+  },
+  google: {
+    name: 'Google',
+    issuerUrl: 'https://accounts.google.com',
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    scope: 'openid profile email',
+    enabled: !!(process.env.GOOGLE_CLIENT_ID)
+  },
+  aws: {
+    name: 'AWS SSO',
+    issuerUrl: `https://identitycenter.amazonaws.com/ssooidc/${process.env.AWS_SSO_REGION||'us-east-1'}/${process.env.AWS_SSO_INSTANCE_ID||''}`,
+    clientId: process.env.AWS_SSO_CLIENT_ID,
+    clientSecret: process.env.AWS_SSO_CLIENT_SECRET,
+    scope: 'openid profile email',
+    enabled: !!(process.env.AWS_SSO_CLIENT_ID && process.env.AWS_SSO_INSTANCE_ID)
+  }
+};
+
+const oidcClients = {};
+
+async function getOIDCClient(provider) {
+  if (oidcClients[provider]) return oidcClients[provider];
+  const cfg = SSO_PROVIDERS[provider];
+  if (!cfg || !cfg.enabled) throw new Error(`SSO provider ${provider} not configured`);
+  try {
+    const issuer = await Issuer.discover(cfg.issuerUrl);
+    oidcClients[provider] = new issuer.Client({
+      client_id: cfg.clientId,
+      client_secret: cfg.clientSecret,
+      redirect_uris: [`${process.env.APP_URL||'https://agentradar.idenaccess.com'}/api/auth/sso/${provider}/callback`],
+      response_types: ['code']
+    });
+    return oidcClients[provider];
+  } catch(e) {
+    throw new Error(`Failed to init OIDC for ${provider}: ${e.message}`);
+  }
+}
+
+// GET /api/auth/sso/providers — list enabled SSO providers
+app.get('/api/auth/sso/providers', (req, res) => {
+  const enabled = Object.entries(SSO_PROVIDERS)
+    .filter(([,v]) => v.enabled)
+    .map(([k,v]) => ({ id: k, name: v.name }));
+  res.json({ providers: enabled });
+});
+
+// GET /api/auth/sso/:provider — initiate SSO login
+app.get('/api/auth/sso/:provider', async (req, res) => {
+  const { provider } = req.params;
+  try {
+    const client = await getOIDCClient(provider);
+    const state = generators.state();
+    const nonce = generators.nonce();
+    req.session.sso = { state, nonce, provider };
+    const url = client.authorizationUrl({
+      scope: SSO_PROVIDERS[provider].scope,
+      state, nonce
+    });
+    res.redirect(url);
+  } catch(e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// GET /api/auth/sso/:provider/callback — SSO callback
+app.get('/api/auth/sso/:provider/callback', async (req, res) => {
+  const { provider } = req.params;
+  try {
+    const client = await getOIDCClient(provider);
+    const { state, nonce } = req.session.sso || {};
+    const params = client.callbackParams(req);
+    const tokenSet = await client.callback(
+      `${process.env.APP_URL||'https://agentradar.idenaccess.com'}/api/auth/sso/${provider}/callback`,
+      params, { state, nonce }
+    );
+    const userinfo = await client.userinfo(tokenSet);
+    const email = userinfo.email?.toLowerCase();
+    if (!email) return res.status(400).json({ error: 'No email in SSO response' });
+
+    // Find or create user
+    let user = (await db.query('SELECT * FROM users WHERE email=$1', [email])).rows[0];
+    if (!user) {
+      const r = await db.query(
+        `INSERT INTO users (email, name, role, password_hash)
+         VALUES ($1,$2,$3,$4) RETURNING *`,
+        [email, userinfo.name||email.split('@')[0], 'viewer', 'SSO_USER']
+      );
+      user = r.rows[0];
+      await db.query(
+        'INSERT INTO activity (category,description,created_by) VALUES ($1,$2,$3)',
+        ['registration', `New SSO user: ${email} via ${provider}`, 'sso']
+      );
+    }
+
+    // Issue JWT
+    const token = jwt.sign(
+      { sub: user.id, email: user.email, name: user.name, role: user.role, sso: provider },
+      jwtSecret, { expiresIn: '8h' }
+    );
+    await redis.setex(`session:${user.id}`, 28800, token);
+
+    // Redirect to frontend with token
+    res.redirect(`https://agentradar.idenaccess.com/#sso-token=${token}`);
+  } catch(e) {
+    console.error('[SSO] Callback error:', e.message);
+    res.redirect(`https://agentradar.idenaccess.com/#sso-error=${encodeURIComponent(e.message)}`);
+  }
+});
+
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ─────────────────────────────────────────
