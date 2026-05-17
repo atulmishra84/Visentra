@@ -3308,7 +3308,83 @@ findscu -v -S -k 0008,0052=STUDY \
 
     <!-- ══ ACTIVITY ══ -->
     <div class="view" id="view-activity">
-      <div class="card"><div class="card-head"><span class="card-title">Activity Log</span><span class="card-meta" id="act-count">0 events</span><button class="btn sm" onclick="clearLog()" style="margin-left:auto">Clear</button></div><div class="tl" id="act-tl"></div></div>
+      <div class="card"><div class="card-head"><span class="card-title">Activity Log</span><span class="card-meta" id="act-count">0 events</span><button class="btn sm" onclick="clearLog()" style="margin-left:auto">Clear</button></div><div class="tl" id="act-tl"></div>
+
+    <!-- ══ ADMIN PORTAL ══ -->
+    <div class="view hidden" id="view-admin-portal">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+        <div style="width:36px;height:36px;background:linear-gradient(135deg,#ef4444,#dc2626);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px">🔐</div>
+        <div>
+          <div style="font-size:18px;font-weight:800;font-family:var(--font-display)">Platform Admin Portal</div>
+          <div style="font-size:12px;color:var(--text-muted)">Restricted — platform_admin role only · All actions logged</div>
+        </div>
+        <div style="margin-left:auto;background:rgba(239,68,68,0.1);color:#dc2626;border:1px solid rgba(239,68,68,0.2);border-radius:20px;padding:4px 12px;font-size:11px;font-weight:700">ACCESS LOGGED</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+        <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:16px;text-align:center">
+          <div style="font-size:28px;font-weight:800;color:var(--brand)" id="admin-stat-tenants">-</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Active Tenants</div>
+        </div>
+        <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:16px;text-align:center">
+          <div style="font-size:28px;font-weight:800;color:var(--brand)" id="admin-stat-users">-</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Total Users</div>
+        </div>
+        <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:16px;text-align:center">
+          <div style="font-size:28px;font-weight:800;color:var(--brand)" id="admin-stat-agents">-</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Total Agents</div>
+        </div>
+        <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:16px;text-align:center">
+          <div style="font-size:28px;font-weight:800;color:var(--brand)" id="admin-stat-downloads">-</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Package Downloads</div>
+        </div>
+      </div>
+      <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:18px;margin-bottom:16px">
+        <div style="font-size:14px;font-weight:700;margin-bottom:14px">📦 Customer Deployment Packages <span style="font-size:11px;color:var(--text-muted);font-weight:400">— all downloads logged</span></div>
+        <div onclick="downloadDeployPackage('azure')" style="display:flex;align-items:center;gap:14px;padding:12px 14px;border:1px solid var(--glass-border-dim);border-radius:10px;cursor:pointer;margin-bottom:8px;transition:all .15s" onmouseover="this.style.borderColor='#6366f1'" onmouseout="this.style.borderColor='var(--glass-border-dim)'">
+          <div style="width:40px;height:40px;background:rgba(0,120,212,0.1);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🔷</div>
+          <div style="flex:1"><div style="font-size:13px;font-weight:700">Azure BYOC Package</div><div style="font-size:11px;color:var(--text-muted)">AKS + PostgreSQL + Redis + Key Vault · deploy.sh + helm chart</div></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn sm" onclick="event.stopPropagation();previewPackage('azure')">Preview</button>
+            <button class="btn sm primary" onclick="event.stopPropagation();downloadDeployPackage('azure')">⬇ Download</button>
+          </div>
+        </div>
+        <div onclick="downloadDeployPackage('gcp')" style="display:flex;align-items:center;gap:14px;padding:12px 14px;border:1px solid var(--glass-border-dim);border-radius:10px;cursor:pointer;margin-bottom:8px;transition:all .15s" onmouseover="this.style.borderColor='#6366f1'" onmouseout="this.style.borderColor='var(--glass-border-dim)'">
+          <div style="width:40px;height:40px;background:rgba(66,133,244,0.1);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🟢</div>
+          <div style="flex:1"><div style="font-size:13px;font-weight:700">Google Cloud BYOC Package</div><div style="font-size:11px;color:var(--text-muted)">GKE + Cloud SQL + Memorystore + Secret Manager · deploy-gcp.sh</div></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn sm" onclick="event.stopPropagation();previewPackage('gcp')">Preview</button>
+            <button class="btn sm primary" onclick="event.stopPropagation();downloadDeployPackage('gcp')">⬇ Download</button>
+          </div>
+        </div>
+        <div onclick="downloadDeployPackage('aws')" style="display:flex;align-items:center;gap:14px;padding:12px 14px;border:1px solid var(--glass-border-dim);border-radius:10px;cursor:pointer;margin-bottom:8px;transition:all .15s" onmouseover="this.style.borderColor='#6366f1'" onmouseout="this.style.borderColor='var(--glass-border-dim)'">
+          <div style="width:40px;height:40px;background:rgba(255,153,0,0.1);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🟠</div>
+          <div style="flex:1"><div style="font-size:13px;font-weight:700">AWS BYOC Package</div><div style="font-size:11px;color:var(--text-muted)">EKS + RDS + ElastiCache + Secrets Manager · deploy-aws.sh + eksctl config</div></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn sm" onclick="event.stopPropagation();previewPackage('aws')">Preview</button>
+            <button class="btn sm primary" onclick="event.stopPropagation();downloadDeployPackage('aws')">⬇ Download</button>
+          </div>
+        </div>
+        <div onclick="downloadDeployPackage('onprem')" style="display:flex;align-items:center;gap:14px;padding:12px 14px;border:1px solid var(--glass-border-dim);border-radius:10px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='#6366f1'" onmouseout="this.style.borderColor='var(--glass-border-dim)'">
+          <div style="width:40px;height:40px;background:rgba(99,102,241,0.1);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🏢</div>
+          <div style="flex:1"><div style="font-size:13px;font-weight:700">On-Premise Package</div><div style="font-size:11px;color:var(--text-muted)">Docker Compose + K8s manifests · LDAP/AD auth config included</div></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn sm" onclick="event.stopPropagation();previewPackage('onprem')">Preview</button>
+            <button class="btn sm primary" onclick="event.stopPropagation();downloadDeployPackage('onprem')">⬇ Download</button>
+          </div>
+        </div>
+      </div>
+      <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:18px;margin-bottom:16px">
+        <div style="font-size:14px;font-weight:700;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
+          🏢 Tenant Management
+          <button class="btn sm primary" onclick="showCreateTenant()">+ New Tenant</button>
+        </div>
+        <div id="tenant-list"><div style="text-align:center;padding:20px;color:var(--text-muted)">Loading...</div></div>
+      </div>
+      <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:18px">
+        <div style="font-size:14px;font-weight:700;margin-bottom:14px">🔍 Admin Access Log <span style="font-size:11px;color:var(--text-muted);font-weight:400">— immutable</span></div>
+        <div id="admin-access-log"><div style="text-align:center;padding:20px;color:var(--text-muted)">Loading...</div></div>
+      </div>
+    </div></div>
     </div>
 
   </div><!-- #content -->
@@ -7502,6 +7578,13 @@ function doSignOut() {
 }
 
 function applyRBAC() {
+  // Show admin portal nav for platform_admin
+  const isAdmin = currentRole === 'platform_admin';
+  const adminSection = document.getElementById('nav-admin-section');
+  const adminPortal = document.getElementById('nav-admin-portal');
+  if (adminSection) adminSection.style.display = isAdmin ? '' : 'none';
+  if (adminPortal) adminPortal.style.display = isAdmin ? 'flex' : 'none';
+  if (isAdmin) loadAdminPortal();
   const isViewer = currentRole === 'viewer';
   const isAuditor = currentRole === 'auditor';
   const canAct = can('register');
@@ -9515,6 +9598,147 @@ function akbSave(){
 
 /* Keep runAI for the CISO report view (calls the agent panel instead) */
 function runAI(){toggleAgentPanel();setTimeout(()=>aapAsk('Generate CISO executive summary with healthcare analysis'),400);}
+
+
+/* ── ADMIN PORTAL ── */
+async function loadAdminPortal() {
+  if (!_apiToken) return;
+  try {
+    // Load stats
+    const stats = await fetch('/api/admin/stats', {
+      headers: {'Authorization': 'Bearer ' + _apiToken}
+    }).then(r => r.json());
+    if (stats.tenants !== undefined) {
+      document.getElementById('admin-stat-tenants').textContent = stats.tenants;
+      document.getElementById('admin-stat-users').textContent = stats.users;
+      document.getElementById('admin-stat-agents').textContent = stats.agents;
+      document.getElementById('admin-stat-downloads').textContent = stats.downloads;
+    }
+
+    // Load tenants
+    const tenants = await fetch('/api/admin/tenants', {
+      headers: {'Authorization': 'Bearer ' + _apiToken}
+    }).then(r => r.json());
+    const tl = document.getElementById('tenant-list');
+    if (tl && Array.isArray(tenants)) {
+      tl.innerHTML = tenants.length ? tenants.map(t => `
+        <div style="display:flex;align-items:center;gap:12px;padding:10px;border-bottom:1px solid var(--glass-border-dim)">
+          <div style="width:32px;height:32px;background:linear-gradient(135deg,var(--brand),var(--brand-2));border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:700">${t.name[0]}</div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600">${t.name}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${t.domain||'No domain'} · ${t.plan} · Created ${new Date(t.created_at).toLocaleDateString()}</div>
+          </div>
+          <span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;background:${t.active ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)'};color:${t.active ? '#10b981' : '#ef4444'}">${t.active ? 'ACTIVE' : 'INACTIVE'}</span>
+        </div>`).join('') : '<div style="text-align:center;padding:20px;color:var(--text-muted)">No tenants yet</div>';
+    }
+
+    // Load admin access log
+    const logs = await fetch('/api/audit-log', {
+      headers: {'Authorization': 'Bearer ' + _apiToken}
+    }).then(r => r.json()).catch(() => []);
+    const al = document.getElementById('admin-access-log');
+    if (al && Array.isArray(logs)) {
+      al.innerHTML = logs.length ? logs.slice(0,10).map(l => `
+        <div class="access-log-row">
+          <span style="font-size:10px;color:var(--text-muted);white-space:nowrap">${new Date(l.created_at).toLocaleString()}</span>
+          <span style="font-weight:600;font-size:12px">${l.admin_email||'system'}</span>
+          <span style="background:rgba(99,102,241,0.1);color:#4f46e5;font-size:10px;padding:2px 7px;border-radius:20px">${l.action}</span>
+          <span style="color:var(--text-muted);font-size:11px">${l.resource||''}</span>
+          <span style="color:var(--text-muted);font-size:10px;margin-left:auto">${l.ip_address||''}</span>
+        </div>`).join('') : '<div style="text-align:center;padding:20px;color:var(--text-muted)">No access log entries</div>';
+    }
+  } catch(e) {
+    console.error('[admin portal]', e);
+  }
+}
+
+function downloadDeployPackage(cloud) {
+  if (!_apiToken) { alert('Not authenticated'); return; }
+  const a = document.createElement('a');
+  a.href = '/api/admin/download/' + cloud;
+  a.download = 'agentradar-' + cloud + '-deploy.zip';
+  // Add auth header via fetch + blob
+  fetch('/api/admin/download/' + cloud, {
+    headers: {'Authorization': 'Bearer ' + _apiToken}
+  }).then(r => {
+    if (!r.ok) throw new Error('Download failed: ' + r.status);
+    return r.blob();
+  }).then(blob => {
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showScannerToast('Package downloaded — access logged', false);
+  }).catch(e => alert('Download failed: ' + e.message));
+}
+
+function downloadDoc(docId) {
+  downloadDeployPackage(docId);
+}
+
+function previewPackage(cloud) {
+  const info = {
+    azure: 'Azure BYOC: AKS + PostgreSQL Flexible Server + Azure Cache for Redis + Key Vault
+
+Prerequisites: az CLI, kubectl, helm
+
+Command:
+RESOURCE_GROUP=rg-agentradar DOMAIN=agentradar.yourdomain.com bash deploy.sh
+
+Deploy time: ~15 minutes',
+    gcp: 'GCP BYOC: GKE + Cloud SQL PostgreSQL + Memorystore Redis + Secret Manager
+
+Prerequisites: gcloud CLI, kubectl, helm
+
+Command:
+PROJECT_ID=your-project DOMAIN=agentradar.yourdomain.com bash deploy-gcp.sh
+
+Deploy time: ~20 minutes',
+    aws: 'AWS BYOC: EKS + RDS PostgreSQL + ElastiCache Redis + Secrets Manager
+
+Prerequisites: aws CLI, eksctl, kubectl, helm
+
+Command:
+AWS_REGION=us-east-1 DOMAIN=agentradar.yourdomain.com bash deploy-aws.sh
+
+Deploy time: ~25 minutes',
+    onprem: 'On-Premise: Docker Compose + PostgreSQL + Redis
+
+Prerequisites: Docker, Docker Compose
+
+Command:
+docker-compose up -d
+
+Includes LDAP/AD authentication configuration',
+  };
+  alert(info[cloud] || 'Package info not available');
+}
+
+function showCreateTenant() {
+  const name = prompt('Customer organization name:');
+  if (!name) return;
+  const domain = prompt('Customer domain (e.g. company.com):');
+  const email = prompt('Admin email for this tenant:');
+  const password = prompt('Initial admin password (min 12 chars):');
+  if (!email || !password || password.length < 12) {
+    alert('Email and password (min 12 chars) are required');
+    return;
+  }
+  fetch('/api/admin/tenants', {
+    method: 'POST',
+    headers: {'Authorization': 'Bearer ' + _apiToken, 'Content-Type': 'application/json'},
+    body: JSON.stringify({name, domain, plan: 'trial', admin_email: email, admin_password: password})
+  }).then(r => r.json()).then(d => {
+    if (d.tenant) {
+      showScannerToast('Tenant created: ' + name, false);
+      loadAdminPortal();
+    } else {
+      alert('Error: ' + (d.error || 'Unknown error'));
+    }
+  }).catch(e => alert('Error: ' + e.message));
+}
 
 </script>
 </body>

@@ -657,6 +657,87 @@ app.get('/api/auth/sso/:provider/callback', async (req, res) => {
   }
 });
 
+
+// ══ ADMIN DOWNLOAD PORTAL ══════════════════════════════════
+const archiver = require('archiver');
+
+function platformAdmin(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (req.user.role !== 'platform_admin')
+    return res.status(403).json({ error: 'Platform admin access required' });
+  auditLog(req.user.email, 'admin_portal_access', null, req.path, {ip: req.ip}, req.ip).catch(()=>{});
+  next();
+}
+
+app.get('/api/admin/stats', auth, platformAdmin, async (req, res) => {
+  try {
+    const [t,u,a,d] = await Promise.all([
+      db.query('SELECT COUNT(*) FROM tenants WHERE active=true'),
+      db.query('SELECT COUNT(*) FROM users'),
+      db.query('SELECT COUNT(*) FROM agents'),
+      db.query("SELECT COUNT(*) FROM admin_audit_log WHERE action='download_package'"),
+    ]);
+    res.json({ tenants:+t.rows[0].count, users:+u.rows[0].count, agents:+a.rows[0].count, downloads:+d.rows[0].count });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/tenants', auth, platformAdmin, async (req, res) => {
+  await auditLog(req.user.email, 'list_tenants', null, 'tenants', {}, req.ip);
+  try {
+    const r = await db.query('SELECT id,name,domain,plan,active,created_at FROM tenants ORDER BY created_at DESC');
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/tenants', auth, platformAdmin, async (req, res) => {
+  const { name, domain, plan, admin_email, admin_password } = req.body;
+  if (!name || !admin_email || !admin_password)
+    return res.status(400).json({ error: 'name, admin_email and admin_password required' });
+  try {
+    const t = await db.query('INSERT INTO tenants (name,domain,plan) VALUES ($1,$2,$3) RETURNING *',
+      [name, domain||null, plan||'trial']);
+    const tenant = t.rows[0];
+    const bcrypt = require('bcryptjs');
+    const hash = await bcrypt.hash(admin_password, 12);
+    await db.query('INSERT INTO users (email,name,role,password_hash,tenant_id) VALUES ($1,$2,$3,$4,$5)',
+      [admin_email.toLowerCase(), name+' Admin', 'ciso', hash, tenant.id]);
+    await auditLog(req.user.email, 'create_tenant', tenant.id, 'tenants', {name, admin_email}, req.ip);
+    res.json({ tenant, message: 'Tenant created' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/download/:pkg', auth, platformAdmin, async (req, res) => {
+  const pkg = req.params.pkg;
+  const allowed = ['azure','gcp','aws','onprem','auth-guide','integration-guide'];
+  if (!allowed.includes(pkg)) return res.status(400).json({ error: 'Invalid package' });
+  await auditLog(req.user.email, 'download_package', null, pkg, {ip: req.ip}, req.ip);
+
+  const scripts = {
+    azure: `#!/bin/bash\n# AgentRadar Azure BYOC Deployment\n# Run: DOMAIN=agentradar.yourdomain.com bash deploy.sh\nset -e\nRG=\${RESOURCE_GROUP:-rg-agentradar}\nLOC=\${LOCATION:-westeurope}\nDOMAIN=\${DOMAIN:-agentradar.yourdomain.com}\necho "Deploying AgentRadar to Azure..."\naz group create --name $RG --location $LOC --output none\naz aks create --resource-group $RG --name aks-agentradar --node-count 2 --node-vm-size Standard_D4s_v3 --enable-managed-identity --network-plugin azure --generate-ssh-keys --output none\naz aks get-credentials --resource-group $RG --name aks-agentradar\nDB_PASS=$(openssl rand -base64 24 | tr -d '=/+' | head -c 32)\nJWT=$(openssl rand -base64 48)\necho "✅ Next: install nginx, cert-manager, then helm deploy"\necho "See full guide at https://agentradar.idenaccess.com/docs"`,
+    gcp: `#!/bin/bash\n# AgentRadar GCP BYOC Deployment\n# Run: PROJECT_ID=myproject DOMAIN=agentradar.yourdomain.com bash deploy-gcp.sh\nset -e\nPROJECT=\${PROJECT_ID:-$(gcloud config get-value project)}\nREGION=\${REGION:-us-central1}\nDOMAIN=\${DOMAIN:-agentradar.yourdomain.com}\necho "Deploying AgentRadar to GCP project: $PROJECT"\ngcloud services enable container.googleapis.com sqladmin.googleapis.com redis.googleapis.com --project=$PROJECT --quiet\ngcloud container clusters create agentradar-prod --project=$PROJECT --region=$REGION --num-nodes=2 --machine-type=e2-standard-4 --quiet\necho "✅ GKE cluster created. Next: Cloud SQL + Memorystore + Helm deploy"\necho "See full guide at https://agentradar.idenaccess.com/docs"`,
+    aws: `#!/bin/bash\n# AgentRadar AWS BYOC Deployment\n# Run: AWS_REGION=us-east-1 DOMAIN=agentradar.yourdomain.com bash deploy-aws.sh\nset -e\nREGION=\${AWS_REGION:-us-east-1}\nDOMAIN=\${DOMAIN:-agentradar.yourdomain.com}\nACCOUNT=$(aws sts get-caller-identity --query Account --output text)\necho "Deploying AgentRadar to AWS account: $ACCOUNT"\neksctl create cluster --name agentradar-prod --region $REGION --nodes 2 --node-type m5.xlarge --managed\necho "✅ EKS cluster created. Next: RDS + ElastiCache + Helm deploy"\necho "See full guide at https://agentradar.idenaccess.com/docs"`,
+    onprem: `version: '3.8'\nservices:\n  frontend:\n    image: ghcr.io/agentradar/agentradar-frontend:latest\n    ports: ["80:80"]\n  api:\n    image: ghcr.io/agentradar/agentradar-api:latest\n    environment:\n      POSTGRES_HOST: postgres\n      POSTGRES_USER: agentradar\n      POSTGRES_DB: agentradar\n      DB_PASSWORD: \${DB_PASSWORD}\n      JWT_SECRET: \${JWT_SECRET}\n      LDAP_URL: \${LDAP_URL:-}\n  postgres:\n    image: postgres:15-alpine\n    environment:\n      POSTGRES_USER: agentradar\n      POSTGRES_PASSWORD: \${DB_PASSWORD}\n      POSTGRES_DB: agentradar\n    volumes: [pgdata:/var/lib/postgresql/data]\n  redis:\n    image: redis:7-alpine\nvolumes:\n  pgdata:`,
+  };
+
+  if (pkg === 'auth-guide' || pkg === 'integration-guide') {
+    res.setHeader('Content-Type','text/plain');
+    res.setHeader('Content-Disposition', `attachment; filename="agentradar-${pkg}.txt"`);
+    return res.send(pkg === 'auth-guide'
+      ? 'AgentRadar Auth Guide\n\nSupports: LDAP/AD, SAML 2.0, Azure AD, Okta, Google, AWS SSO, Keycloak, Auth0, Ping, OneLogin\n\nSee https://agentradar.idenaccess.com/docs for full setup instructions.'
+      : 'AgentRadar Integration Guide\n\nAPI Base: https://agentradar.yourdomain.com/api\nAuth: Bearer token from POST /api/auth/login\n\nEndpoints:\n  GET  /api/agents\n  POST /api/agents\n  POST /api/scan/result\n  GET  /api/webhooks\n  POST /api/webhooks\n  GET  /api/activity\n  GET  /api/export\n  GET  /health'
+    );
+  }
+
+  res.setHeader('Content-Type','application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="agentradar-${pkg}-deploy.zip"`);
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.pipe(res);
+  const fname = pkg === 'onprem' ? 'docker-compose.yml' : `deploy-${pkg === 'azure' ? '' : pkg+'-'}${'sh'}`;
+  archive.append(scripts[pkg] || '# Package not found', { name: pkg === 'onprem' ? 'docker-compose.yml' : `deploy${pkg==='azure'?'':'-'+pkg}.sh` });
+  archive.append('See https://agentradar.idenaccess.com/docs for full deployment guide.', { name: 'README.md' });
+  archive.finalize();
+});
+
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ─────────────────────────────────────────
