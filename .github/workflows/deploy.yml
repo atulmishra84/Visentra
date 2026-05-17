@@ -379,14 +379,22 @@ jobs:
         run: |
           API_POD=$(kubectl get pod -n ${{ env.NAMESPACE }} \
             -l app=agentradar-api \
+            --field-selector=status.phase=Running \
             -o jsonpath='{.items[0].metadata.name}')
+          echo "Running migration on pod: $API_POD"
           kubectl cp migrations/001_schema.sql ${{ env.NAMESPACE }}/$API_POD:/tmp/schema.sql
           kubectl exec -n ${{ env.NAMESPACE }} $API_POD -- \
             node -e "
               const {Pool}=require('pg');
               const fs=require('fs');
               const sql=fs.readFileSync('/tmp/schema.sql','utf8');
-              const pool=new Pool({connectionString:process.env.DATABASE_URL||'postgresql://'+process.env.POSTGRES_USER+':'+fs.readFileSync('/mnt/secrets/db-password','utf8').trim()+'@'+process.env.POSTGRES_HOST+'/'+process.env.POSTGRES_DB+'?sslmode=require'});
+              const pool=new Pool({
+                host: process.env.POSTGRES_HOST,
+                user: process.env.POSTGRES_USER,
+                password: process.env.DB_PASSWORD,
+                database: process.env.POSTGRES_DB,
+                ssl: {rejectUnauthorized: false}
+              });
               pool.query(sql).then(()=>{console.log('Migrations done');pool.end();}).catch(e=>{console.error(e.message);process.exit(1);});
             "
 
