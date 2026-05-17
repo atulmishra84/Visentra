@@ -280,6 +280,129 @@ app.post('/api/risk-acceptances', auth, async (req, res) => {
 });
 
 // ── 404 ───────────────────────────────────────────────────
+
+// ── Scanner results ──────────────────────────────────
+app.post('/api/scan/result', auth, async (req, res) => {
+  const { scanner_id, agents: discovered } = req.body;
+  if (!scanner_id || !Array.isArray(discovered)) {
+    return res.status(400).json({ error: 'scanner_id and agents array required' });
+  }
+  const results = [];
+  for (const agent of discovered) {
+    try {
+      const existing = await db.query(
+        'SELECT id FROM agents WHERE name=$1', [agent.name]
+      );
+      if (existing.rows.length > 0) {
+        await db.query('UPDATE agents SET last_seen=NOW(),updated_at=NOW() WHERE id=$1',
+          [existing.rows[0].id]);
+        results.push({ id: existing.rows[0].id, action: 'updated' });
+      } else {
+        const r = await db.query(
+          `INSERT INTO agents (id,name,type,env,risk,shadow,phi,pii,protocols,controls,metadata,detect,first_detected,last_seen,created_at,updated_at)
+           VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW(),NOW(),NOW()) RETURNING id`,
+          [agent.name, agent.type||'unknown', agent.env||'Cloud', agent.risk||'medium',
+           agent.shadow||false, agent.phi||false, agent.pii||false,
+           JSON.stringify(agent.protocols||[]), JSON.stringify(agent.controls||{}),
+           JSON.stringify(agent.metadata||{}), scanner_id]
+        );
+        const newId = r.rows[0].id;
+        await db.query(
+          'INSERT INTO activity (category,description,agent_id,created_by) VALUES ($1,$2,$3,$4)',
+          ['discovery', scanner_id+' discovered: '+agent.name, newId, 'scanner']
+        );
+        if (agent.shadow || agent.risk==='critical' || agent.risk==='high') {
+          fireWebhook('agent.discovered', { agent, scanner_id });
+        }
+        results.push({ id: newId, action: 'created' });
+      }
+    } catch(e) { console.error('[scan] Error:', e.message); }
+  }
+  res.json({ saved: results.length, results });
+});
+
+// ── Webhooks ──────────────────────────────────────────
+app.get('/api/webhooks', auth, async (req, res) => {
+  try {
+    const r = await db.query('SELECT * FROM webhooks ORDER BY created_at DESC');
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/webhooks', auth, async (req, res) => {
+  const { name, url, type, events, secret } = req.body;
+  if (!name || !url) return res.status(400).json({ error: 'name and url required' });
+  try {
+    const r = await db.query(
+      'INSERT INTO webhooks (name,url,type,events,secret) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [name, url, type||'generic', JSON.stringify(events||['agent.discovered','policy.violation']), secret||null]
+    );
+    res.json(r.rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/webhooks/:id', auth, async (req, res) => {
+  try {
+    await db.query('DELETE FROM webhooks WHERE id=$1', [req.params.id]);
+    res.json({ deleted: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/webhooks/:id/test', auth, async (req, res) => {
+  try {
+    const r = await db.query('SELECT * FROM webhooks WHERE id=$1', [req.params.id]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Webhook not found' });
+    await fireWebhook('test', { message: 'AgentRadar webhook test', hook: r.rows[0].name });
+    res.json({ fired: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Password change ───────────────────────────────────
+app.post('/api/auth/change-password', auth, async (req, res) => {
+  const { current_password, new_password } = req.body;
+  if (!current_password || !new_password)
+    return res.status(400).json({ error: 'current_password and new_password required' });
+  if (new_password.length < 12)
+    return res.status(400).json({ error: 'Password must be at least 12 characters' });
+  try {
+    const r = await db.query('SELECT id,password_hash FROM users WHERE id=$1', [req.user.sub]);
+    const user = r.rows[0];
+    const bcrypt = require('bcryptjs');
+    const valid = await bcrypt.compare(current_password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: 'Current password incorrect' });
+    const newHash = await bcrypt.hash(new_password, 12);
+    await db.query('UPDATE users SET password_hash=$1,updated_at=NOW() WHERE id=$2', [newHash, user.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Webhook fire function ─────────────────────────────
+async function fireWebhook(event, payload) {
+  try {
+    const hooks = await db.query(
+      "SELECT * FROM webhooks WHERE active=true AND events::text LIKE $1",
+      ['%'+event+'%']
+    );
+    for (const hook of hooks.rows) {
+      try {
+        const body = hook.type==='slack'
+          ? { text: '*AgentRadar*: '+event+' — '+(payload.agent?.name||payload.message||'') }
+          : hook.type==='teams'
+          ? { '@type':'MessageCard','@context':'http://schema.org/extensions',
+              summary:'AgentRadar: '+event,
+              sections:[{activityTitle:'AgentRadar — '+event,
+                activityText:'Agent: **'+(payload.agent?.name||'')+'** | Risk: '+(payload.agent?.risk||'')+' | Scanner: '+(payload.scanner_id||'')}] }
+          : { event, payload, timestamp: new Date().toISOString(), source:'AgentRadar' };
+        await fetch(hook.url, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(body)
+        });
+        await db.query('UPDATE webhooks SET fire_count=fire_count+1 WHERE id=$1', [hook.id]);
+      } catch(e) { console.error('[webhook] Fire failed:', e.message); }
+    }
+  } catch(e) { console.error('[webhook] DB error:', e.message); }
+}
+
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ─────────────────────────────────────────
