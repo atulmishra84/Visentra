@@ -144,7 +144,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
     const token = jwt.sign(
-      { sub: user.id, email: user.email, name: user.name, role: user.role },
+      { sub: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenant_id },
       jwtSecret,
       { expiresIn: '8h' }
     );
@@ -281,6 +281,115 @@ app.post('/api/risk-acceptances', auth, async (req, res) => {
 
 // ── 404 ───────────────────────────────────────────────────
 
+// ── Tenant middleware ────────────────────────────────
+async function setTenantContext(tenantId) {
+  if (tenantId) {
+    await db.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId.toString()]);
+  }
+}
+
+async function tenantMiddleware(req, res, next) {
+  if (req.user?.tenantId) {
+    try { await setTenantContext(req.user.tenantId); } catch(e) {}
+  }
+  next();
+}
+app.use('/api/', tenantMiddleware);
+
+// ── Admin audit log ───────────────────────────────────
+async function auditLog(adminEmail, action, tenantId, resource, details, ip) {
+  try {
+    await db.query(
+      'INSERT INTO admin_audit_log (admin_email,action,tenant_id,resource,details,ip_address) VALUES ($1,$2,$3,$4,$5,$6)',
+      [adminEmail, action, tenantId||null, resource||null, JSON.stringify(details||{}), ip||null]
+    );
+  } catch(e) { console.error('[audit]', e.message); }
+}
+
+// ── Tenant management (platform admin only) ───────────
+app.get('/api/admin/tenants', auth, async (req, res) => {
+  if (req.user.role !== 'platform_admin')
+    return res.status(403).json({ error: 'Platform admin access required' });
+  await auditLog(req.user.email, 'list_tenants', null, 'tenants', {}, req.ip);
+  try {
+    const r = await db.query('SELECT id,name,domain,plan,active,created_at FROM tenants ORDER BY created_at DESC');
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/tenants', auth, async (req, res) => {
+  if (req.user.role !== 'platform_admin')
+    return res.status(403).json({ error: 'Platform admin access required' });
+  const { name, domain, plan, admin_email, admin_password } = req.body;
+  if (!name || !admin_email || !admin_password)
+    return res.status(400).json({ error: 'name, admin_email and admin_password required' });
+  try {
+    // Create tenant
+    const t = await db.query(
+      'INSERT INTO tenants (name,domain,plan) VALUES ($1,$2,$3) RETURNING *',
+      [name, domain||null, plan||'trial']
+    );
+    const tenant = t.rows[0];
+    // Create tenant admin user
+    const bcrypt = require('bcryptjs');
+    const hash = await bcrypt.hash(admin_password, 12);
+    await db.query(
+      'INSERT INTO users (email,name,role,password_hash,tenant_id) VALUES ($1,$2,$3,$4,$5)',
+      [admin_email.toLowerCase(), name+' Admin', 'ciso', hash, tenant.id]
+    );
+    await auditLog(req.user.email, 'create_tenant', tenant.id, 'tenants', {name, admin_email}, req.ip);
+    res.json({ tenant, message: 'Tenant created with admin user' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Customer data export ──────────────────────────────
+app.get('/api/export', auth, async (req, res) => {
+  await setTenantContext(req.user.tenantId);
+  await auditLog(req.user.email, 'data_export', req.user.tenantId, 'all', {}, req.ip);
+  try {
+    const [agents, acts, hooks] = await Promise.all([
+      db.query('SELECT * FROM agents WHERE tenant_id=$1', [req.user.tenantId]),
+      db.query('SELECT * FROM activity WHERE tenant_id=$1', [req.user.tenantId]),
+      db.query('SELECT id,name,url,type,events,active,created_at FROM webhooks WHERE tenant_id=$1', [req.user.tenantId])
+    ]);
+    res.json({
+      exported_at: new Date().toISOString(),
+      tenant_id: req.user.tenantId,
+      agents: agents.rows,
+      activity: acts.rows,
+      webhooks: hooks.rows
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Customer data deletion (GDPR right to erasure) ────
+app.delete('/api/tenant/data', auth, async (req, res) => {
+  if (req.user.role !== 'ciso')
+    return res.status(403).json({ error: 'CISO role required to delete tenant data' });
+  const { confirm } = req.body;
+  if (confirm !== 'DELETE ALL DATA')
+    return res.status(400).json({ error: 'Send confirm: "DELETE ALL DATA" to proceed' });
+  await auditLog(req.user.email, 'delete_all_data', req.user.tenantId, 'all', {}, req.ip);
+  try {
+    await db.query('DELETE FROM activity WHERE tenant_id=$1', [req.user.tenantId]);
+    await db.query('DELETE FROM webhooks WHERE tenant_id=$1', [req.user.tenantId]);
+    await db.query('DELETE FROM risk_acceptances WHERE tenant_id=$1', [req.user.tenantId]);
+    await db.query('DELETE FROM agents WHERE tenant_id=$1', [req.user.tenantId]);
+    res.json({ deleted: true, message: 'All tenant data permanently deleted' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Admin audit log viewer (customer can see who accessed their data) ──
+app.get('/api/audit-log', auth, async (req, res) => {
+  try {
+    const r = await db.query(
+      'SELECT admin_email,action,resource,details,ip_address,created_at FROM admin_audit_log WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100',
+      [req.user.tenantId]
+    );
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Scanner results ──────────────────────────────────
 app.post('/api/scan/result', auth, async (req, res) => {
   const { scanner_id, agents: discovered } = req.body;
@@ -304,7 +413,8 @@ app.post('/api/scan/result', auth, async (req, res) => {
           [agent.name, agent.type||'unknown', agent.env||'Cloud', agent.risk||'medium',
            agent.shadow||false, agent.phi||false, agent.pii||false,
            JSON.stringify(agent.protocols||[]), JSON.stringify(agent.controls||{}),
-           JSON.stringify(agent.metadata||{}), scanner_id]
+           JSON.stringify(agent.metadata||{}), scanner_id,
+           req.user?.tenantId||'00000000-0000-0000-0000-000000000001']
         );
         const newId = r.rows[0].id;
         await db.query(
