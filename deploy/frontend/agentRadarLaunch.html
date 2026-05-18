@@ -5985,47 +5985,181 @@ function toggleConn(id){
   card.closest('.env-pane')?.querySelectorAll('.conn-card').forEach(c=>{c.classList.remove('open');const exp=c.querySelector('.conn-expand');if(exp)exp.textContent='+';});
   if(!wasOpen){card.classList.add('open');const exp=card.querySelector('.conn-expand');if(exp)exp.textContent='−';}
 }
-function testConn(name){
-  const log=document.getElementById('log-'+name);
-  const status=document.getElementById('cs-'+name);
-  const card=document.getElementById('cc-'+name);
-  if(!log)return;
-  log.innerHTML='';
-  const steps={
-    aws:['[INIT] Assuming IAM role via STS…','[AUTH] Cross-account trust verified','[SCAN] Lambda: enumerating functions…','[SCAN] SageMaker: 2 endpoints found','[SCAN] Bedrock: 3 models accessible','[DONE] AWS connection successful ✓'],
-    azure:['[INIT] Authenticating Azure SP…','[AUTH] Token acquired','[SCAN] Azure OpenAI: 4 deployments','[DONE] Azure connection successful ✓'],
-    gcp:['[INIT] Loading GCP service account…','[AUTH] OAuth2 token acquired','[SCAN] Vertex AI: 3 model endpoints','[DONE] GCP connection successful ✓'],
-    k8s:['[INIT] Connecting to K8s API…','[AUTH] SA token validated','[SCAN] 2 AI workloads detected','[DONE] K8s connection successful ✓'],
-    sensor:['[INIT] Enrolling sensor…','[NET] TLS 1.3 to ingest.agentRadar.io:443','[SCAN] Probing subnets…','[FOUND] 5 AI endpoints on first pass','[DONE] Sensor enrolled ✓'],
-    ssh:['[INIT] SSH to target hosts…','[AUTH] Key auth successful','[SCAN] ps aux scanning…','[FOUND] AutoGPT PID 4421 on DESKTOP-7F3A','[DONE] SSH scan complete ✓'],
-    proxy:['[INIT] Testing proxy…','[AUTH] Proxy credentials accepted','[DONE] Proxy connection successful ✓'],
-    splunk:['[INIT] Splunk REST API test…','[AUTH] HEC token validated','[QUERY] Searching 30 days…','[FOUND] 847 LLM API events','[DONE] Splunk connected ✓'],
-    sentinel:['[INIT] Azure Log Analytics auth…','[AUTH] Workspace key accepted','[DONE] Sentinel connected ✓'],
-    datadog:['[INIT] Datadog API auth…','[AUTH] API+App key validated','[DONE] Datadog connected ✓'],
-    elastic:['[INIT] Elasticsearch ping…','[AUTH] API key accepted','[DONE] Elastic connected ✓'],
-    github:['[INIT] GitHub API auth…','[AUTH] Token validated','[SCAN] 12 repositories accessible','[DONE] GitHub Actions gate ready ✓'],
-    gitlab:['[INIT] Testing webhook…','[AUTH] Policy key validated','[DONE] GitLab webhook ready ✓'],
-    epic:['[INIT] FHIR R4 capability check…','[AUTH] SMART client validated','[SCAN] CapabilityStatement retrieved','[DONE] Epic FHIR connected ✓'],
-    hl7:['[INIT] Scanning MLLP port 2575…','[ALERT] Unauthorized listener: 10.1.22.5:2575','[OK] Authorized: cerner-hl7-gw','[DONE] HL7 scan complete'],
-    dicom:['[INIT] DICOM C-ECHO…','[OK] C-ECHO response received','[DONE] DICOM gateway reachable ✓'],
-    cerner:['[INIT] Cerner FHIR check…','[AUTH] SMART validated','[DONE] Cerner connected ✓'],
+function testConn(name) {
+  const log = document.getElementById('log-'+name);
+  const status = document.getElementById('cs-'+name);
+  if (!log) return;
+  log.innerHTML = '<div class="log-acc">[INIT] Validating '+name+' credentials…</div>';
+
+  // Read credentials from integration panel fields
+  const credMap = {
+    azure: { tenantId: document.getElementById('ci-az-tenant')?.value?.trim(),
+             clientId: document.getElementById('ci-az-client')?.value?.trim(),
+             clientSecret: document.getElementById('ci-az-secret')?.value?.trim(),
+             subscriptionId: document.getElementById('ci-az-sub')?.value?.trim() },
+    aws:   { accessKeyId: document.getElementById('ci-aws-key')?.value?.trim(),
+             secretAccessKey: document.getElementById('ci-aws-secret')?.value?.trim(),
+             region: document.getElementById('ci-aws-region')?.value?.trim() || 'us-east-1' },
+    gcp:   { projectId: document.getElementById('ci-gcp-project')?.value?.trim(),
+             serviceAccountKey: document.getElementById('ci-gcp-key')?.value?.trim() },
+    github:{ token: document.getElementById('ci-gh-token')?.value?.trim(),
+             org: document.getElementById('ci-gh-org')?.value?.trim() },
   };
-  const msgs=steps[name]||['[INIT] Testing…','[DONE] Connection OK ✓'];
-  const cls=msgs.map(m=>m.includes('ALERT')||m.includes('ERROR')?'log-red':m.includes('DONE')?'log-grn':m.includes('WARN')?'log-amb':'log-acc');
-  let i=0;
-  if(card)card.classList.add('testing');
-  if(status){status.textContent='Testing…';status.className='conn-status cs-testing';}
-  const iv=setInterval(()=>{
-    if(i<msgs.length){const d=document.createElement('div');d.className=cls[i];d.textContent=msgs[i];log.appendChild(d);log.scrollTop=log.scrollHeight;i++;}
-    else{clearInterval(iv);const ok=!msgs.some(m=>m.includes('ERROR'));if(card){card.classList.remove('testing');card.classList.toggle('connected',ok);}if(status){status.textContent=ok?'Connected':'Error';status.className='conn-status '+(ok?'cs-connected':'cs-error');}addAct('reg','Connection tested: '+name+' — '+(ok?'OK':'failed'),'Admin · just now','#10b981');updateEnvStatusBar();}
-  },320);
+
+  const creds = credMap[name];
+  if (!creds) { log.innerHTML += '<div class="log-red">[ERROR] Unknown provider: '+name+'</div>'; return; }
+
+  // Check required fields
+  const missing = Object.entries(creds).filter(([k,v])=>!v).map(([k])=>k);
+  if (missing.length > 0) {
+    log.innerHTML += '<div class="log-red">[ERROR] Missing required fields: '+missing.join(', ')+'</div>';
+    log.innerHTML += '<div class="log-red">[FAIL] Please fill in all fields above</div>';
+    return;
+  }
+
+  if (!_apiToken) { log.innerHTML += '<div class="log-red">[ERROR] Not logged in</div>'; return; }
+
+  log.innerHTML += '<div class="log-acc">[AUTH] Connecting to '+name+'…</div>';
+
+  // Use auto-discovery start as the test — it validates credentials first
+  const payload = {};
+  payload[name] = creds;
+
+  fetch('/api/autodiscovery/start', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer '+_apiToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(r => r.json()).then(data => {
+    if (!data.sessionId) { log.innerHTML += '<div class="log-red">[ERROR] '+( data.error||'API error')+'</div>'; return; }
+    const sid = data.sessionId;
+    log.innerHTML += '<div class="log-grn">[OK] Request accepted — verifying credentials…</div>';
+
+    // Poll for result
+    let attempts = 0;
+    const iv = setInterval(() => {
+      attempts++;
+      fetch('/api/autodiscovery/status/'+sid, { headers: {'Authorization':'Bearer '+_apiToken} })
+        .then(r => r.json()).then(res => {
+          if (res.status === 'completed' || res.status === 'error') {
+            clearInterval(iv);
+            const entries = (res.logs||[]).flatMap(l=>l.entries||[]);
+            entries.forEach(e => {
+              const cls = e.status==='error'?'log-red':e.status==='found'?'log-grn':'log-acc';
+              const icon = e.status==='ok'?'✓':e.status==='found'?'⚡':e.status==='error'?'✗':'⏳';
+              const d = document.createElement('div');
+              d.className = cls; d.textContent = icon+' ['+e.step+'] '+e.msg;
+              log.appendChild(d); log.scrollTop = log.scrollHeight;
+            });
+            const hasError = entries.some(e=>e.status==='error');
+            if (!hasError) {
+              const ok = document.createElement('div');
+              ok.className = 'log-grn';
+              ok.textContent = '[SUCCESS] '+name.toUpperCase()+' connected — '+( res.scanners?.length||0)+' scanners auto-enabled';
+              log.appendChild(ok);
+              if (status) { status.textContent = 'Connected'; status.style.color = '#10b981'; }
+              // Store creds for auto-discovery wizard pre-fill
+              window._savedCreds = window._savedCreds || {};
+              window._savedCreds[name] = creds;
+              showScannerToast(name.toUpperCase()+' connected successfully', false);
+            } else {
+              const fail = document.createElement('div');
+              fail.className = 'log-red'; fail.textContent = '[FAIL] Connection failed — check credentials above';
+              log.appendChild(fail);
+            }
+          }
+        }).catch(e => { clearInterval(iv); });
+      if (attempts > 40) clearInterval(iv);
+    }, 2000);
+  }).catch(e => {
+    log.innerHTML += '<div class="log-red">[ERROR] '+e.message+'</div>';
+  });
 }
-function saveConn(name){const log=document.getElementById('log-'+name);if(log){const d=document.createElement('div');d.className='log-grn';d.textContent='[SAVED] Credentials stored securely';log.appendChild(d);}addAct('reg','Credentials saved: '+name,'Admin · just now','#10b981');}
-function runCloudScan(cloud){
-  const log=document.getElementById('log-'+cloud);if(!log)return;
-  const msgs=['[SCAN] Enumerating cloud AI services…','[FOUND] 3 new agents discovered','[REG] Registering in inventory…','[DONE] Cloud scan complete'];
-  let i=0;const iv=setInterval(()=>{if(i<msgs.length){const d=document.createElement('div');d.className=i===3?'log-grn':i===2?'log-amb':'log-acc';d.textContent=msgs[i];log.appendChild(d);log.scrollTop=log.scrollHeight;i++;}else{clearInterval(iv);addAct('scan','Cloud scan: '+cloud,'System','#6366f1');}},400);
+
+function saveConn(name) {
+  const log = document.getElementById('log-'+name);
+  // Save to sessionStorage so auto-discover wizard can pre-fill
+  const credMap = {
+    azure: { tenantId: document.getElementById('ci-az-tenant')?.value?.trim(),
+             clientId: document.getElementById('ci-az-client')?.value?.trim(),
+             clientSecret: document.getElementById('ci-az-secret')?.value?.trim(),
+             subscriptionId: document.getElementById('ci-az-sub')?.value?.trim() },
+    aws:   { accessKeyId: document.getElementById('ci-aws-key')?.value?.trim(),
+             secretAccessKey: document.getElementById('ci-aws-secret')?.value?.trim(),
+             region: document.getElementById('ci-aws-region')?.value?.trim()||'us-east-1' },
+    gcp:   { projectId: document.getElementById('ci-gcp-project')?.value?.trim(),
+             serviceAccountKey: document.getElementById('ci-gcp-key')?.value?.trim() },
+  };
+  const creds = credMap[name];
+  if (creds) {
+    window._savedCreds = window._savedCreds || {};
+    window._savedCreds[name] = creds;
+    // Also save to sessionStorage (survives page refresh within session)
+    try { sessionStorage.setItem('ar-creds-'+name, JSON.stringify(creds)); } catch(e) {}
+  }
+  if (log) {
+    const d = document.createElement('div');
+    d.className = 'log-grn';
+    d.textContent = '[SAVED] Credentials stored for this session — click ⟳ Scan to run discovery';
+    log.appendChild(d);
+  }
+  showScannerToast('Credentials saved — click Scan to discover agents', false);
 }
+
+function runCloudScan(cloud) {
+  const log = document.getElementById('log-'+cloud); if (!log) return;
+  if (!_apiToken) { log.innerHTML = '<div class="log-red">[ERROR] Not logged in</div>'; return; }
+
+  // Use saved creds or read from fields
+  const saved = (window._savedCreds||{})[cloud] || {};
+  try { Object.assign(saved, JSON.parse(sessionStorage.getItem('ar-creds-'+cloud)||'{}')); } catch(e){}
+
+  if (!saved || Object.keys(saved).length === 0) {
+    log.innerHTML = '<div class="log-red">[ERROR] No credentials saved — fill in fields and click Save first</div>';
+    return;
+  }
+
+  log.innerHTML = '<div class="log-acc">[SCAN] Starting auto-discovery for '+cloud+'…</div>';
+  const payload = {};
+  payload[cloud] = saved;
+
+  fetch('/api/autodiscovery/start', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer '+_apiToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(r=>r.json()).then(data => {
+    if (!data.sessionId) { log.innerHTML += '<div class="log-red">[ERROR] '+(data.error||'API error')+'</div>'; return; }
+    log.innerHTML += '<div class="log-acc">[OK] Discovery running (session: '+data.sessionId.substring(0,8)+'…)</div>';
+    let attempts = 0;
+    const iv = setInterval(()=>{
+      attempts++;
+      fetch('/api/autodiscovery/status/'+data.sessionId, {headers:{'Authorization':'Bearer '+_apiToken}})
+        .then(r=>r.json()).then(res=>{
+          if (res.status==='completed'||res.status==='error') {
+            clearInterval(iv);
+            const entries = (res.logs||[]).flatMap(l=>l.entries||[]);
+            entries.forEach(e=>{
+              const d = document.createElement('div');
+              d.className = e.status==='error'?'log-red':e.status==='found'?'log-grn':'log-acc';
+              d.textContent = (e.status==='ok'?'✓':e.status==='found'?'⚡':'✗')+' ['+e.step+'] '+e.msg;
+              log.appendChild(d); log.scrollTop=log.scrollHeight;
+            });
+            const d2 = document.createElement('div');
+            d2.className = res.status==='completed'?'log-grn':'log-red';
+            d2.textContent = res.status==='completed'
+              ? '[DONE] Discovery complete — '+res.agentCount+' agents found, '+(res.scanners?.length||0)+' scanners enabled'
+              : '[FAIL] '+res.error;
+            log.appendChild(d2);
+            if (res.status==='completed'&&res.agentCount>0) {
+              loadLiveAgents && loadLiveAgents();
+              showScannerToast('Discovered '+res.agentCount+' agents in '+cloud, false);
+            }
+          }
+        }).catch(()=>{});
+      if (attempts>60) clearInterval(iv);
+    }, 3000);
+  }).catch(e=>{ log.innerHTML+='<div class="log-red">[ERROR] '+e.message+'</div>'; });
+}
+
 function runSiemScan(siem){
   const log=document.getElementById('log-'+siem);if(!log)return;
   const msgs=['[QUERY] Searching logs for AI patterns…','[FOUND] 847 LLM API calls (30 days)','[FOUND] 2 shadow HL7 events on port 2575','[DONE] SIEM scan complete'];
