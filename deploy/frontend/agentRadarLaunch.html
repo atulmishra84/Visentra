@@ -2580,6 +2580,22 @@ input[type=checkbox]{accent-color:var(--brand)}
 
     <!-- ══ INTEGRATIONS ══ -->
     <div class="view" id="view-integrations">
+    <div style="padding:20px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+        <div style="width:36px;height:36px;background:linear-gradient(135deg,#6366f1,#4f46e5);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px">🔑</div>
+        <div>
+          <div style="font-size:18px;font-weight:800;font-family:var(--font-display)">SSO & Identity Configuration</div>
+          <div style="font-size:12px;color:var(--text-muted)">Configure single sign-on for your organization · Changes are logged to audit trail</div>
+        </div>
+        <button class="btn sm" onclick="loadSSOConfig()" style="margin-left:auto">↻ Refresh</button>
+      </div>
+      <div id="sso-config-panel">
+        <div style="text-align:center;padding:40px;color:var(--text-muted)">
+          <div style="font-size:24px;margin-bottom:8px">🔑</div>
+          Loading SSO configuration...
+        </div>
+      </div>
+    </div>
 
       <!-- Status bar -->
       <div class="env-status-bar" id="env-status-bar">
@@ -7566,6 +7582,157 @@ function checkSSOCallback() {
 
 // Load SSO providers on page load
 window.addEventListener('load', () => { loadSSOProviders(); checkSSOCallback(); });
+
+
+/* ── SSO CONFIGURATION UI ── */
+let ssoConfigData = {};
+
+async function loadSSOConfig() {
+  if (!_apiToken) return;
+  try {
+    const cfg = await fetch('/api/auth/sso/config', {
+      headers: {'Authorization': 'Bearer ' + _apiToken}
+    }).then(r => r.json());
+    ssoConfigData = cfg;
+    renderSSOConfig();
+  } catch(e) { console.error('[SSO config]', e); }
+}
+
+function renderSSOConfig() {
+  const el = document.getElementById('sso-config-panel');
+  if (!el) return;
+
+  const providers = [
+    { id: 'azure', name: 'Azure AD / Entra ID', icon: '🔷', color: '#0078d4',
+      fields: [
+        { key: 'tenantId', label: 'Tenant ID', ph: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' },
+        { key: 'clientId', label: 'Client ID', ph: 'App registration client ID' },
+        { key: 'clientSecret', label: 'Client Secret', ph: '••••••••', type: 'password' },
+      ],
+      help: 'Create an App Registration in Azure Portal. Add redirect URI: ' + window.location.origin + '/api/auth/sso/azure/callback'
+    },
+    { id: 'google', name: 'Google Workspace', icon: '🟢', color: '#4285f4',
+      fields: [
+        { key: 'clientId', label: 'Client ID', ph: 'xxxxx.apps.googleusercontent.com' },
+        { key: 'clientSecret', label: 'Client Secret', ph: '••••••••', type: 'password' },
+      ],
+      help: 'Create OAuth 2.0 credentials in Google Cloud Console. Redirect URI: ' + window.location.origin + '/api/auth/sso/google/callback'
+    },
+    { id: 'okta', name: 'Okta', icon: '🔵', color: '#007dc1',
+      fields: [
+        { key: 'domain', label: 'Okta Domain', ph: 'yourcompany.okta.com' },
+        { key: 'clientId', label: 'Client ID', ph: 'Okta application client ID' },
+        { key: 'clientSecret', label: 'Client Secret', ph: '••••••••', type: 'password' },
+      ],
+      help: 'Create an OIDC app in Okta. Redirect URI: ' + window.location.origin + '/api/auth/sso/okta/callback'
+    },
+    { id: 'aws', name: 'AWS IAM Identity Center', icon: '🟠', color: '#ff9900',
+      fields: [
+        { key: 'region', label: 'AWS Region', ph: 'us-east-1' },
+        { key: 'instanceId', label: 'Instance ID', ph: 'ssoins-xxxxxxxxxx' },
+        { key: 'clientId', label: 'Client ID', ph: 'AWS SSO client ID' },
+        { key: 'clientSecret', label: 'Client Secret', ph: '••••••••', type: 'password' },
+      ],
+      help: 'Configure in AWS IAM Identity Center. Redirect URI: ' + window.location.origin + '/api/auth/sso/aws/callback'
+    },
+    { id: 'ldap', name: 'Active Directory / LDAP', icon: '🏢', color: '#6366f1',
+      fields: [
+        { key: 'url', label: 'LDAP URL', ph: 'ldap://dc.company.com:389' },
+        { key: 'bindDn', label: 'Service Account DN', ph: 'CN=svc-agentradar,OU=ServiceAccounts,DC=company,DC=com' },
+        { key: 'bindPassword', label: 'Service Account Password', ph: '••••••••', type: 'password' },
+        { key: 'searchBase', label: 'Search Base', ph: 'OU=Users,DC=company,DC=com' },
+        { key: 'searchFilter', label: 'Search Filter', ph: '(userPrincipalName={{username}})' },
+      ],
+      help: 'Provide a read-only service account. AgentRadar never writes to your directory.'
+    },
+    { id: 'saml', name: 'SAML 2.0 (AD FS / Ping / OneLogin)', icon: '🔐', color: '#10b981',
+      fields: [
+        { key: 'entryPoint', label: 'IdP Entry Point URL', ph: 'https://adfs.company.com/adfs/ls/' },
+        { key: 'idpCert', label: 'IdP Certificate (base64)', ph: 'MIIBkTCB+...', type: 'textarea' },
+      ],
+      help: 'SP Metadata URL: ' + window.location.origin + '/api/auth/saml/metadata — Import this in your IdP. Callback: ' + window.location.origin + '/api/auth/saml/callback'
+    },
+  ];
+
+  el.innerHTML = providers.map(p => {
+    const cfg = ssoConfigData[p.id] || {};
+    const isConfigured = cfg.configured;
+    return `
+    <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:16px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;cursor:pointer" onclick="toggleSSOForm('${p.id}')">
+        <div style="width:36px;height:36px;background:${p.color}18;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${p.icon}</div>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:700">${p.name}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${isConfigured ? '✅ Configured and active' : '⚪ Not configured'}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          ${isConfigured ? '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;background:rgba(16,185,129,0.1);color:#10b981">ACTIVE</span>' : ''}
+          <button class="btn sm" onclick="event.stopPropagation();toggleSSOForm('${p.id}')">${isConfigured ? 'Edit' : 'Configure'}</button>
+          ${isConfigured ? `<button class="btn sm" style="color:var(--red-text)" onclick="event.stopPropagation();testSSO('${p.id}')">Test</button>` : ''}
+        </div>
+      </div>
+      <div id="sso-form-${p.id}" style="display:none;border-top:1px solid var(--glass-border-dim);padding-top:12px">
+        <div style="font-size:11px;color:var(--text-muted);background:var(--bg-subtle);border-radius:8px;padding:8px 10px;margin-bottom:12px">
+          💡 ${p.help}
+        </div>
+        ${p.fields.map(f => `
+          <div style="margin-bottom:10px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">${f.label}</div>
+            ${f.type === 'textarea'
+              ? `<textarea id="sso-${p.id}-${f.key}" placeholder="${f.ph}" style="width:100%;font-size:12px;padding:7px 10px;border-radius:8px;border:1px solid var(--glass-border-dim);background:var(--glass-white);color:var(--text-primary);font-family:monospace;resize:vertical;min-height:80px">${cfg[f.key]||''}</textarea>`
+              : `<input id="sso-${p.id}-${f.key}" type="${f.type||'text'}" placeholder="${f.ph}" value="${f.type==='password'?'':cfg[f.key]||''}" style="width:100%;font-size:12px;padding:7px 10px;border-radius:8px;border:1px solid var(--glass-border-dim);background:var(--glass-white);color:var(--text-primary)">`
+            }
+          </div>`).join('')}
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn primary sm" onclick="saveSSOConfig('${p.id}', ${JSON.stringify(p.fields.map(f=>f.key))})">Save ${p.name} config</button>
+          <button class="btn sm" onclick="toggleSSOForm('${p.id}')">Cancel</button>
+          ${p.id === 'saml' ? `<button class="btn sm" onclick="window.open('/api/auth/saml/metadata')">📄 SP Metadata</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleSSOForm(provider) {
+  const el = document.getElementById('sso-form-' + provider);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function saveSSOConfig(provider, fields) {
+  const config = {};
+  fields.forEach(f => {
+    const el = document.getElementById('sso-' + provider + '-' + f);
+    if (el && el.value) config[f] = el.value;
+  });
+
+  if (Object.keys(config).length === 0) {
+    alert('Please fill in at least one field');
+    return;
+  }
+
+  try {
+    const r = await fetch('/api/auth/sso/config', {
+      method: 'POST',
+      headers: {'Authorization': 'Bearer ' + _apiToken, 'Content-Type': 'application/json'},
+      body: JSON.stringify({ provider, config })
+    }).then(r => r.json());
+
+    if (r.success) {
+      showScannerToast(r.message, false);
+      // Show restart notice
+      showScannerToast('⚠️ Contact platform admin to apply config — or restart API pods', false);
+      toggleSSOForm(provider);
+      loadSSOConfig();
+    } else {
+      alert('Error: ' + (r.error || 'Unknown error'));
+    }
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function testSSO(provider) {
+  showScannerToast('Redirecting to ' + provider + ' SSO...', false);
+  setTimeout(() => { window.open('/api/auth/sso/' + provider, '_blank'); }, 500);
+}
 
 function doSignOut() {
   if (!confirm('Sign out of AgentRadar?')) return;

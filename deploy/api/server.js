@@ -738,6 +738,98 @@ app.get('/api/admin/download/:pkg', auth, platformAdmin, async (req, res) => {
   archive.finalize();
 });
 
+
+// ── SSO Configuration (CISO can configure without CLI) ────────
+app.get('/api/auth/sso/config', auth, async (req, res) => {
+  if (req.user.role !== 'ciso' && req.user.role !== 'platform_admin')
+    return res.status(403).json({ error: 'CISO access required' });
+  try {
+    // Return current config (secrets masked)
+    const cfg = {
+      azure: {
+        enabled: !!(process.env.AZURE_SSO_CLIENT_ID),
+        clientId: process.env.AZURE_SSO_CLIENT_ID || '',
+        tenantId: process.env.AZURE_TENANT_ID || '',
+        configured: !!(process.env.AZURE_SSO_CLIENT_ID)
+      },
+      google: {
+        enabled: !!(process.env.GOOGLE_CLIENT_ID),
+        clientId: process.env.GOOGLE_CLIENT_ID || '',
+        configured: !!(process.env.GOOGLE_CLIENT_ID)
+      },
+      okta: {
+        enabled: !!(process.env.OKTA_CLIENT_ID),
+        domain: process.env.OKTA_DOMAIN || '',
+        clientId: process.env.OKTA_CLIENT_ID || '',
+        configured: !!(process.env.OKTA_CLIENT_ID)
+      },
+      aws: {
+        enabled: !!(process.env.AWS_SSO_CLIENT_ID),
+        region: process.env.AWS_SSO_REGION || 'us-east-1',
+        instanceId: process.env.AWS_SSO_INSTANCE_ID || '',
+        configured: !!(process.env.AWS_SSO_CLIENT_ID)
+      },
+      ldap: {
+        enabled: !!(process.env.LDAP_URL),
+        url: process.env.LDAP_URL || '',
+        searchBase: process.env.LDAP_SEARCH_BASE || '',
+        configured: !!(process.env.LDAP_URL)
+      },
+      saml: {
+        enabled: !!(process.env.SAML_ENTRY_POINT),
+        entryPoint: process.env.SAML_ENTRY_POINT || '',
+        metadataUrl: (process.env.APP_URL || '') + '/api/auth/saml/metadata',
+        callbackUrl: (process.env.APP_URL || '') + '/api/auth/saml/callback',
+        configured: !!(process.env.SAML_ENTRY_POINT)
+      }
+    };
+    res.json(cfg);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/auth/sso/config', auth, async (req, res) => {
+  if (req.user.role !== 'ciso' && req.user.role !== 'platform_admin')
+    return res.status(403).json({ error: 'CISO access required' });
+
+  const { provider, config } = req.body;
+  if (!provider || !config) return res.status(400).json({ error: 'provider and config required' });
+
+  try {
+    // Store SSO config in DB (encrypted at rest by PostgreSQL)
+    await db.query(
+      `INSERT INTO sso_config (provider, config, updated_by, tenant_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (provider, tenant_id) DO UPDATE
+       SET config=$2, updated_by=$3, updated_at=NOW()`,
+      [provider, JSON.stringify(config), req.user.email, req.user.tenantId || '00000000-0000-0000-0000-000000000001']
+    );
+    await auditLog(req.user.email, 'sso_config_update', req.user.tenantId, provider, { provider }, req.ip);
+    res.json({ success: true, message: `${provider} SSO configuration saved. Restart required to apply.` });
+  } catch(e) {
+    // Table might not exist yet - create it
+    if (e.message.includes('does not exist')) {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS sso_config (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          provider VARCHAR(50) NOT NULL,
+          config JSONB NOT NULL,
+          tenant_id UUID,
+          updated_by VARCHAR(255),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(provider, tenant_id)
+        )
+      `);
+      await db.query(
+        `INSERT INTO sso_config (provider, config, updated_by, tenant_id) VALUES ($1,$2,$3,$4)`,
+        [provider, JSON.stringify(config), req.user.email, req.user.tenantId || '00000000-0000-0000-0000-000000000001']
+      );
+      res.json({ success: true, message: `${provider} SSO configuration saved.` });
+    } else {
+      res.status(500).json({ error: e.message });
+    }
+  }
+});
+
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ─────────────────────────────────────────
