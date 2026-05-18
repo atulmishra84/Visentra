@@ -1,5 +1,33 @@
 'use strict';
 const express     = require('express');
+const { z }       = require('zod');
+const winston     = require('winston');
+
+// ── Structured Logger ─────────────────────────────────────
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  defaultMeta: { service: 'agentradar-api' },
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.printf(({timestamp,level,message,...meta}) =>
+          `${timestamp} [${level}] ${message} ${Object.keys(meta).length?JSON.stringify(meta):''}`)
+      )
+    })
+  ]
+});
+
+// Replace console.log/error with structured logger
+const origLog = console.log;
+const origErr = console.error;
+console.log = (...args) => logger.info(args.join(' '));
+console.error = (...args) => logger.error(args.join(' '));
 const cors        = require('cors');
 const helmet      = require('helmet');
 const compression = require('compression');
@@ -93,12 +121,41 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: process.env.ALLOWED_ORIGINS || '*', credentials: true }));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.use(morgan('combined'));
+app.use(morgan('combined', {
+  stream: { write: msg => logger.http(msg.trim()) }
+}));
+
+// Log all API requests with structured data
+app.use('/api/', (req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    logger.info('API request', {
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      duration: Date.now()-start+'ms',
+      ip: req.ip,
+      user: req.user?.email || 'anonymous'
+    });
+  });
+  next();
+});
 
 // Rate limiting
 app.use('/api/', rateLimit({ windowMs: 60_000, max: 500, standardHeaders: true, legacyHeaders: false }));
 
 // ── Health endpoint (no auth) ─────────────────────────────
+// ── API Version info ─────────────────────────────────────
+app.get('/api/version', (req, res) => {
+  res.json({
+    version: '1.0.0',
+    api: 'v1',
+    platform: 'AgentRadar',
+    uptime: Math.floor(process.uptime()),
+    node: process.version,
+  });
+});
+
 app.get('/health', async (req, res) => {
   const checks = { api: 'ok', db: 'unknown', redis: 'unknown' };
   try {
@@ -127,7 +184,7 @@ function auth(req, res, next) {
 }
 
 // ── Auth routes ───────────────────────────────────────────
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', validate(schemas.login), async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
@@ -178,7 +235,7 @@ app.get('/api/agents', auth, async (req, res) => {
   }
 });
 
-app.post('/api/agents', auth, async (req, res) => {
+app.post('/api/agents', auth, validate(schemas.agent), async (req, res) => {
   const a = req.body;
   try {
     const { rows } = await db.query(
@@ -439,7 +496,7 @@ app.get('/api/webhooks', auth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/webhooks', auth, async (req, res) => {
+app.post('/api/webhooks', auth, validate(schemas.webhook), async (req, res) => {
   const { name, url, type, events, secret } = req.body;
   if (!name || !url) return res.status(400).json({ error: 'name and url required' });
   try {
@@ -468,7 +525,7 @@ app.post('/api/webhooks/:id/test', auth, async (req, res) => {
 });
 
 // ── Password change ───────────────────────────────────
-app.post('/api/auth/change-password', auth, async (req, res) => {
+app.post('/api/auth/change-password', auth, validate(schemas.changePassword), async (req, res) => {
   const { current_password, new_password } = req.body;
   if (!current_password || !new_password)
     return res.status(400).json({ error: 'current_password and new_password required' });
@@ -934,7 +991,7 @@ async function discoverNetwork(cidrRanges) {
   return {cloud:'network',...discovered,scanners:[...discovered.scanners],log};
 }
 
-app.post('/api/autodiscovery/start', auth, async (req, res) => {
+app.post('/api/autodiscovery/start', auth, validate(schemas.autodiscovery), async (req, res) => {
   const {azure,aws,gcp,network} = req.body;
   const tId = req.user?.tenantId||'00000000-0000-0000-0000-000000000001';
   await auditLog(req.user.email,'autodiscovery_start',tId,'all',{clouds:Object.keys(req.body).filter(k=>req.body[k])},req.ip);
@@ -1001,10 +1058,107 @@ app.get('/api/autodiscovery/history', auth, async (req, res) => {
   } catch(e) { res.status(500).json({error:e.message}); }
 });
 
+
+// ══ ZOD VALIDATION SCHEMAS ═════════════════════════════════
+const schemas = {
+  login: z.object({
+    email: z.string().email('Invalid email format'),
+    password: z.string().min(1, 'Password required'),
+  }),
+
+  agent: z.object({
+    name: z.string().min(1).max(255),
+    type: z.string().min(1).max(50),
+    env: z.enum(['Cloud','On-Prem','Hybrid']).default('Cloud'),
+    risk: z.enum(['critical','high','medium','low']).default('medium'),
+    shadow: z.boolean().default(false),
+    phi: z.boolean().default(false),
+    pii: z.boolean().default(false),
+    protocols: z.array(z.string()).default([]),
+    notes: z.string().max(2000).optional(),
+    owner: z.string().max(255).optional(),
+    domain: z.string().max(255).optional(),
+    detect: z.string().max(255).optional(),
+  }),
+
+  webhook: z.object({
+    name: z.string().min(1).max(255),
+    url: z.string().url('Invalid webhook URL'),
+    type: z.enum(['slack','teams','generic']).default('generic'),
+    events: z.array(z.string()).default(['agent.discovered','policy.violation']),
+    secret: z.string().max(255).optional(),
+  }),
+
+  changePassword: z.object({
+    current_password: z.string().min(1),
+    new_password: z.string().min(12, 'Password must be at least 12 characters'),
+  }),
+
+  tenant: z.object({
+    name: z.string().min(1).max(255),
+    domain: z.string().max(255).optional(),
+    plan: z.enum(['trial','starter','professional','enterprise']).default('trial'),
+    admin_email: z.string().email(),
+    admin_password: z.string().min(12),
+  }),
+
+  autodiscovery: z.object({
+    azure: z.object({
+      tenantId: z.string().uuid(),
+      clientId: z.string().uuid(),
+      clientSecret: z.string().min(1),
+      subscriptionId: z.string().uuid(),
+    }).optional(),
+    aws: z.object({
+      accessKeyId: z.string().min(16).max(128),
+      secretAccessKey: z.string().min(1),
+      region: z.string().default('us-east-1'),
+    }).optional(),
+    gcp: z.object({
+      projectId: z.string().min(1),
+      serviceAccountKey: z.string().min(1),
+    }).optional(),
+    network: z.object({
+      cidrRanges: z.array(z.string()).min(1),
+    }).optional(),
+  }).refine(data => Object.keys(data).length > 0, {
+    message: 'At least one cloud provider must be specified'
+  }),
+};
+
+// Validation middleware factory
+function validate(schema) {
+  return (req, res, next) => {
+    try {
+      req.body = schema.parse(req.body);
+      next();
+    } catch(e) {
+      if (e instanceof z.ZodError) {
+        logger.warn('Validation error', { path: req.path, errors: e.errors });
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: e.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+      next(e);
+    }
+  };
+}
+
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ─────────────────────────────────────────
 app.use((err, req, res, next) => {
+  logger.error('Unhandled error', {
+    message: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method,
+    user: req.user?.email
+  });
   console.error('[error]', err.message);
   res.status(500).json({ error: 'Internal server error' });
 });
