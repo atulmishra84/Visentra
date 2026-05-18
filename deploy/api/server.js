@@ -830,6 +830,177 @@ app.post('/api/auth/sso/config', auth, async (req, res) => {
   }
 });
 
+
+// ══ AUTO-DISCOVERY ENGINE ══════════════════════════════════════
+const CLOUD_SERVICE_SCANNER_MAP = {
+  azure: {
+    'Microsoft.CognitiveServices':['sc-cloud-azure','sc-purview'],
+    'Microsoft.MachineLearning':['sc-cloud-azure'],
+    'Microsoft.BotService':['sc-m365-copilot-ext'],
+    'Microsoft.ContainerService':['sc-k8s'],
+    'Microsoft.ContainerRegistry':['sc-container-reg'],
+    'Microsoft.KeyVault':['sc-shadow-apikey'],
+    'Microsoft.Storage':['sc-model-artifact'],
+  },
+  aws: { bedrock:['sc-cloud-aws'], sagemaker:['sc-cloud-aws'], eks:['sc-k8s'], ecr:['sc-container-reg'], s3:['sc-model-artifact'] },
+  gcp: { aiplatform:['sc-gemini'], container:['sc-k8s'], artifactregistry:['sc-container-reg'], secretmanager:['sc-shadow-apikey'] },
+  network: { '11434':'sc-network','8000':'sc-network','7860':'sc-network','2575':'sc-hl7','104':'sc-dicom','4317':'sc-agent-to-agent' }
+};
+
+async function discoverAzure(tenantId, clientId, clientSecret, subscriptionId) {
+  const log = []; const discovered = { services:[], scanners:new Set(), agents:[] };
+  try {
+    const tokenResp = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+      method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:`client_id=${clientId}&client_secret=${clientSecret}&scope=https://management.azure.com/.default&grant_type=client_credentials`
+    }).then(r=>r.json());
+    if (!tokenResp.access_token) throw new Error('Azure auth failed: '+(tokenResp.error_description||tokenResp.error));
+    const token = tokenResp.access_token;
+    log.push({step:'auth',status:'ok',msg:'Azure authentication successful'});
+
+    const resources = await fetch(`https://management.azure.com/subscriptions/${subscriptionId}/resources?api-version=2021-04-01`,
+      {headers:{'Authorization':'Bearer '+token}}).then(r=>r.json()).catch(()=>({value:[]}));
+    const resourceList = resources.value||[];
+    log.push({step:'inventory',status:'ok',msg:`Found ${resourceList.length} Azure resources`});
+
+    const typeSet = new Set(resourceList.map(r=>r.type?.split('/')[0]));
+    typeSet.forEach(type=>{
+      const scanners = CLOUD_SERVICE_SCANNER_MAP.azure[type]||[];
+      scanners.forEach(s=>discovered.scanners.add(s));
+      if (scanners.length) { discovered.services.push({type,scanners}); log.push({step:'map',status:'ok',msg:`${type} → ${scanners.join(', ')}`}); }
+    });
+
+    const aiResources = resourceList.filter(r=>r.type?.includes('CognitiveServices')||r.type?.includes('MachineLearning')||r.name?.toLowerCase().includes('openai')||r.name?.toLowerCase().includes('-ai'));
+    for (const res of aiResources) {
+      discovered.agents.push({name:res.name, type:res.type?.split('/').pop()||'azure-ai', env:'Cloud', risk:'medium', shadow:false,
+        protocols:['Azure REST API'], detect:'Azure auto-discovery', notes:`${res.type} in ${res.location}`,
+        controls:{soc2:'warn',gdpr:'warn',hipaa:'warn',nist:'warn'}});
+    }
+    log.push({step:'ai-resources',status:'ok',msg:`Found ${aiResources.length} AI-related resources`});
+
+    // Check M365/Graph
+    const graphToken = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+      method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:`client_id=${clientId}&client_secret=${clientSecret}&scope=https://graph.microsoft.com/.default&grant_type=client_credentials`
+    }).then(r=>r.json()).catch(()=>({}));
+    if (graphToken.access_token) {
+      ['sc-m365-copilot-ext','sc-browser-ext','sc-email-ai'].forEach(s=>discovered.scanners.add(s));
+      log.push({step:'m365',status:'ok',msg:'M365/Graph access confirmed — Copilot, browser, email scanners enabled'});
+    }
+  } catch(e) { log.push({step:'error',status:'error',msg:e.message}); }
+  return {cloud:'azure',...discovered,scanners:[...discovered.scanners],log};
+}
+
+async function discoverNetwork(cidrRanges) {
+  const net = require('net');
+  const log = []; const discovered = {services:[],scanners:new Set(),agents:[],liveHosts:[]};
+  const AI_PORTS = [11434,8000,8001,7860,2575,104,1883,4317,6006,3000,5000];
+
+  function expandCIDR(cidr) {
+    const [base,prefix] = cidr.split('/');
+    const parts = base.split('.').map(Number);
+    const hosts = Math.min(Math.pow(2,32-parseInt(prefix)),254);
+    return Array.from({length:Math.min(hosts,254)},(_,i)=>`${parts[0]}.${parts[1]}.${parts[2]}.${parts[3]+i+1}`).filter(ip=>!ip.endsWith('.0')&&!ip.endsWith('.255'));
+  }
+
+  function probePort(ip,port) {
+    return new Promise(resolve=>{
+      const sock = new net.Socket();
+      sock.setTimeout(800);
+      sock.connect(port,ip,()=>{sock.destroy();resolve({ip,port,open:true});});
+      sock.on('error',()=>resolve({ip,port,open:false}));
+      sock.on('timeout',()=>{sock.destroy();resolve({ip,port,open:false});});
+    });
+  }
+
+  for (const cidr of cidrRanges) {
+    const ips = expandCIDR(cidr.trim());
+    log.push({step:'scan',status:'ok',msg:`Scanning ${ips.length} IPs in ${cidr}`});
+    for (let i=0;i<Math.min(ips.length,50);i+=10) {
+      const batch = ips.slice(i,i+10);
+      const results = await Promise.all(batch.flatMap(ip=>AI_PORTS.map(port=>probePort(ip,port))));
+      for (const r of results.filter(r=>r.open)) {
+        discovered.liveHosts.push(r);
+        const sc = CLOUD_SERVICE_SCANNER_MAP.network[String(r.port)];
+        if (sc) discovered.scanners.add(sc);
+        const names = {11434:'Ollama LLM',8000:'AI API',7860:'Gradio UI',2575:'HL7 MLLP',104:'DICOM',4317:'OTLP'};
+        discovered.agents.push({name:`${names[r.port]||'AI Service'} @ ${r.ip}:${r.port}`,
+          type:r.port===2575?'hl7':r.port===104?'dicom':'local-llm',env:'On-Prem',
+          risk:'high',ip:r.ip,shadow:true,protocols:[names[r.port]||'TCP'],detect:'Network port scan'});
+        log.push({step:'port',status:'found',msg:`${r.ip}:${r.port} open — ${names[r.port]||'AI service'}`});
+      }
+    }
+  }
+  return {cloud:'network',...discovered,scanners:[...discovered.scanners],log};
+}
+
+app.post('/api/autodiscovery/start', auth, async (req, res) => {
+  const {azure,aws,gcp,network} = req.body;
+  const tId = req.user?.tenantId||'00000000-0000-0000-0000-000000000001';
+  await auditLog(req.user.email,'autodiscovery_start',tId,'all',{clouds:Object.keys(req.body).filter(k=>req.body[k])},req.ip);
+  const sessionId = require('crypto').randomUUID();
+  await db.query('INSERT INTO scanner_runs (id,scanner_id,status,created_at) VALUES ($1,$2,$3,NOW())',[sessionId,'autodiscovery','running']).catch(()=>{});
+  res.json({sessionId,status:'started'});
+
+  (async()=>{
+    const all = {agents:[],scanners:new Set(),logs:[],summary:{}};
+    try {
+      if (azure?.tenantId&&azure?.clientId&&azure?.clientSecret&&azure?.subscriptionId) {
+        const r = await discoverAzure(azure.tenantId,azure.clientId,azure.clientSecret,azure.subscriptionId);
+        all.agents.push(...r.agents); r.scanners.forEach(s=>all.scanners.add(s));
+        all.logs.push({cloud:'Azure',entries:r.log});
+        all.summary.azure={services:r.services.length,scanners:r.scanners.length,agents:r.agents.length};
+      }
+      if (network?.cidrRanges?.length>0) {
+        const r = await discoverNetwork(network.cidrRanges);
+        all.agents.push(...r.agents); r.scanners.forEach(s=>all.scanners.add(s));
+        all.logs.push({cloud:'Network',entries:r.log});
+        all.summary.network={hosts:r.liveHosts?.length,scanners:r.scanners.length,agents:r.agents.length};
+      }
+
+      let saved=0;
+      for (const agent of all.agents) {
+        try {
+          await db.query(
+            `INSERT INTO agents (name,type,env,risk,shadow,phi,pii,protocols,controls,metadata,detect,tenant_id,first_detected,last_seen,created_at,updated_at)
+             VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW(),NOW(),NOW())`,
+            [agent.name,agent.type||'unknown',agent.env||'Cloud',agent.risk||'medium',
+             agent.shadow||false,agent.phi||false,agent.pii||false,
+             JSON.stringify(agent.protocols||[]),JSON.stringify(agent.controls||{}),
+             JSON.stringify({ip:agent.ip,notes:agent.notes}||{}),
+             agent.detect||'auto-discovery',tId]
+          );
+          saved++;
+        } catch(e){}
+      }
+
+      await db.query('INSERT INTO activity (category,description,created_by,tenant_id) VALUES ($1,$2,$3,$4)',
+        ['discovery',`Auto-discovery: ${saved} agents found, ${[...all.scanners].length} scanners enabled`,req.user.email,tId]).catch(()=>{});
+      await db.query('UPDATE scanner_runs SET status=$1,agents_found=$2 WHERE id=$3',['completed',saved,sessionId]).catch(()=>{});
+
+      global.autodiscoveryResults=global.autodiscoveryResults||{};
+      global.autodiscoveryResults[sessionId]={status:'completed',summary:all.summary,scanners:[...all.scanners],agentCount:saved,logs:all.logs,completedAt:new Date().toISOString()};
+    } catch(e) {
+      global.autodiscoveryResults=global.autodiscoveryResults||{};
+      global.autodiscoveryResults[sessionId]={status:'error',error:e.message};
+      await db.query('UPDATE scanner_runs SET status=$1,error=$2 WHERE id=$3',['failed',e.message,sessionId]).catch(()=>{});
+    }
+  })();
+});
+
+app.get('/api/autodiscovery/status/:sessionId', auth, (req, res) => {
+  const result = (global.autodiscoveryResults||{})[req.params.sessionId];
+  if (!result) return res.json({status:'running',message:'Discovery in progress...'});
+  res.json(result);
+});
+
+app.get('/api/autodiscovery/history', auth, async (req, res) => {
+  try {
+    const r = await db.query("SELECT * FROM scanner_runs WHERE scanner_id='autodiscovery' ORDER BY created_at DESC LIMIT 10");
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({error:e.message}); }
+});
+
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ─────────────────────────────────────────
