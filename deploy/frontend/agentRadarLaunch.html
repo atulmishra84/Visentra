@@ -7492,7 +7492,13 @@ async function doLogin() {
     if (data.token) {
       _apiToken = data.token;
       _apiMode = true;
-      // Load live agents from API into DB
+      // Extract role from JWT payload
+      try {
+        const payload = JSON.parse(atob(data.token.split('.')[1]));
+        currentRole = payload.role || 'ciso';
+        sessionStorage.setItem('ar-role', currentRole);
+      } catch(e) {}
+      // Load live agents from API into DB BEFORE rendering anything
       await loadLiveAgents();
     } else {
       if (errEl) { errEl.textContent = 'Invalid credentials — using demo data'; errEl.style.display = 'block'; }
@@ -7506,8 +7512,17 @@ async function doLogin() {
   sessionStorage.setItem('ar-role', currentRole);
   sessionStorage.setItem('ar-user', name);
   document.getElementById('login-screen').classList.add('hidden');
-  document.getElementById('login-user-name').textContent = name;
-  document.getElementById('login-user-role').textContent = ROLES[currentRole].label;
+  // Use name from JWT if available
+  let displayName = name;
+  try {
+    if (_apiToken) {
+      const p = JSON.parse(atob(_apiToken.split('.')[1]));
+      if (p.name) displayName = p.name;
+      if (p.role) currentRole = p.role;
+    }
+  } catch(e) {}
+  document.getElementById('login-user-name').textContent = displayName;
+  document.getElementById('login-user-role').textContent = (ROLES[currentRole]||ROLES['viewer']).label;
   document.getElementById('login-avatar').textContent = name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   applyRBAC();
   _sessionActive = true;
@@ -7516,6 +7531,11 @@ async function doLogin() {
     setTimeout(() => showMFASetup(), 300);
   }
   if (!localStorage.getItem('ar-onboarded')) showOnboarding();
+  // Force dashboard to render with live data
+  setTimeout(() => {
+    updateStats();
+    if (typeof renderDashboard === 'function') renderDashboard();
+  }, 200);
 }
 
 async function loadLiveAgents() {
@@ -7531,7 +7551,7 @@ async function loadLiveAgents() {
         name: a.name || 'Unknown Agent',
         type: a.type || 'agent',
         env: a.env || 'Cloud',
-        protocols: a.protocols || [],
+        protocols: (()=>{ try { return typeof a.protocols==='string' ? JSON.parse(a.protocols) : (a.protocols||[]); } catch(e){return[];} })(),
         lastSeen: a.last_seen ? new Date(a.last_seen).toLocaleString() : 'Just now',
         risk: a.risk || 'medium',
         shadow: a.shadow || false,
@@ -7541,7 +7561,10 @@ async function loadLiveAgents() {
         phi: a.phi || false,
         domain: a.domain || null,
         notes: a.notes || '',
-        controls: a.controls || {soc2:'pass',iso27001:'pass',gdpr:'pass',nist:'pass',euai:'pass',hipaa:'pass',hitrust:'pass',fda_samd:'pass'},
+        controls: (()=>{
+          try { return typeof a.controls==='string' ? JSON.parse(a.controls) : (a.controls||{soc2:'pass',iso27001:'pass',gdpr:'pass',nist:'pass',euai:'pass',hipaa:'pass',hitrust:'pass',fda_samd:'pass'}); }
+          catch(e) { return {soc2:'pass',iso27001:'pass',gdpr:'pass',nist:'pass',euai:'pass',hipaa:'pass',hitrust:'pass',fda_samd:'pass'}; }
+        })(),
         firstDet: a.first_detected ? a.first_detected.split('T')[0] : new Date().toISOString().split('T')[0],
         owner: a.owner || null,
         ver: a.version || null,
