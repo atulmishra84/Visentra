@@ -558,7 +558,7 @@ const SSO_PROVIDERS = {
   },
   aws: {
     name: 'AWS SSO',
-    issuerUrl: `https://identitycenter.amazonaws.com/ssooidc/${process.env.AWS_SSO_REGION||'us-east-1'}/${process.env.AWS_SSO_INSTANCE_ID||''}`,
+    issuerUrl: `https://oidc.${process.env.AWS_SSO_REGION||'us-east-1'}.amazonaws.com`,
     clientId: process.env.AWS_SSO_CLIENT_ID,
     clientSecret: process.env.AWS_SSO_CLIENT_SECRET,
     scope: 'openid profile email',

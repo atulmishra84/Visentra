@@ -91,6 +91,30 @@ spec:
                   name: agentradar-sso
                   key: google-client-secret
                   optional: true
+            - name: AWS_SSO_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-sso
+                  key: aws-sso-client-id
+                  optional: true
+            - name: AWS_SSO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-sso
+                  key: aws-sso-client-secret
+                  optional: true
+            - name: AWS_SSO_INSTANCE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-sso
+                  key: aws-sso-instance-id
+                  optional: true
+            - name: AWS_SSO_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-sso
+                  key: aws-sso-region
+                  optional: true
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
