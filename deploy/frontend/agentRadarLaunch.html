@@ -5966,7 +5966,16 @@ function lnInitPan(){
   cv.addEventListener('wheel',e=>{e.preventDefault();lnZoom(e.deltaY<0?1.1:0.91);},{passive:false});
   cv.addEventListener('click',()=>{lnSelected=null;lnDraw();document.getElementById('ln-insp-name').textContent='Select a node or flow';document.getElementById('ln-insp-sub').textContent='Click any element to inspect';document.getElementById('ln-insp-main').innerHTML='<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;height:180px"><div style="font-size:18px;width:40px;height:40px;border-radius:10px;background:var(--brand-bg);border:1px solid var(--brand-border);display:flex;align-items:center;justify-content:center">&#8599;</div><div style="font-size:12px;color:var(--text-muted);line-height:1.6">Click any node or flow to inspect data type, encryption, BAA, risk, owner and purpose.</div></div>';});
 }
-function renderLineage(){lnInitPan();lnDraw();lnApply();}
+function renderLineage(){
+  // Ensure we have live data before rendering lineage
+  if (_apiToken && DB.agents && DB.agents.length > 0) {
+    lnInitPan(); lnDraw(); lnApply();
+  } else if (_apiToken) {
+    loadLiveAgents().then(()=>{ lnInitPan(); lnDraw(); lnApply(); });
+  } else {
+    lnInitPan(); lnDraw(); lnApply();
+  }
+}
 
 /* -- INTEGRATIONS -- */
 /* ===========================================
@@ -7540,8 +7549,10 @@ async function loadLiveAgents() {
         quarantined: a.quarantined || false,
         hosted: a.hosted || false,
       }));
-      // Replace demo agents with live data
+      // Clear localStorage demo data and replace with live data
       DB.agents = mapped;
+      // Clear any stale localStorage so demo data doesn't creep back
+      try { localStorage.removeItem(SK); } catch(e) {}
       // Update banner to show production mode
       const banner = document.getElementById('mode-banner');
       const dot = document.getElementById('mode-dot');
@@ -7563,6 +7574,10 @@ async function loadLiveAgents() {
   }
   save();
   updateStats();
+  // Re-render current view with fresh data
+  if (typeof go === 'function') go(cv||'discovery');
+  // Refresh registered agents panel if visible
+  if (typeof renderConnectionRegistry === 'function') renderConnectionRegistry();
 }
 
 
@@ -7811,6 +7826,106 @@ function pollADStatus() {
 }
 /* ══ END AUTO-DISCOVERY ══ */
 
+
+
+/* ── REGISTERED AGENTS VIEW ── */
+function renderRegisteredAgents() {
+  const agents = DB.agents || [];
+  const tbody = document.getElementById('ra-tbody');
+  if (!tbody) return;
+
+  // Update stats
+  const total = agents.length;
+  const shadow = agents.filter(a=>a.shadow).length;
+  const high = agents.filter(a=>a.risk==='critical'||a.risk==='high').length;
+  const approved = agents.filter(a=>a.approved).length;
+  const phi = agents.filter(a=>a.phi).length;
+
+  const setEl = (id,val) => { const el=document.getElementById(id); if(el) el.textContent=val; };
+  setEl('ra-total', total);
+  setEl('ra-shadow', shadow);
+  setEl('ra-high', high);
+  setEl('ra-approved', approved);
+  setEl('ra-phi', phi);
+
+  if (!total) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted);font-size:13px">No agents found. Run a scan or click + Register Agent to add one.</td></tr>';
+    return;
+  }
+
+  filterRegisteredAgents();
+}
+
+function filterRegisteredAgents() {
+  const agents = DB.agents || [];
+  const search = (document.getElementById('ra-search')?.value||'').toLowerCase();
+  const riskF  = document.getElementById('ra-filter-risk')?.value||'';
+  const envF   = document.getElementById('ra-filter-env')?.value||'';
+  const typeF  = document.getElementById('ra-filter-shadow')?.value||'';
+
+  const filtered = agents.filter(a => {
+    if (search && !((a.name||'')+(a.type||'')+(a.detect||'')).toLowerCase().includes(search)) return false;
+    if (riskF && a.risk !== riskF) return false;
+    if (envF && a.env !== envF) return false;
+    if (typeF === 'shadow' && !a.shadow) return false;
+    if (typeF === 'approved' && !a.approved) return false;
+    return true;
+  });
+
+  const riskColor = {critical:'#ef4444',high:'#f59e0b',medium:'#3b82f6',low:'#10b981'};
+  const tbody = document.getElementById('ra-tbody');
+  if (!tbody) return;
+
+  tbody.innerHTML = filtered.length ? filtered.map(a => `
+    <tr style="border-top:1px solid var(--glass-border-dim);cursor:pointer" onclick="openDrawer(${JSON.stringify(a.id)})">
+      <td style="padding:10px 14px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:7px;height:7px;border-radius:50%;background:${riskColor[a.risk]||'#64748b'};flex-shrink:0"></div>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--text-primary)">${a.name||'Unknown'}</div>
+            ${a.shadow?'<span style="font-size:9px;background:rgba(239,68,68,0.1);color:#ef4444;border-radius:4px;padding:1px 5px;font-weight:700">SHADOW AI</span>':''}
+            ${a.phi?'<span style="font-size:9px;background:rgba(245,158,11,0.1);color:#f59e0b;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:2px">PHI</span>':''}
+          </div>
+        </div>
+      </td>
+      <td style="padding:10px 14px;font-size:11px;color:var(--text-muted)">${a.type||'—'}</td>
+      <td style="padding:10px 14px;font-size:11px;color:var(--text-muted)">${a.env||'—'}</td>
+      <td style="padding:10px 14px">
+        <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:${riskColor[a.risk]||'#64748b'}18;color:${riskColor[a.risk]||'#64748b'};text-transform:uppercase">${a.risk||'unknown'}</span>
+      </td>
+      <td style="padding:10px 14px">
+        ${a.approved?'<span style="font-size:10px;font-weight:700;color:#10b981">✓ Approved</span>':
+          a.quarantined?'<span style="font-size:10px;font-weight:700;color:#ef4444">⛔ Quarantined</span>':
+          '<span style="font-size:10px;color:#f59e0b;font-weight:700">⚠ Pending</span>'}
+      </td>
+      <td style="padding:10px 14px;font-size:11px;color:var(--text-muted)">${a.detect||'Manual'}</td>
+      <td style="padding:10px 14px;font-size:11px;color:var(--text-muted)">${a.lastSeen||'—'}</td>
+      <td style="padding:10px 14px">
+        <div style="display:flex;gap:4px">
+          <button class="btn sm" style="font-size:9px;padding:2px 6px" onclick="event.stopPropagation();openDrawer(${JSON.stringify(a.id)})">View</button>
+          ${!a.approved?`<button class="btn sm" style="font-size:9px;padding:2px 6px;color:#10b981" onclick="event.stopPropagation();approveAgent('${a.id}')">Approve</button>`:''}
+        </div>
+      </td>
+    </tr>`).join('') :
+    '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-muted);font-size:12px">No agents match filters</td></tr>';
+
+  const countEl = document.getElementById('ra-count');
+  if (countEl) countEl.textContent = `Showing ${filtered.length} of ${agents.length} agents`;
+}
+
+async function approveAgent(id) {
+  if (!_apiToken) return;
+  try {
+    await fetch('/api/agents/'+id, {
+      method:'PATCH',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body:JSON.stringify({approved:true})
+    });
+    await loadLiveAgents();
+    renderRegisteredAgents();
+    showScannerToast('Agent approved', false);
+  } catch(e) { alert('Error: '+e.message); }
+}
 
 function doSignOut() {
   if (!confirm('Sign out of AgentRadar?')) return;
