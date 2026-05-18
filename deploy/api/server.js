@@ -28,6 +28,96 @@ const origLog = console.log;
 const origErr = console.error;
 console.log = (...args) => logger.info(args.join(' '));
 console.error = (...args) => logger.error(args.join(' '));
+
+// ══ ZOD VALIDATION SCHEMAS ═════════════════════════════════
+const schemas = {
+  login: z.object({
+    email: z.string().email('Invalid email format'),
+    password: z.string().min(1, 'Password required'),
+  }),
+
+  agent: z.object({
+    name: z.string().min(1).max(255),
+    type: z.string().min(1).max(50),
+    env: z.enum(['Cloud','On-Prem','Hybrid']).default('Cloud'),
+    risk: z.enum(['critical','high','medium','low']).default('medium'),
+    shadow: z.boolean().default(false),
+    phi: z.boolean().default(false),
+    pii: z.boolean().default(false),
+    protocols: z.array(z.string()).default([]),
+    notes: z.string().max(2000).optional(),
+    owner: z.string().max(255).optional(),
+    domain: z.string().max(255).optional(),
+    detect: z.string().max(255).optional(),
+  }),
+
+  webhook: z.object({
+    name: z.string().min(1).max(255),
+    url: z.string().url('Invalid webhook URL'),
+    type: z.enum(['slack','teams','generic']).default('generic'),
+    events: z.array(z.string()).default(['agent.discovered','policy.violation']),
+    secret: z.string().max(255).optional(),
+  }),
+
+  changePassword: z.object({
+    current_password: z.string().min(1),
+    new_password: z.string().min(12, 'Password must be at least 12 characters'),
+  }),
+
+  tenant: z.object({
+    name: z.string().min(1).max(255),
+    domain: z.string().max(255).optional(),
+    plan: z.enum(['trial','starter','professional','enterprise']).default('trial'),
+    admin_email: z.string().email(),
+    admin_password: z.string().min(12),
+  }),
+
+  autodiscovery: z.object({
+    azure: z.object({
+      tenantId: z.string().uuid(),
+      clientId: z.string().uuid(),
+      clientSecret: z.string().min(1),
+      subscriptionId: z.string().uuid(),
+    }).optional(),
+    aws: z.object({
+      accessKeyId: z.string().min(16).max(128),
+      secretAccessKey: z.string().min(1),
+      region: z.string().default('us-east-1'),
+    }).optional(),
+    gcp: z.object({
+      projectId: z.string().min(1),
+      serviceAccountKey: z.string().min(1),
+    }).optional(),
+    network: z.object({
+      cidrRanges: z.array(z.string()).min(1),
+    }).optional(),
+  }).refine(data => Object.keys(data).length > 0, {
+    message: 'At least one cloud provider must be specified'
+  }),
+};
+
+// Validation middleware factory
+function validate(schema) {
+  return (req, res, next) => {
+    try {
+      req.body = schema.parse(req.body);
+      next();
+    } catch(e) {
+      if (e instanceof z.ZodError) {
+        logger.warn('Validation error', { path: req.path, errors: e.errors });
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: e.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+      next(e);
+    }
+  };
+}
+
 const cors        = require('cors');
 const helmet      = require('helmet');
 const compression = require('compression');
@@ -1059,94 +1149,6 @@ app.get('/api/autodiscovery/history', auth, async (req, res) => {
 });
 
 
-// ══ ZOD VALIDATION SCHEMAS ═════════════════════════════════
-const schemas = {
-  login: z.object({
-    email: z.string().email('Invalid email format'),
-    password: z.string().min(1, 'Password required'),
-  }),
-
-  agent: z.object({
-    name: z.string().min(1).max(255),
-    type: z.string().min(1).max(50),
-    env: z.enum(['Cloud','On-Prem','Hybrid']).default('Cloud'),
-    risk: z.enum(['critical','high','medium','low']).default('medium'),
-    shadow: z.boolean().default(false),
-    phi: z.boolean().default(false),
-    pii: z.boolean().default(false),
-    protocols: z.array(z.string()).default([]),
-    notes: z.string().max(2000).optional(),
-    owner: z.string().max(255).optional(),
-    domain: z.string().max(255).optional(),
-    detect: z.string().max(255).optional(),
-  }),
-
-  webhook: z.object({
-    name: z.string().min(1).max(255),
-    url: z.string().url('Invalid webhook URL'),
-    type: z.enum(['slack','teams','generic']).default('generic'),
-    events: z.array(z.string()).default(['agent.discovered','policy.violation']),
-    secret: z.string().max(255).optional(),
-  }),
-
-  changePassword: z.object({
-    current_password: z.string().min(1),
-    new_password: z.string().min(12, 'Password must be at least 12 characters'),
-  }),
-
-  tenant: z.object({
-    name: z.string().min(1).max(255),
-    domain: z.string().max(255).optional(),
-    plan: z.enum(['trial','starter','professional','enterprise']).default('trial'),
-    admin_email: z.string().email(),
-    admin_password: z.string().min(12),
-  }),
-
-  autodiscovery: z.object({
-    azure: z.object({
-      tenantId: z.string().uuid(),
-      clientId: z.string().uuid(),
-      clientSecret: z.string().min(1),
-      subscriptionId: z.string().uuid(),
-    }).optional(),
-    aws: z.object({
-      accessKeyId: z.string().min(16).max(128),
-      secretAccessKey: z.string().min(1),
-      region: z.string().default('us-east-1'),
-    }).optional(),
-    gcp: z.object({
-      projectId: z.string().min(1),
-      serviceAccountKey: z.string().min(1),
-    }).optional(),
-    network: z.object({
-      cidrRanges: z.array(z.string()).min(1),
-    }).optional(),
-  }).refine(data => Object.keys(data).length > 0, {
-    message: 'At least one cloud provider must be specified'
-  }),
-};
-
-// Validation middleware factory
-function validate(schema) {
-  return (req, res, next) => {
-    try {
-      req.body = schema.parse(req.body);
-      next();
-    } catch(e) {
-      if (e instanceof z.ZodError) {
-        logger.warn('Validation error', { path: req.path, errors: e.errors });
-        return res.status(400).json({
-          error: 'Validation failed',
-          details: e.errors.map(err => ({
-            field: err.path.join('.'),
-            message: err.message
-          }))
-        });
-      }
-      next(e);
-    }
-  };
-}
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
