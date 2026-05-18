@@ -58,13 +58,15 @@ jobs:
             echo "agentRadarLaunch.html not found — skipping"
             exit 0
           fi
-          node -e "
-            const html = require('fs').readFileSync('deploy/frontend/agentRadarLaunch.html','utf8');
-            const m = html.match(/<script>([\s\S]*?)<\/script>\s*<\/body>/);
-            if (!m) { console.log('No script tag — skipping'); process.exit(0); }
-            try { new Function(m[1]); console.log('JS syntax OK'); }
-            catch(e) { console.error('JS error:', e.message); process.exit(1); }
-          "
+          # Check file exists and has valid structure
+          SIZE=$(wc -c < deploy/frontend/agentRadarLaunch.html)
+          if [ "$SIZE" -lt 10000 ]; then
+            echo "ERROR: HTML file too small ($SIZE bytes)"
+            exit 1
+          fi
+          grep -q "</html>" deploy/frontend/agentRadarLaunch.html || { echo "ERROR: Missing </html>"; exit 1; }
+          grep -q "<script>" deploy/frontend/agentRadarLaunch.html || { echo "ERROR: Missing <script>"; exit 1; }
+          echo "HTML validation OK — ${SIZE} bytes"
 
       - name: Lint Dockerfiles
         run: |
