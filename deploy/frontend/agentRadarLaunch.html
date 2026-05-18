@@ -4121,7 +4121,7 @@ function renderDisc(){
     const v=viols.filter(x=>x.agent.id===a.id);
     const phiTag=a.phi?'<span style="font-size:9px;font-weight:700;background:#fee2e2;color:#dc2626;border-radius:4px;padding:1px 5px;margin-left:4px">PHI</span>':'';
     const domTag=a.domain?`<span style="font-size:9px;font-weight:600;background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:1px 5px;margin-left:2px">${a.domain}</span>`:'';
-    return `<tr onclick="openDrawer(${a.id})">
+    return `<tr onclick="openDrawer('${a.id}')">
       <td><span style="font-weight:700;color:var(--text-primary)">${a.name}</span>${phiTag}${domTag}</td>
       <td><span class="type-tag">${a.type==='agent'?'AI Agent':'Bot'}</span></td>
       <td>${envTag(a.env)}</td>
@@ -5443,7 +5443,7 @@ function renderShadow(){
   document.getElementById('shd-head').textContent=list.length+' unregistered';
   const tb=document.getElementById('shadow-tbody');
   if(!tb)return;
-  tb.innerHTML=list.map(a=>`<tr onclick="openDrawer(${a.id})">
+  tb.innerHTML=list.map(a=>`<tr onclick="openDrawer('${a.id}')">
     <td style="font-weight:700;color:var(--text-primary)">${a.name}</td>
     <td style="font-size:11px;color:var(--text-muted)">${a.detect}</td>
     <td>${envTag(a.env)}</td>
@@ -5469,7 +5469,7 @@ function renderPhi(){
   const baaStatus=h=>h==='pass'?'<span style="font-size:11px;color:#16a34a;font-weight:600">✓ BAA Signed</span>':h==='warn'?'<span style="font-size:11px;color:#d97706;font-weight:600">⚠ Pending</span>':'<span style="font-size:11px;color:#dc2626;font-weight:600">✗ No BAA</span>';
   const encStatus=h=>h==='pass'?'<span style="font-size:11px;color:#16a34a;font-weight:600">✓ Encrypted</span>':h==='fail'?'<span style="font-size:11px;color:#dc2626;font-weight:600">✗ Unencrypted</span>':'<span style="font-size:11px;color:#d97706;font-weight:600">⚠ Partial</span>';
   const hipaaScore=a=>{const c=a.controls;if(!c.hipaa)return 0;const m={pass:100,warn:60,fail:0};return m[c.hipaa]||0;};
-  tb.innerHTML=list.map(a=>`<tr onclick="openDrawer(${a.id})">
+  tb.innerHTML=list.map(a=>`<tr onclick="openDrawer('${a.id}')">
     <td><span style="font-weight:700;color:var(--text-primary)">${a.name}</span></td>
     <td><span style="font-size:11px;background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:2px 6px">${a.domain||'general'}</span></td>
     <td>${a.protocols.filter(p=>['FHIR R4','HL7 v2','DICOM','MCP'].includes(p)).map(p=>`<span class="proto-tag" style="background:#dbeafe;color:#1d4ed8">${p}</span>`).join('') || a.protocols.slice(0,1).map(p=>`<span class="proto-tag">${p}</span>`).join('')}</td>
@@ -5589,7 +5589,7 @@ function renderPolicy(){
     </div>`;
   }).join('');
   const vl=document.getElementById('policy-viols');
-  if(vl)vl.innerHTML=vs.length?vs.map(v=>`<div class="risk-item" onclick="openDrawer(${v.agent.id})">
+  if(vl)vl.innerHTML=vs.length?vs.map(v=>`<div class="risk-item" onclick="openDrawer('${v.agent.id}')">
     <div class="risk-item-row"><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;background:var(--amber-bg);color:var(--amber-text);border:1px solid var(--amber-border)">VIOLATION</span><span class="risk-item-name">${v.agent.name}</span></div>
     <div class="risk-desc">${v.policy.name}</div>
   </div>`).join(''):'<div style="padding:20px;text-align:center;font-size:12px;color:var(--text-muted)">No violations detected</div>';
@@ -5620,7 +5620,7 @@ function renderAppr(){
       <div class="appr-actions">
         <button class="btn success sm" onclick="approveAg(${ap.id})">Approve</button>
         <button class="btn danger sm" onclick="rejectAg(${ap.id})">Reject</button>
-        <button class="btn sm" onclick="openDrawer(${ag.id})">View</button>
+        <button class="btn sm" onclick="openDrawer('${ag.id}')">View</button>
       </div>
     </div>`;
   }).join(''):'<div style="font-size:12px;color:var(--text-muted);padding:8px">No pending approvals</div>';
@@ -5661,7 +5661,7 @@ function renderComp(){
     const s=cscore(c);
     const col=s===100?'#10b981':s>=60?'#f59e0b':'#ef4444';
     const phiTag=a.phi?'<span style="font-size:9px;font-weight:700;background:#fee2e2;color:#dc2626;border-radius:3px;padding:1px 4px;margin-left:3px">PHI</span>':'';
-    return`<tr onclick="openDrawer(${a.id})">
+    return`<tr onclick="openDrawer('${a.id}')">
       <td style="font-weight:700;color:var(--text-primary)">${a.name}${phiTag}</td>
       <td><span class="type-tag">${a.type==='agent'?'Agent':'Bot'}</span></td>
       ${allKeys.map(k=>`<td>${cc(c[k]||'pass')}</td>`).join('')}
@@ -5680,7 +5680,7 @@ function renderRisk(){
   document.getElementById('r-low').textContent=R.filter(r=>r.level==='low').length;
   let filtered=rf==='all'?R:R.filter(r=>r.level===rf);
   const rl=document.getElementById('risk-list');
-  if(rl)rl.innerHTML=filtered.map(r=>`<div class="risk-item" onclick="openDrawer(${r.aid})">
+  if(rl)rl.innerHTML=filtered.map(r=>`<div class="risk-item" onclick="openDrawer('${r.aid}')">
     <div class="risk-item-row">${rtag(r.level)}<span class="risk-item-name">${r.name}</span><span class="risk-item-cat">${r.cat}</span></div>
     <div class="risk-desc">${r.desc}</div>
   </div>`).join('');
@@ -5696,7 +5696,7 @@ function renderRisk(){
   const te=document.getElementById('top-exp');
   if(te)te.innerHTML=Object.entries(ar).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([id,sc])=>{
     const ag=DB.agents.find(a=>a.id==id);if(!ag)return'';
-    return`<div class="risk-item" onclick="openDrawer(${ag.id})"><div class="risk-item-row">${rtag(ag.risk)}<span class="risk-item-name">${ag.name}</span><span style="font-size:10px;color:var(--text-muted)">score ${sc}</span></div></div>`;
+    return`<div class="risk-item" onclick="openDrawer('${ag.id}')"><div class="risk-item-row">${rtag(ag.risk)}<span class="risk-item-name">${ag.name}</span><span style="font-size:10px;color:var(--text-muted)">score ${sc}</span></div></div>`;
   }).join('');
   // trend chart
   const pts=Array.from({length:20},(_,i)=>35+i*1.2+Math.sin(i*.8)*10+Math.random()*6);
@@ -7319,7 +7319,12 @@ function addAct(type,t,m,c){DB.activity.unshift({type,t,m,c:c||'#6366f1'});
 
 /* -- DRAWER -- */
 function openDrawer(id){
-  const a=DB.agents.find(x=>x.id===id);if(!a)return;
+  // Support both numeric (demo) and UUID string (production) IDs
+  const a=DB.agents.find(x=>String(x.id)===String(id));
+  if(!a){
+    console.warn('[drawer] Agent not found:', id, 'Available:', DB.agents.map(x=>x.id).slice(0,3));
+    return;
+  }
   const s=cscore(a.controls);const col=s===100?'#059669':s>=60?'#d97706':'#dc2626';
   const fn={soc2:'SOC 2',iso27001:'ISO 27001',gdpr:'GDPR',nist:'NIST AI RMF',euai:'EU AI Act'};
   const vs=violations().filter(v=>v.agent.id===id);
@@ -7351,11 +7356,11 @@ function openDrawer(id){
       </div>
       <div>
         <div class="drw-sec-lbl">Protocols</div>
-        <div style="display:flex;flex-wrap:wrap;gap:5px">${a.protocols.map(p=>`<span class="proto-tag">${p}</span>`).join('')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px">${(typeof a.protocols==='string'?JSON.parse(a.protocols||'[]'):a.protocols||[]).map(p=>`<span class="proto-tag">${p}</span>`).join('')}</div>
       </div>
       <div>
         <div class="drw-sec-lbl">Compliance Controls — <span style="color:${col};font-weight:700">${s}%</span></div>
-        ${Object.entries(a.controls).map(([k,v])=>`<div class="ctrl-row">
+        ${Object.entries(typeof a.controls==='string'?JSON.parse(a.controls||'{}'):(a.controls||{})).map(([k,v])=>`<div class="ctrl-row">
           <span style="width:18px;height:18px;border-radius:var(--r6);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;background:${v==='pass'?'var(--green-bg)':v==='fail'?'var(--red-bg)':'var(--amber-bg)'};color:${v==='pass'?'var(--green-text)':v==='fail'?'var(--red-text)':'var(--amber-text)'}">${v==='pass'?'✓':v==='fail'?'✗':'~'}</span>
           <span style="flex:1;color:var(--text-secondary);font-weight:500">${fn[k]||k}</span>
           <span style="font-size:11px;font-weight:700;color:${v==='pass'?'var(--green-text)':v==='fail'?'var(--red-text)':'var(--amber-text)'}">${v}</span>
@@ -7900,7 +7905,7 @@ function filterRegisteredAgents() {
   if (!tbody) return;
 
   tbody.innerHTML = filtered.length ? filtered.map(a => `
-    <tr style="border-top:1px solid var(--glass-border-dim);cursor:pointer" onclick="openDrawer(${JSON.stringify(a.id)})">
+    <tr style="border-top:1px solid var(--glass-border-dim);cursor:pointer" onclick="openDrawer('${a.id}')">
       <td style="padding:10px 14px">
         <div style="display:flex;align-items:center;gap:8px">
           <div style="width:7px;height:7px;border-radius:50%;background:${riskColor[a.risk]||'#64748b'};flex-shrink:0"></div>
