@@ -1,4 +1,25 @@
 'use strict';
+// ── Async error wrapper ─────────────────────────────────
+const asyncHandler = fn => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
+
+// ── Simple in-memory cache (30s TTL) ─────────────────────
+const _cache = new Map();
+function getCache(key) {
+  const item = _cache.get(key);
+  if (!item) return null;
+  if (Date.now() > item.expires) { _cache.delete(key); return null; }
+  return item.value;
+}
+function setCache(key, value, ttlMs=30000) {
+  _cache.set(key, { value, expires: Date.now() + ttlMs });
+}
+function clearCache(pattern) {
+  for (const key of _cache.keys())
+    if (key.includes(pattern)) _cache.delete(key);
+}
+
+
 const express     = require('express');
 const { z }       = require('zod');
 const winston     = require('winston');
@@ -312,7 +333,7 @@ app.post('/api/auth/logout', auth, async (req, res) => {
 });
 
 // ── Agents CRUD ───────────────────────────────────────────
-app.get('/api/agents', auth, async (req, res) => {
+app.get('/api/agents', auth, asyncHandler(async (req, res) => {
   try {
     const { rows } = await db.query(
       `SELECT id, name, type, env, risk, shadow, phi, pii, hosted, quarantined,
@@ -380,7 +401,7 @@ app.get('/api/compliance/:agentId', auth, async (req, res) => {
 });
 
 // ── Activity log ──────────────────────────────────────────
-app.get('/api/activity', auth, async (req, res) => {
+app.get('/api/activity', auth, asyncHandler(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || '100'), 500);
   try {
     const { rows } = await db.query(

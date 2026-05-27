@@ -45,6 +45,9 @@ env:
   IMG_API:      agentradar-api
   IMG_WEBHOOK:  agentradar-webhook
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   validate:
     name: Validate
