@@ -36,6 +36,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   ACR:          ${{ secrets.ACR_LOGIN_SERVER }}
   ACR_NAME:     ${{ secrets.ACR_NAME }}
   NAMESPACE:    agentradar
@@ -44,9 +45,6 @@ env:
   IMG_FRONTEND: agentradar-frontend
   IMG_API:      agentradar-api
   IMG_WEBHOOK:  agentradar-webhook
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   validate:
