@@ -1004,12 +1004,18 @@ app.post('/api/auth/sso/config', auth, async (req, res) => {
 const CLOUD_SERVICE_SCANNER_MAP = {
   azure: {
     'Microsoft.CognitiveServices':['sc-cloud-azure','sc-purview'],
+    'Microsoft.MachineLearningServices':['sc-cloud-azure'],
     'Microsoft.MachineLearning':['sc-cloud-azure'],
     'Microsoft.BotService':['sc-m365-copilot-ext'],
     'Microsoft.ContainerService':['sc-k8s'],
     'Microsoft.ContainerRegistry':['sc-container-reg'],
     'Microsoft.KeyVault':['sc-shadow-apikey'],
     'Microsoft.Storage':['sc-model-artifact'],
+    'Microsoft.Search':['sc-cloud-azure'],
+    'Microsoft.ApiManagement':['sc-cloud-azure'],
+    'Microsoft.DocumentDB':['sc-cloud-azure'],
+    'Microsoft.Web':['sc-cloud-azure'],
+    'Microsoft.Insights':['sc-cloud-azure'],
   },
   aws: { bedrock:['sc-cloud-aws'], sagemaker:['sc-cloud-aws'], eks:['sc-k8s'], ecr:['sc-container-reg'], s3:['sc-model-artifact'] },
   gcp: { aiplatform:['sc-gemini'], container:['sc-k8s'], artifactregistry:['sc-container-reg'], secretmanager:['sc-shadow-apikey'] },
@@ -1039,11 +1045,60 @@ async function discoverAzure(tenantId, clientId, clientSecret, subscriptionId) {
       if (scanners.length) { discovered.services.push({type,scanners}); log.push({step:'map',status:'ok',msg:`${type} → ${scanners.join(', ')}`}); }
     });
 
-    const aiResources = resourceList.filter(r=>r.type?.includes('CognitiveServices')||r.type?.includes('MachineLearning')||r.name?.toLowerCase().includes('openai')||r.name?.toLowerCase().includes('-ai'));
+    // Detect all AI-related resources by type and name patterns
+    const AI_TYPES = [
+      'CognitiveServices','MachineLearning','Search/searchServices',
+      'BotService','ApiManagement','DocumentDB'
+    ];
+    const AI_NAME_PATTERNS = [
+      'openai','gpt','llm','ai','ml','cognitive','search',
+      'bot','copilot','aoai','orchestrator','hub'
+    ];
+    const aiResources = resourceList.filter(r => {
+      const typeMatch = AI_TYPES.some(t => r.type?.includes(t));
+      const nameMatch = AI_NAME_PATTERNS.some(p => r.name?.toLowerCase().includes(p));
+      return typeMatch || nameMatch;
+    });
     for (const res of aiResources) {
-      discovered.agents.push({name:res.name, type:res.type?.split('/').pop()||'azure-ai', env:'Cloud', risk:'medium', shadow:false,
-        protocols:['Azure REST API'], detect:'Azure auto-discovery', notes:`${res.type} in ${res.location}`,
-        controls:{soc2:'warn',gdpr:'warn',hipaa:'warn',nist:'warn'}});
+      // Determine risk and type based on resource type
+      const resTypeLower = (res.type||'').toLowerCase();
+      const resNameLower = (res.name||'').toLowerCase();
+      let agentRisk = 'medium';
+      let agentType = res.type?.split('/').pop() || 'azure-ai';
+      let agentPhi = false;
+      let agentPii = false;
+      let agentProtocols = ['Azure REST API'];
+
+      if (resTypeLower.includes('cognitiveservices') || resNameLower.includes('aoai') || resNameLower.includes('openai')) {
+        agentType = 'llm'; agentRisk = 'high'; agentPii = true;
+        agentProtocols = ['Azure OpenAI API','REST'];
+      } else if (resTypeLower.includes('search')) {
+        agentType = 'ai-search'; agentRisk = 'medium';
+        agentProtocols = ['Azure AI Search API','REST'];
+      } else if (resTypeLower.includes('apimanagement')) {
+        agentType = 'api-gateway'; agentRisk = 'medium';
+        agentProtocols = ['REST','APIM'];
+      } else if (resTypeLower.includes('documentdb') || resNameLower.includes('cosmos')) {
+        agentType = 'data-store'; agentRisk = 'high'; agentPii = true;
+        agentProtocols = ['CosmosDB API','REST'];
+      } else if (resNameLower.includes('orchestrator') || resNameLower.includes('hub')) {
+        agentType = 'agent'; agentRisk = 'high'; agentPii = true;
+        agentProtocols = ['Azure AI Foundry','REST'];
+      }
+
+      discovered.agents.push({
+        name: res.name,
+        type: agentType,
+        env: 'Cloud',
+        risk: agentRisk,
+        shadow: false,
+        phi: agentPhi,
+        pii: agentPii,
+        protocols: agentProtocols,
+        detect: 'Azure auto-discovery',
+        notes: `${res.type} in ${res.location} (Resource Group: ${res.resourceGroup||'unknown'})`,
+        controls: {soc2:'warn',gdpr:'warn',hipaa:'warn',nist:'warn',euai:'warn',iso27001:'warn'}
+      });
     }
     log.push({step:'ai-resources',status:'ok',msg:`Found ${aiResources.length} AI-related resources`});
 
