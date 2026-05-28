@@ -1054,23 +1054,34 @@ async function discoverAzure(tenantId, clientId, clientSecret, subscriptionId) {
 
     // ── Step 3: Classify ALL resources — not just known types ─
     // Any resource could be AI-related. Cast wide net.
+    // Strict AI/ML resource type filter — only genuine AI services
     const AI_TYPE_KEYWORDS = [
-      'cognitiveservices','machinelearning','search','botservice',
-      'openai','aiservices','anomalydetector','formrecognizer',
-      'textanalytics','computervision','face','speechservices',
-      'contentmoderator','personalizer','metrics','immersivereader',
-      'luisruntime','qnamaker','translatortext','apimanagement',
-      'containerservice','containerregistry','documentdb','cosmos',
-      'synapse','databricks','hdinsight','streamanalytics',
-      'logic','automation','web/sites','functions'
+      'microsoft.cognitiveservices',
+      'microsoft.machinelearningservices',
+      'microsoft.machinelearning',
+      'microsoft.search/searchservices',
+      'microsoft.botservice',
+      'microsoft.synapse',
+      'microsoft.databricks',
     ];
 
+    // Name patterns — only match when type is also plausible
     const AI_NAME_KEYWORDS = [
-      'openai','gpt','llm','ai','ml','cognitive','search','bot',
-      'copilot','aoai','orchestrator','hub','model','inference',
-      'embedding','vector','semantic','nlp','vision','speech',
-      'translate','detect','classify','predict','forecast','score',
-      'agent','assistant','chat','completion','prompt','rag'
+      'openai','aoai','gpt','llm','cognitive',
+      'orchestrator','hub','aipentest-search',
+    ];
+
+    // Exclude infrastructure resources even if name matches
+    const EXCLUDE_TYPES = [
+      'microsoft.network/','microsoft.compute/disks',
+      'microsoft.compute/virtualmachines/extensions',
+      'microsoft.operationsmanagement','microsoft.insights/actiongroups',
+      'microsoft.cache/redis','microsoft.network/natgateways',
+      'microsoft.network/publicipaddresses','microsoft.network/networkinterfaces',
+      'microsoft.network/networksecuritygroups','microsoft.network/virtualnetworks',
+      'microsoft.network/privatednszones','microsoft.network/bastionhosts',
+      'microsoft.operationalinsights','microsoft.dbforpostgresql',
+      'microsoft.storage/storageaccounts','microsoft.keyvault/vaults',
     ];
 
     // Map resource types to scanner IDs
@@ -1125,9 +1136,24 @@ async function discoverAzure(tenantId, clientId, clientSecret, subscriptionId) {
       const type = (res.type||'').toLowerCase();
       const name = (res.name||'').toLowerCase();
       const kind = (res.kind||'').toLowerCase();
-      return AI_TYPE_KEYWORDS.some(k => type.includes(k)) ||
-             AI_NAME_KEYWORDS.some(k => name.includes(k)) ||
-             AI_NAME_KEYWORDS.some(k => kind.includes(k));
+
+      // Skip pure infrastructure resources
+      if (EXCLUDE_TYPES.some(e => type.startsWith(e))) return false;
+
+      // Include if type matches AI service types
+      if (AI_TYPE_KEYWORDS.some(k => type.includes(k))) return true;
+
+      // Include if name matches AI keywords AND type is plausible (not pure infra)
+      const isPlausibleAI = !type.includes('microsoft.network') &&
+                            !type.includes('microsoft.compute/disk') &&
+                            !type.includes('microsoft.storage') &&
+                            !type.includes('microsoft.keyvault');
+      if (isPlausibleAI && AI_NAME_KEYWORDS.some(k => name.includes(k))) return true;
+
+      // Include if kind explicitly says openai or ai
+      if (kind.includes('openai') || kind.includes('cognitiveservices')) return true;
+
+      return false;
     });
 
     // Enable scanners based on resource types found
@@ -1260,15 +1286,28 @@ app.post('/api/autodiscovery/start', auth, validate(schemas.autodiscovery), asyn
       let saved=0;
       for (const agent of all.agents) {
         try {
-          await db.query(
-            `INSERT INTO agents (name,type,env,risk,shadow,phi,pii,protocols,controls,metadata,detect,tenant_id,first_detected,last_seen,created_at,updated_at)
-             VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW(),NOW(),NOW())`,
-            [agent.name,agent.type||'unknown',agent.env||'Cloud',agent.risk||'medium',
-             agent.shadow||false,agent.phi||false,agent.pii||false,
-             JSON.stringify(agent.protocols||[]),JSON.stringify(agent.controls||{}),
-             JSON.stringify({ip:agent.ip,notes:agent.notes}||{}),
-             agent.detect||'auto-discovery',tId]
+          // Check if agent already exists (avoid duplicates)
+          const existing = await db.query(
+            'SELECT id FROM agents WHERE name=$1 AND tenant_id=$2 LIMIT 1',
+            [agent.name, tId]
           );
+          if (existing.rows.length > 0) {
+            // Update last_seen on existing agent
+            await db.query(
+              'UPDATE agents SET last_seen=NOW(), risk=$1, updated_at=NOW() WHERE id=$2',
+              [agent.risk||'medium', existing.rows[0].id]
+            );
+          } else {
+            await db.query(
+              `INSERT INTO agents (id,name,type,env,risk,shadow,phi,pii,protocols,controls,metadata,detect,tenant_id,first_detected,last_seen,created_at,updated_at)
+               VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW(),NOW(),NOW())`,
+              [agent.name, agent.type||'unknown', agent.env||'Cloud', agent.risk||'medium',
+               agent.shadow||false, agent.phi||false, agent.pii||false,
+               JSON.stringify(agent.protocols||[]), JSON.stringify(agent.controls||{}),
+               JSON.stringify({notes:agent.notes||''}),
+               agent.detect||'auto-discovery', tId]
+            );
+          }
           saved++;
         } catch(e){}
       }
