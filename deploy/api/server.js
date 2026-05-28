@@ -1315,10 +1315,16 @@ app.post('/api/autodiscovery/start', auth, validate(schemas.autodiscovery), asyn
             [agent.name, tId]
           );
           if (existing.rows.length > 0) {
-            // Update last_seen on existing agent
+            // Update last_seen AND controls on existing agent
             await db.query(
-              'UPDATE agents SET last_seen=NOW(), risk=$1, updated_at=NOW() WHERE id=$2',
-              [agent.risk||'medium', existing.rows[0].id]
+              `UPDATE agents SET last_seen=NOW(), risk=$1, controls=$2,
+               pii=$3, phi=$4, protocols=$5, updated_at=NOW() WHERE id=$6`,
+              [agent.risk||'medium',
+               JSON.stringify(agent.controls||{}),
+               agent.pii||false,
+               agent.phi||false,
+               JSON.stringify(agent.protocols||[]),
+               existing.rows[0].id]
             );
           } else {
             await db.query(
