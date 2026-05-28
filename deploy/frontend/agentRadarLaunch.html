@@ -2414,6 +2414,20 @@ input[type=checkbox]{accent-color:var(--brand)}
           <div class="card-head"><span class="card-title">Framework Coverage</span><span class="tier-badge t2">Tier 2</span></div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px" id="comp-grid"></div>
         </div>
+        <div class="card" style="margin-top:16px">
+          <div class="card-head" style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:14px;font-weight:700">🔧 Remediation Recommendations</span>
+            <span style="font-size:11px;color:var(--text-muted)">Prioritized fixes for all compliance gaps across your AI inventory</span>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <select id="comp-remediation-filter" onchange="renderCompRemediation()" style="font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary)">
+                <option value="all">All agents</option>
+                <option value="critical">Critical priority</option>
+                <option value="high">High priority</option>
+              </select>
+            </div>
+          </div>
+          <div id="comp-remediation-list" style="padding:0 16px 16px"></div>
+        </div>
         <div class="card">
           <div class="card-head"><span class="card-title">Evidence Vault</span></div>
           <div style="padding:0 20px 10px" id="evidence-list"></div>
@@ -5762,6 +5776,71 @@ function rejectAg(id){const ap=DB.approvals.find(a=>a.id===id);if(!ap)return;con
 /* -- COMPLIANCE -- */
 const FW=[{k:'soc2',n:'SOC 2 Type II',cat:'general'},{k:'iso27001',n:'ISO 27001:2022',cat:'general'},{k:'gdpr',n:'GDPR / DPA',cat:'general'},{k:'nist',n:'NIST AI RMF',cat:'general'},{k:'euai',n:'EU AI Act',cat:'general'},{k:'hipaa',n:'HIPAA',cat:'healthcare'},{k:'hitrust',n:'HITRUST CSF',cat:'healthcare'},{k:'fda_samd',n:'FDA SaMD',cat:'healthcare'}];
 const DOCS=[{n:"DPA — ServiceDesk Bot",t:"Document",d:"2025-03-01"},{n:"NIST Model Card — FinBot",t:"Model Card",d:"2025-02-28"},{n:"ISO 27001 Certificate",t:"Certificate",d:"2025-01-10"},{n:"GDPR DPIA — Claude Ops",t:"DPIA",d:"2025-01-20"},{n:"HIPAA BAA — Clinical Decision Support",t:"BAA",d:"2025-01-08"},{n:"FDA SaMD Classification — Drug Classifier",t:"Regulatory Filing",d:"2025-01-20"},{n:"EU AI Act Assessment",t:"Impact Assessment",d:"2025-03-25"}];
+function renderCompRemediation() {
+  const container = document.getElementById('comp-remediation-list');
+  if (!container) return;
+  const filter = document.getElementById('comp-remediation-filter')?.value || 'all';
+  const agents = DB.agents || [];
+
+  // Collect all remediations across all agents
+  const allRecs = [];
+  agents.forEach(agent => {
+    const recs = getRemediations(agent.controls || {});
+    recs.forEach(rec => {
+      allRecs.push({ ...rec, agentName: agent.name, agentType: agent.type, agentId: agent.id });
+    });
+  });
+
+  // Filter by priority
+  const filtered = filter === 'all' ? allRecs :
+    allRecs.filter(r => r.priority.toLowerCase() === filter);
+
+  // Sort by priority then agent name
+  const order = {Critical:0, High:1, Medium:2, Low:3};
+  filtered.sort((a,b) => (order[a.priority]||3) - (order[b.priority]||3) || a.agentName.localeCompare(b.agentName));
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="padding:20px;text-align:center;font-size:12px;color:var(--text-muted)">✅ No remediation items for selected filter</div>';
+    return;
+  }
+
+  // Group by framework
+  const byFramework = {};
+  filtered.forEach(r => {
+    if (!byFramework[r.framework]) byFramework[r.framework] = [];
+    byFramework[r.framework].push(r);
+  });
+
+  const priColor = {Critical:'var(--red-text)',High:'var(--amber-text)',Medium:'var(--brand)',Low:'var(--green-text)'};
+  const priBg = {Critical:'var(--red-bg)',High:'var(--amber-bg)',Medium:'var(--brand-bg)',Low:'var(--green-bg)'};
+
+  container.innerHTML = filtered.map(item => `
+    <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:10px;margin-bottom:10px;overflow:hidden">
+      <div style="padding:10px 14px;background:${priBg[item.priority]||'var(--bg-secondary)'};border-bottom:1px solid var(--glass-border-dim);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:${priColor[item.priority]||'var(--text-muted)'};color:white">${item.priority}</span>
+        <span style="font-size:13px;font-weight:700;color:var(--text-primary)">${item.title}</span>
+        <span style="font-size:11px;color:var(--text-muted);margin-left:auto">Agent: <strong>${item.agentName}</strong></span>
+      </div>
+      <div style="padding:10px 14px">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">${item.why}</div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:4px">TOP STEPS:</div>
+        ${item.steps.slice(0,3).map((s,i) => `
+          <div style="display:flex;gap:8px;padding:4px 0;font-size:12px">
+            <span style="width:16px;height:16px;border-radius:50%;background:var(--brand-bg);color:var(--brand);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</span>
+            <div><span style="color:var(--text-primary)">${s.step}</span> <span style="color:var(--text-muted)">— ${s.effort} · ${s.owner}</span></div>
+          </div>`).join('')}
+        <div style="display:flex;gap:6px;margin-top:8px;align-items:center">
+          <button class="btn sm" onclick="createJiraTicket(${JSON.stringify({title:item.title,priority:item.priority,framework:item.framework,deadline:item.deadline,owner:item.owner,steps:item.steps.map(s=>s.step)})})"
+            style="font-size:11px;background:linear-gradient(135deg,#0052CC,#0065FF);color:white;border:none">
+            🎫 Create Jira Ticket
+          </button>
+          <button class="btn sm" onclick="openDrawer('${item.agentId}')" style="font-size:11px">View Agent →</button>
+          <span style="font-size:10px;color:var(--text-muted);margin-left:4px">${item.framework} · Due: ${item.deadline}</span>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
 function renderComp(){
   const A=DB.agents;
   const showFW=cfFilter==='healthcare'?FW.filter(f=>f.cat==='healthcare'):cfFilter==='general'?FW.filter(f=>f.cat==='general'):FW;
@@ -5797,6 +5876,7 @@ function renderComp(){
       <td><span style="font-family:var(--font-display);font-size:14px;font-weight:800;color:${col}">${s}%</span></td>
     </tr>`;
   }).join('');
+  setTimeout(renderCompRemediation, 100);
 }
 
 /* -- RISK -- */
@@ -7669,7 +7749,18 @@ function openDrawer(id){
         ${a.shadow?`<button class="btn danger" style="flex:1" onclick="quarantine(${a.id});closeDrawer()">Quarantine</button>`:''}
         <button class="btn" style="flex:1" onclick="addAct('reg','Agent reviewed: ${a.name}','Admin · just now','#6366f1');alert('Marked as reviewed.')">Mark Reviewed</button>
       </div>
+      <div>
+        <div class="drw-sec-lbl" style="display:flex;align-items:center;gap:6px">
+          🔧 Remediation Recommendations
+          <span style="font-size:10px;background:var(--amber-bg);color:var(--amber-text);padding:1px 6px;border-radius:10px;font-weight:600">
+            ${Object.values(a.controls||{}).filter(v=>v!=='pass').length} gaps
+          </span>
+        </div>
+        <div id="drawer-remediation-${a.id}"></div>
+      </div>
     </div>`;
+  // Render remediations after drawer HTML is set
+  setTimeout(()=>renderRemediations(a.controls,'drawer-remediation-'+a.id),50);
   document.getElementById('drawer').classList.add('open');
   document.getElementById('drawer-backdrop').classList.add('show');
 }
@@ -8483,6 +8574,352 @@ async function loadConnectDiscoverState() {
   } catch(e) {}
 }
 /* ══ END CONNECT & DISCOVER ══ */
+
+
+/* ══ REMEDIATION RECOMMENDATION ENGINE ══════════════════ */
+
+const REMEDIATION = {
+  euai: {
+    fail: {
+      title: 'EU AI Act — Conformity Assessment Required',
+      why: 'This AI system is classified as high-risk under EU AI Act Annex III. High-risk AI systems require mandatory conformity assessment before deployment or continued use.',
+      steps: [
+        { step: 'Appoint an AI Compliance Officer or assign to Legal/Risk team', effort: '1 day', owner: 'CISO / Legal' },
+        { step: 'Complete EU AI Act conformity assessment (use EC template)', effort: '2 weeks', owner: 'Legal / Compliance' },
+        { step: 'Implement human oversight mechanism — log all AI decisions', effort: '1 week', owner: 'Engineering' },
+        { step: 'Create and publish model card (training data, purpose, limitations)', effort: '3 days', owner: 'AI Owner / Engineering' },
+        { step: 'Register system in EU AI database if used in public sector', effort: '1 day', owner: 'Legal' },
+        { step: 'Implement post-market monitoring and incident reporting process', effort: '1 week', owner: 'Engineering / Compliance' },
+      ],
+      deadline: 'August 2026 (EU AI Act enforcement date)',
+      effort: 'Medium — 3–5 weeks',
+      owner: 'CISO + Legal + Engineering',
+      priority: 'High',
+      framework: 'EU AI Act Art. 6, Annex III',
+    },
+    warn: {
+      title: 'EU AI Act — Assessment Pending',
+      why: 'This AI system has not been assessed under the EU AI Act. Assessment is required to determine if it falls under high-risk or limited-risk categories.',
+      steps: [
+        { step: 'Classify the AI system using EU AI Act risk categories', effort: '2 days', owner: 'Legal / Compliance' },
+        { step: 'If high-risk: complete conformity assessment', effort: '2 weeks', owner: 'Legal' },
+        { step: 'If limited-risk: implement transparency obligations', effort: '3 days', owner: 'Engineering' },
+        { step: 'Document classification decision and rationale', effort: '1 day', owner: 'Compliance' },
+      ],
+      deadline: 'August 2026',
+      effort: 'Low — 1 week',
+      owner: 'Legal / Compliance',
+      priority: 'Medium',
+      framework: 'EU AI Act Art. 6',
+    }
+  },
+  hipaa: {
+    fail: {
+      title: 'HIPAA — PHI Exposure Without BAA',
+      why: 'This AI agent accesses Protected Health Information (PHI) but does not have a valid Business Associate Agreement (BAA) in place. This is a HIPAA violation under 45 CFR § 164.308.',
+      steps: [
+        { step: 'IMMEDIATE: Suspend AI agent access to PHI data sources', effort: '1 hour', owner: 'CISO / IT' },
+        { step: 'Identify the AI vendor and contact for BAA execution', effort: '1 day', owner: 'Legal' },
+        { step: 'Execute BAA with AI vendor (or switch to BAA-covered provider)', effort: '1–2 weeks', owner: 'Legal / Procurement' },
+        { step: 'Implement PHI de-identification before AI processing (if BAA unavailable)', effort: '1 week', owner: 'Engineering' },
+        { step: 'Enable audit logging for all PHI access by AI agent', effort: '2 days', owner: 'Engineering' },
+        { step: 'Conduct HIPAA risk assessment and document findings', effort: '1 week', owner: 'Compliance' },
+        { step: 'Notify Privacy Officer and document incident', effort: '1 day', owner: 'Privacy Officer' },
+      ],
+      deadline: 'Immediate — active HIPAA violation',
+      effort: 'High — 2–4 weeks',
+      owner: 'CISO + Legal + Privacy Officer',
+      priority: 'Critical',
+      framework: '45 CFR § 164.308, § 164.314',
+    },
+    warn: {
+      title: 'HIPAA — BAA Status Unverified',
+      why: 'This AI agent may access PHI. BAA status with the AI vendor has not been verified. Verification is required before PHI can be processed.',
+      steps: [
+        { step: 'Confirm whether this agent processes PHI in production', effort: '1 day', owner: 'Engineering / CISO' },
+        { step: 'Verify existing BAA covers this AI use case', effort: '1 day', owner: 'Legal' },
+        { step: 'If no BAA: execute BAA or restrict PHI access', effort: '1 week', owner: 'Legal' },
+        { step: 'Document BAA status in agent inventory', effort: '1 hour', owner: 'Compliance' },
+      ],
+      deadline: 'Within 30 days',
+      effort: 'Low — 1 week',
+      owner: 'Legal / Compliance',
+      priority: 'High',
+      framework: '45 CFR § 164.314',
+    }
+  },
+  gdpr: {
+    fail: {
+      title: 'GDPR — Unlawful Processing of Personal Data',
+      why: 'This AI agent processes personal data without verified lawful basis under GDPR Article 6. Automated decision-making may also require DPIA under Article 35.',
+      steps: [
+        { step: 'Identify lawful basis for processing (consent, contract, legitimate interest, etc.)', effort: '2 days', owner: 'Legal / DPO' },
+        { step: 'Conduct Data Protection Impact Assessment (DPIA) if high-risk processing', effort: '2 weeks', owner: 'DPO / Compliance' },
+        { step: 'Update privacy notices to include AI processing disclosure', effort: '3 days', owner: 'Legal / Marketing' },
+        { step: 'Implement data subject rights mechanism (access, deletion, portability)', effort: '1 week', owner: 'Engineering' },
+        { step: 'Ensure data minimization — AI only accesses necessary personal data', effort: '1 week', owner: 'Engineering' },
+        { step: 'Configure data retention limits for AI-processed personal data', effort: '3 days', owner: 'Engineering' },
+      ],
+      deadline: 'Immediate — potential GDPR violation',
+      effort: 'High — 3–5 weeks',
+      owner: 'DPO + Legal + Engineering',
+      priority: 'High',
+      framework: 'GDPR Art. 6, 13, 35',
+    },
+    warn: {
+      title: 'GDPR — Data Processing Assessment Pending',
+      why: 'This AI agent accesses personal data. GDPR compliance requires documented lawful basis and potentially a DPIA.',
+      steps: [
+        { step: 'Document lawful basis for AI processing of personal data', effort: '2 days', owner: 'Legal / DPO' },
+        { step: 'Assess if DPIA is required (automated decisions, large-scale processing)', effort: '1 day', owner: 'DPO' },
+        { step: 'Add AI processing to Records of Processing Activities (RoPA)', effort: '1 day', owner: 'DPO' },
+        { step: 'Verify data minimization — remove unnecessary PII from AI inputs', effort: '3 days', owner: 'Engineering' },
+      ],
+      deadline: 'Within 60 days',
+      effort: 'Medium — 1–2 weeks',
+      owner: 'DPO / Legal',
+      priority: 'Medium',
+      framework: 'GDPR Art. 6, 30, 35',
+    }
+  },
+  soc2: {
+    warn: {
+      title: 'SOC 2 — AI Controls Not Audited',
+      why: 'This AI system has not been included in SOC 2 audit scope. AI systems processing customer data must demonstrate appropriate controls.',
+      steps: [
+        { step: 'Add AI agent to SOC 2 audit scope and asset inventory', effort: '1 day', owner: 'Compliance' },
+        { step: 'Implement access controls and least-privilege for AI system', effort: '1 week', owner: 'Engineering / IT' },
+        { step: 'Enable comprehensive audit logging for AI operations', effort: '3 days', owner: 'Engineering' },
+        { step: 'Document AI system in security policies and procedures', effort: '3 days', owner: 'Compliance' },
+        { step: 'Include AI controls in next SOC 2 assessment', effort: 'Ongoing', owner: 'CISO / Auditor' },
+      ],
+      deadline: 'Before next SOC 2 audit',
+      effort: 'Medium — 2–3 weeks',
+      owner: 'CISO + Compliance',
+      priority: 'Medium',
+      framework: 'SOC 2 CC6, CC7, CC9',
+    }
+  },
+  nist: {
+    warn: {
+      title: 'NIST AI RMF — Governance Framework Not Applied',
+      why: 'This AI system has not been mapped to the NIST AI Risk Management Framework. NIST AI RMF compliance requires systematic risk identification, assessment, and management.',
+      steps: [
+        { step: 'MAP: Document AI system context, purpose, and stakeholders', effort: '2 days', owner: 'AI Owner / CISO' },
+        { step: 'MAP: Identify AI risks (bias, reliability, privacy, security)', effort: '3 days', owner: 'AI Owner / Risk' },
+        { step: 'MEASURE: Implement metrics for AI system performance and risk', effort: '1 week', owner: 'Engineering' },
+        { step: 'MANAGE: Create risk treatment plan for identified AI risks', effort: '1 week', owner: 'CISO / Risk' },
+        { step: 'GOVERN: Assign AI system owner and establish oversight process', effort: '1 day', owner: 'CISO' },
+      ],
+      deadline: 'Within 90 days',
+      effort: 'Medium — 2–4 weeks',
+      owner: 'CISO + AI Owner',
+      priority: 'Medium',
+      framework: 'NIST AI RMF 1.0',
+    }
+  },
+  iso27001: {
+    warn: {
+      title: 'ISO 27001 — AI System Not in ISMS Scope',
+      why: 'This AI system has not been included in the Information Security Management System (ISMS) scope. ISO 27001 requires all information assets to be managed under the ISMS.',
+      steps: [
+        { step: 'Add AI system to ISMS asset register with classification', effort: '1 day', owner: 'ISMS Manager / IT' },
+        { step: 'Conduct information security risk assessment for AI system', effort: '3 days', owner: 'ISMS Manager' },
+        { step: 'Apply relevant ISO 27001 Annex A controls (A.8, A.9, A.12)', effort: '2 weeks', owner: 'Engineering / IT' },
+        { step: 'Include AI system in annual ISMS internal audit', effort: 'Ongoing', owner: 'Internal Auditor' },
+      ],
+      deadline: 'Before next ISO 27001 surveillance audit',
+      effort: 'Medium — 2 weeks',
+      owner: 'ISMS Manager / IT',
+      priority: 'Medium',
+      framework: 'ISO 27001:2022 Annex A',
+    }
+  },
+  hitrust: {
+    fail: {
+      title: 'HITRUST — Healthcare AI Controls Required',
+      why: 'This AI system handles healthcare data and requires HITRUST CSF controls. Missing controls could jeopardize HITRUST certification.',
+      steps: [
+        { step: 'Map AI system to applicable HITRUST CSF control categories', effort: '3 days', owner: 'Compliance' },
+        { step: 'Implement required technical safeguards (encryption, access control)', effort: '1 week', owner: 'Engineering' },
+        { step: 'Document AI system in HITRUST MyCSF assessment', effort: '2 days', owner: 'Compliance' },
+        { step: 'Complete gap assessment for AI-specific HITRUST controls', effort: '1 week', owner: 'Compliance / Auditor' },
+      ],
+      deadline: 'Before next HITRUST assessment',
+      effort: 'High — 3–4 weeks',
+      owner: 'Compliance + Engineering',
+      priority: 'High',
+      framework: 'HITRUST CSF v11',
+    },
+    warn: {
+      title: 'HITRUST — AI Controls Assessment Pending',
+      why: 'HITRUST compliance status for this AI system has not been assessed.',
+      steps: [
+        { step: 'Determine if AI system falls in HITRUST assessment scope', effort: '1 day', owner: 'Compliance' },
+        { step: 'Map to HITRUST control requirements if in scope', effort: '3 days', owner: 'Compliance' },
+      ],
+      deadline: 'Within 60 days',
+      effort: 'Low — 1 week',
+      owner: 'Compliance',
+      priority: 'Medium',
+      framework: 'HITRUST CSF v11',
+    }
+  },
+  fda_samd: {
+    warn: {
+      title: 'FDA SaMD — Medical AI Device Validation Required',
+      why: 'This AI system may qualify as Software as a Medical Device (SaMD) under FDA 21 CFR. SaMD requires 510(k) clearance or De Novo classification before clinical use.',
+      steps: [
+        { step: 'Determine if AI system meets FDA SaMD definition (clinical decision support)', effort: '2 days', owner: 'Regulatory Affairs / Legal' },
+        { step: 'If SaMD: classify risk level (Class I, II, or III)', effort: '3 days', owner: 'Regulatory Affairs' },
+        { step: 'Prepare 510(k) submission or De Novo request if Class II/III', effort: '3–6 months', owner: 'Regulatory Affairs' },
+        { step: 'Implement FDA-required clinical validation studies', effort: '3–12 months', owner: 'Clinical / Engineering' },
+        { step: 'Establish post-market surveillance and adverse event reporting', effort: '2 weeks', owner: 'Regulatory / Engineering' },
+      ],
+      deadline: 'Before clinical deployment',
+      effort: 'Very High — 3–12 months',
+      owner: 'Regulatory Affairs + Clinical',
+      priority: 'Critical',
+      framework: 'FDA 21 CFR Part 820, SaMD Guidance',
+    }
+  }
+};
+
+function getRemediations(controls) {
+  const items = [];
+  if (!controls) return items;
+  Object.entries(controls).forEach(([fw, status]) => {
+    if (status === 'pass') return;
+    const fwData = REMEDIATION[fw];
+    if (!fwData) return;
+    const rec = fwData[status] || fwData['warn'];
+    if (rec) items.push({ framework: fw, status, ...rec });
+  });
+  // Sort by priority
+  const order = {Critical:0, High:1, Medium:2, Low:3};
+  items.sort((a,b) => (order[a.priority]||3) - (order[b.priority]||3));
+  return items;
+}
+
+function renderRemediations(controls, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const items = getRemediations(controls);
+  if (items.length === 0) {
+    container.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text-muted);text-align:center">✅ No remediation required — all controls passing</div>';
+    return;
+  }
+  container.innerHTML = items.map(item => {
+    const priColor = {Critical:'var(--red-text)',High:'var(--amber-text)',Medium:'var(--brand)',Low:'var(--green-text)'}[item.priority] || 'var(--text-muted)';
+    const priBg = {Critical:'var(--red-bg)',High:'var(--amber-bg)',Medium:'var(--brand-bg)',Low:'var(--green-bg)'}[item.priority] || 'var(--bg-secondary)';
+    const stepsList = item.steps.map((s,i) =>
+      `<div style="display:flex;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--glass-border-dim)">
+        <span style="width:18px;height:18px;border-radius:50%;background:var(--brand-bg);color:var(--brand);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</span>
+        <div style="flex:1">
+          <div style="font-size:12px;color:var(--text-primary)">${s.step}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">⏱ ${s.effort} &nbsp;·&nbsp; 👤 ${s.owner}</div>
+        </div>
+      </div>`
+    ).join('');
+    return `<div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:10px;margin-bottom:10px;overflow:hidden">
+      <div style="padding:10px 14px;background:${priBg};border-bottom:1px solid var(--glass-border-dim);display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:${priColor};color:white">${item.priority}</span>
+        <span style="font-size:13px;font-weight:700;color:var(--text-primary)">${item.title}</span>
+      </div>
+      <div style="padding:10px 14px">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">${item.why}</div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">Remediation Steps</div>
+        ${stepsList}
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px">
+          <div style="background:var(--bg-secondary);border-radius:6px;padding:6px 10px">
+            <div style="font-size:10px;color:var(--text-muted)">Deadline</div>
+            <div style="font-size:11px;font-weight:600;color:var(--text-primary)">${item.deadline}</div>
+          </div>
+          <div style="background:var(--bg-secondary);border-radius:6px;padding:6px 10px">
+            <div style="font-size:10px;color:var(--text-muted)">Effort</div>
+            <div style="font-size:11px;font-weight:600;color:var(--text-primary)">${item.effort}</div>
+          </div>
+          <div style="background:var(--bg-secondary);border-radius:6px;padding:6px 10px">
+            <div style="font-size:10px;color:var(--text-muted)">Owner</div>
+            <div style="font-size:11px;font-weight:600;color:var(--text-primary)">${item.owner}</div>
+          </div>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:6px">
+          <button class="btn sm" onclick="createJiraTicket(${JSON.stringify({title:item.title,priority:item.priority,framework:item.framework,deadline:item.deadline,owner:item.owner,steps:item.steps.map(s=>s.step)})})" 
+            style="font-size:11px;background:linear-gradient(135deg,#0052CC,#0065FF);color:white;border:none">
+            🎫 Create Jira Ticket
+          </button>
+          <span style="font-size:10px;color:var(--text-muted);align-self:center">${item.framework}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function createJiraTicket(data) {
+  // Check if Jira is configured
+  const jiraUrl = localStorage.getItem('ar-jira-url');
+  const jiraToken = localStorage.getItem('ar-jira-token');
+  const jiraProject = localStorage.getItem('ar-jira-project');
+
+  if (!jiraUrl || !jiraToken || !jiraProject) {
+    // Show Jira config modal
+    const url = prompt('Jira URL (e.g. https://yourcompany.atlassian.net):');
+    if (!url) return;
+    const token = prompt('Jira API Token (from id.atlassian.com/manage-profile/security/api-tokens):');
+    if (!token) return;
+    const email = prompt('Your Jira email:');
+    if (!email) return;
+    const project = prompt('Jira Project Key (e.g. SEC, COMP):');
+    if (!project) return;
+    localStorage.setItem('ar-jira-url', url);
+    localStorage.setItem('ar-jira-token', btoa(email+':'+token));
+    localStorage.setItem('ar-jira-project', project);
+  }
+
+  const savedUrl = localStorage.getItem('ar-jira-url');
+  const savedToken = localStorage.getItem('ar-jira-token');
+  const savedProject = localStorage.getItem('ar-jira-project');
+
+  const priorityMap = {Critical:'Highest', High:'High', Medium:'Medium', Low:'Low'};
+  const description = `*Why this matters:*\n${data.title}\n\n*Remediation Steps:*\n${data.steps.map((s,i)=>`${i+1}. ${s}`).join('\n')}\n\n*Deadline:* ${data.deadline}\n*Framework:* ${data.framework}\n\n_Created by AgentRadar_`;
+
+  try {
+    showScannerToast('Creating Jira ticket...', false);
+    const resp = await fetch(savedUrl+'/rest/api/3/issue', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic '+savedToken,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        fields: {
+          project: { key: savedProject },
+          summary: '[AgentRadar] '+data.title,
+          description: { type:'doc', version:1, content:[{type:'paragraph',content:[{type:'text',text:description}]}] },
+          issuetype: { name: 'Task' },
+          priority: { name: priorityMap[data.priority] || 'Medium' },
+          labels: ['agentRadar', 'ai-governance', data.framework.replace(/\s+/g,'-').toLowerCase()],
+        }
+      })
+    });
+
+    if (resp.ok) {
+      const issue = await resp.json();
+      showScannerToast('Jira ticket created: '+issue.key, false);
+      window.open(savedUrl+'/browse/'+issue.key, '_blank');
+    } else {
+      const err = await resp.json();
+      showScannerToast('Jira error: '+(err.errorMessages?.[0]||resp.status), true);
+    }
+  } catch(e) {
+    // Jira may block CORS — open pre-filled URL instead
+    showScannerToast('Opening Jira (CORS blocked direct API)...', false);
+    window.open(savedUrl+'/secure/CreateIssueDetails!init.jspa?pid='+savedProject+'&issuetype=10002&summary='+encodeURIComponent('[AgentRadar] '+data.title)+'&priority='+encodeURIComponent(priorityMap[data.priority]||'Medium'), '_blank');
+  }
+}
+/* ══ END REMEDIATION ENGINE ══════════════════════════════ */
 
 function doSignOut() {
   if (!confirm('Sign out of AgentRadar?')) return;
