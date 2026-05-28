@@ -1023,97 +1023,172 @@ const CLOUD_SERVICE_SCANNER_MAP = {
 };
 
 async function discoverAzure(tenantId, clientId, clientSecret, subscriptionId) {
-  const log = []; const discovered = { services:[], scanners:new Set(), agents:[] };
+  const log = [];
+  const discovered = { services:[], scanners:new Set(), agents:[] };
+
   try {
-    const tokenResp = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
-      method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:`client_id=${clientId}&client_secret=${clientSecret}&scope=https://management.azure.com/.default&grant_type=client_credentials`
-    }).then(r=>r.json());
-    if (!tokenResp.access_token) throw new Error('Azure auth failed: '+(tokenResp.error_description||tokenResp.error));
+    // ── Step 1: Authenticate ─────────────────────────────────
+    const tokenResp = await fetch(
+      `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+      { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:`client_id=${clientId}&client_secret=${encodeURIComponent(clientSecret)}&scope=https://management.azure.com/.default&grant_type=client_credentials`
+      }).then(r=>r.json());
+
+    if (!tokenResp.access_token)
+      throw new Error('Azure auth failed: '+(tokenResp.error_description||tokenResp.error));
+
     const token = tokenResp.access_token;
-    log.push({step:'auth',status:'ok',msg:'Azure authentication successful'});
+    log.push({step:'auth', status:'ok', msg:'Azure authentication successful'});
 
-    const resources = await fetch(`https://management.azure.com/subscriptions/${subscriptionId}/resources?api-version=2021-04-01`,
-      {headers:{'Authorization':'Bearer '+token}}).then(r=>r.json()).catch(()=>({value:[]}));
-    const resourceList = resources.value||[];
-    log.push({step:'inventory',status:'ok',msg:`Found ${resourceList.length} Azure resources`});
+    // ── Step 2: Get ALL resources across ALL resource groups and regions ──
+    let allResources = [];
+    let nextLink = `https://management.azure.com/subscriptions/${subscriptionId}/resources?api-version=2021-04-01&$top=1000`;
 
-    const typeSet = new Set(resourceList.map(r=>r.type?.split('/')[0]));
-    typeSet.forEach(type=>{
-      const scanners = CLOUD_SERVICE_SCANNER_MAP.azure[type]||[];
-      scanners.forEach(s=>discovered.scanners.add(s));
-      if (scanners.length) { discovered.services.push({type,scanners}); log.push({step:'map',status:'ok',msg:`${type} → ${scanners.join(', ')}`}); }
+    while (nextLink) {
+      const page = await fetch(nextLink, {headers:{'Authorization':'Bearer '+token}}).then(r=>r.json()).catch(()=>({value:[]}));
+      allResources = allResources.concat(page.value||[]);
+      nextLink = page.nextLink || null;
+    }
+
+    log.push({step:'inventory', status:'ok', msg:`Found ${allResources.length} resources across all resource groups and regions`});
+
+    // ── Step 3: Classify ALL resources — not just known types ─
+    // Any resource could be AI-related. Cast wide net.
+    const AI_TYPE_KEYWORDS = [
+      'cognitiveservices','machinelearning','search','botservice',
+      'openai','aiservices','anomalydetector','formrecognizer',
+      'textanalytics','computervision','face','speechservices',
+      'contentmoderator','personalizer','metrics','immersivereader',
+      'luisruntime','qnamaker','translatortext','apimanagement',
+      'containerservice','containerregistry','documentdb','cosmos',
+      'synapse','databricks','hdinsight','streamanalytics',
+      'logic','automation','web/sites','functions'
+    ];
+
+    const AI_NAME_KEYWORDS = [
+      'openai','gpt','llm','ai','ml','cognitive','search','bot',
+      'copilot','aoai','orchestrator','hub','model','inference',
+      'embedding','vector','semantic','nlp','vision','speech',
+      'translate','detect','classify','predict','forecast','score',
+      'agent','assistant','chat','completion','prompt','rag'
+    ];
+
+    // Map resource types to scanner IDs
+    const TYPE_SCANNER_MAP = {
+      'microsoft.cognitiveservices': ['sc-cloud-azure','sc-purview'],
+      'microsoft.machinelearningservices': ['sc-cloud-azure'],
+      'microsoft.machinelearning': ['sc-cloud-azure'],
+      'microsoft.search': ['sc-cloud-azure'],
+      'microsoft.botservice': ['sc-m365-copilot-ext'],
+      'microsoft.containerservice': ['sc-k8s'],
+      'microsoft.containerregistry': ['sc-container-reg'],
+      'microsoft.keyvault': ['sc-shadow-apikey'],
+      'microsoft.storage': ['sc-model-artifact'],
+      'microsoft.apimanagement': ['sc-cloud-azure'],
+      'microsoft.documentdb': ['sc-cloud-azure'],
+      'microsoft.web': ['sc-cloud-azure'],
+      'microsoft.synapse': ['sc-cloud-azure'],
+      'microsoft.databricks': ['sc-cloud-azure'],
+    };
+
+    // Determine agent type and risk from resource
+    function classifyResource(res) {
+      const type = (res.type||'').toLowerCase();
+      const name = (res.name||'').toLowerCase();
+      const kind = (res.kind||'').toLowerCase();
+
+      if (type.includes('cognitiveservices') || kind.includes('openai') || name.includes('aoai') || name.includes('openai'))
+        return { agentType:'llm', risk:'high', pii:true, phi:false, protocols:['Azure OpenAI API','REST'], label:'Azure OpenAI' };
+      if (type.includes('search') || name.includes('search'))
+        return { agentType:'ai-search', risk:'medium', pii:true, phi:false, protocols:['Azure AI Search REST API'], label:'Azure AI Search' };
+      if (type.includes('botservice') || name.includes('bot'))
+        return { agentType:'chatbot', risk:'high', pii:true, phi:false, protocols:['Bot Framework','REST'], label:'Azure Bot Service' };
+      if (type.includes('apimanagement') || name.includes('apim'))
+        return { agentType:'api-gateway', risk:'medium', pii:true, phi:false, protocols:['REST','APIM'], label:'Azure API Management' };
+      if (type.includes('documentdb') || name.includes('cosmos'))
+        return { agentType:'data-store', risk:'high', pii:true, phi:false, protocols:['CosmosDB API','REST'], label:'Azure Cosmos DB' };
+      if (type.includes('machinelearning') || name.includes('mlworkspace'))
+        return { agentType:'ml-workspace', risk:'high', pii:true, phi:false, protocols:['Azure ML REST API'], label:'Azure ML Workspace' };
+      if (type.includes('containerservice') || name.includes('aks'))
+        return { agentType:'container-platform', risk:'medium', pii:false, phi:false, protocols:['Kubernetes API'], label:'AKS Cluster' };
+      if (type.includes('synapse') || name.includes('synapse'))
+        return { agentType:'data-platform', risk:'high', pii:true, phi:false, protocols:['Synapse REST API'], label:'Azure Synapse' };
+      if (name.includes('hub') || name.includes('orchestrator') || name.includes('foundry'))
+        return { agentType:'agent', risk:'high', pii:true, phi:false, protocols:['Azure AI Foundry','REST'], label:'AI Orchestrator' };
+      if (type.includes('web/sites') || name.includes('func') || name.includes('function'))
+        return { agentType:'serverless', risk:'medium', pii:false, phi:false, protocols:['HTTP','REST'], label:'Azure Function/Web App' };
+      return { agentType:'azure-service', risk:'low', pii:false, phi:false, protocols:['Azure REST API'], label:res.type };
+    }
+
+    // Filter for AI-related resources
+    const aiResources = allResources.filter(res => {
+      const type = (res.type||'').toLowerCase();
+      const name = (res.name||'').toLowerCase();
+      const kind = (res.kind||'').toLowerCase();
+      return AI_TYPE_KEYWORDS.some(k => type.includes(k)) ||
+             AI_NAME_KEYWORDS.some(k => name.includes(k)) ||
+             AI_NAME_KEYWORDS.some(k => kind.includes(k));
     });
 
-    // Detect all AI-related resources by type and name patterns
-    const AI_TYPES = [
-      'CognitiveServices','MachineLearning','Search/searchServices',
-      'BotService','ApiManagement','DocumentDB'
-    ];
-    const AI_NAME_PATTERNS = [
-      'openai','gpt','llm','ai','ml','cognitive','search',
-      'bot','copilot','aoai','orchestrator','hub'
-    ];
-    const aiResources = resourceList.filter(r => {
-      const typeMatch = AI_TYPES.some(t => r.type?.includes(t));
-      const nameMatch = AI_NAME_PATTERNS.some(p => r.name?.toLowerCase().includes(p));
-      return typeMatch || nameMatch;
+    // Enable scanners based on resource types found
+    allResources.forEach(res => {
+      const typePrefix = (res.type||'').split('/')[0].toLowerCase();
+      const scanners = TYPE_SCANNER_MAP[typePrefix] || [];
+      scanners.forEach(s => discovered.scanners.add(s));
     });
+
+    log.push({step:'ai-resources', status:'ok',
+      msg:`Found ${aiResources.length} AI-related resources across ${new Set(aiResources.map(r=>r.resourceGroup||r.id?.split('/')[4]||'unknown')).size} resource groups`});
+
+    // ── Step 4: Register each AI resource as an agent ─────────
     for (const res of aiResources) {
-      // Determine risk and type based on resource type
-      const resTypeLower = (res.type||'').toLowerCase();
-      const resNameLower = (res.name||'').toLowerCase();
-      let agentRisk = 'medium';
-      let agentType = res.type?.split('/').pop() || 'azure-ai';
-      let agentPhi = false;
-      let agentPii = false;
-      let agentProtocols = ['Azure REST API'];
-
-      if (resTypeLower.includes('cognitiveservices') || resNameLower.includes('aoai') || resNameLower.includes('openai')) {
-        agentType = 'llm'; agentRisk = 'high'; agentPii = true;
-        agentProtocols = ['Azure OpenAI API','REST'];
-      } else if (resTypeLower.includes('search')) {
-        agentType = 'ai-search'; agentRisk = 'medium';
-        agentProtocols = ['Azure AI Search API','REST'];
-      } else if (resTypeLower.includes('apimanagement')) {
-        agentType = 'api-gateway'; agentRisk = 'medium';
-        agentProtocols = ['REST','APIM'];
-      } else if (resTypeLower.includes('documentdb') || resNameLower.includes('cosmos')) {
-        agentType = 'data-store'; agentRisk = 'high'; agentPii = true;
-        agentProtocols = ['CosmosDB API','REST'];
-      } else if (resNameLower.includes('orchestrator') || resNameLower.includes('hub')) {
-        agentType = 'agent'; agentRisk = 'high'; agentPii = true;
-        agentProtocols = ['Azure AI Foundry','REST'];
-      }
+      const rg = res.resourceGroup || res.id?.split('/')[4] || 'unknown';
+      const region = res.location || 'unknown';
+      const classification = classifyResource(res);
 
       discovered.agents.push({
         name: res.name,
-        type: agentType,
+        type: classification.agentType,
         env: 'Cloud',
-        risk: agentRisk,
+        risk: classification.risk,
         shadow: false,
-        phi: agentPhi,
-        pii: agentPii,
-        protocols: agentProtocols,
+        phi: classification.phi,
+        pii: classification.pii,
+        protocols: classification.protocols,
         detect: 'Azure auto-discovery',
-        notes: `${res.type} in ${res.location} (Resource Group: ${res.resourceGroup||'unknown'})`,
+        notes: `${classification.label} | Resource Group: ${rg} | Region: ${region} | Type: ${res.type}`,
         controls: {soc2:'warn',gdpr:'warn',hipaa:'warn',nist:'warn',euai:'warn',iso27001:'warn'}
       });
-    }
-    log.push({step:'ai-resources',status:'ok',msg:`Found ${aiResources.length} AI-related resources`});
 
-    // Check M365/Graph
-    const graphToken = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
-      method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:`client_id=${clientId}&client_secret=${clientSecret}&scope=https://graph.microsoft.com/.default&grant_type=client_credentials`
-    }).then(r=>r.json()).catch(()=>({}));
+      log.push({step:'found', status:'found',
+        msg:`Discovered: ${res.name} (${classification.label}) in ${rg} / ${region}`});
+    }
+
+    // ── Step 5: Check M365/Graph access ───────────────────────
+    const graphToken = await fetch(
+      `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+      { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:`client_id=${clientId}&client_secret=${encodeURIComponent(clientSecret)}&scope=https://graph.microsoft.com/.default&grant_type=client_credentials`
+      }).then(r=>r.json()).catch(()=>({}));
+
     if (graphToken.access_token) {
       ['sc-m365-copilot-ext','sc-browser-ext','sc-email-ai'].forEach(s=>discovered.scanners.add(s));
-      log.push({step:'m365',status:'ok',msg:'M365/Graph access confirmed — Copilot, browser, email scanners enabled'});
+      log.push({step:'m365', status:'ok', msg:'M365/Graph access confirmed — Copilot, browser, email scanners enabled'});
+    } else {
+      log.push({step:'m365', status:'warn', msg:'M365/Graph not accessible — Copilot scanners not enabled'});
     }
-  } catch(e) { log.push({step:'error',status:'error',msg:e.message}); }
-  return {cloud:'azure',...discovered,scanners:[...discovered.scanners],log};
-}
+
+    // ── Step 6: Summary ───────────────────────────────────────
+    const regions = [...new Set(aiResources.map(r=>r.location||'unknown'))];
+    const rgs = [...new Set(aiResources.map(r=>r.resourceGroup||r.id?.split('/')[4]||'unknown'))];
+    log.push({step:'summary', status:'ok',
+      msg:`Discovery complete: ${aiResources.length} AI agents found across ${rgs.length} resource groups in ${regions.join(', ')}`});
+
+  } catch(e) {
+    log.push({step:'error', status:'error', msg:e.message});
+  }
+
+  return {cloud:'azure', ...discovered, scanners:[...discovered.scanners], log};}
 
 async function discoverNetwork(cidrRanges) {
   const net = require('net');
