@@ -5980,29 +5980,73 @@ function testConn(name) {
   if (!log) return;
   log.innerHTML = '<div class="log-acc">[INIT] Validating '+name+' credentials…</div>';
 
-  // Read credentials from integration panel fields
+  // Read credentials — prefer form fields, fall back to saved DB credentials
+  const saved = (window._savedCreds||{})[name] || {};
   const credMap = {
-    azure: { tenantId: document.getElementById('ci-az-tenant')?.value?.trim(),
-             clientId: document.getElementById('ci-az-client')?.value?.trim(),
-             clientSecret: document.getElementById('ci-az-secret')?.value?.trim(),
-             subscriptionId: document.getElementById('ci-az-sub')?.value?.trim() },
-    aws:   { accessKeyId: document.getElementById('ci-aws-key')?.value?.trim(),
-             secretAccessKey: document.getElementById('ci-aws-secret')?.value?.trim(),
-             region: document.getElementById('ci-aws-region')?.value?.trim() || 'us-east-1' },
-    gcp:   { projectId: document.getElementById('ci-gcp-project')?.value?.trim(),
-             serviceAccountKey: document.getElementById('ci-gcp-key')?.value?.trim() },
-    github:{ token: document.getElementById('ci-gh-token')?.value?.trim(),
-             org: document.getElementById('ci-gh-org')?.value?.trim() },
+    azure: {
+      tenantId: document.getElementById('ci-az-tenant')?.value?.trim() || saved.tenantId || '',
+      clientId: document.getElementById('ci-az-client')?.value?.trim() || saved.clientId || '',
+      clientSecret: document.getElementById('ci-az-secret')?.value?.trim() ||
+                    (saved.clientSecret && saved.clientSecret !== '••••••••' ? saved.clientSecret : '') || '',
+      subscriptionId: document.getElementById('ci-az-sub')?.value?.trim() || saved.subscriptionId || ''
+    },
+    aws: {
+      accessKeyId: document.getElementById('ci-aws-key')?.value?.trim() || saved.accessKeyId || '',
+      secretAccessKey: document.getElementById('ci-aws-secret')?.value?.trim() ||
+                       (saved.secretAccessKey && saved.secretAccessKey !== '••••••••' ? saved.secretAccessKey : '') || '',
+      region: document.getElementById('ci-aws-region')?.value?.trim() || saved.region || 'us-east-1'
+    },
+    gcp: {
+      projectId: document.getElementById('ci-gcp-project')?.value?.trim() || saved.projectId || '',
+      serviceAccountKey: document.getElementById('ci-gcp-key')?.value?.trim() ||
+                         (saved.serviceAccountKey && saved.serviceAccountKey !== '••••••••' ? saved.serviceAccountKey : '') || ''
+    },
+    github: {
+      token: document.getElementById('ci-gh-token')?.value?.trim() || saved.token || '',
+      org: document.getElementById('ci-gh-org')?.value?.trim() || saved.org || ''
+    },
   };
 
   const creds = credMap[name];
   if (!creds) { log.innerHTML += '<div class="log-red">[ERROR] Unknown provider: '+name+'</div>'; return; }
 
+  // For saved credentials with masked secrets, fetch full creds from API first
+  const hasMaskedSecret = (name==='azure' && !creds.clientSecret) ||
+                          (name==='aws' && !creds.secretAccessKey) ||
+                          (name==='gcp' && !creds.serviceAccountKey);
+
+  if (hasMaskedSecret && _apiToken) {
+    log.innerHTML += '<div class="log-acc">[AUTH] Loading saved credentials from vault…</div>';
+    fetch('/api/integrations/credentials', {
+      headers: {'Authorization':'Bearer '+_apiToken}
+    }).then(r=>r.json()).then(allCreds => {
+      const fullCreds = allCreds[name];
+      if (fullCreds) {
+        // Use full creds from DB (has real secret, not masked)
+        window._savedCreds = window._savedCreds || {};
+        window._savedCreds[name] = fullCreds;
+        // Retry testConn now that creds are loaded
+        testConn(name);
+      } else {
+        log.innerHTML += '<div class="log-red">[ERROR] No saved credentials found — please fill in and save credentials first</div>';
+      }
+    }).catch(e => {
+      log.innerHTML += '<div class="log-red">[ERROR] Could not load credentials: '+e.message+'</div>';
+    });
+    return;
+  }
+
   // Check required fields
-  const missing = Object.entries(creds).filter(([k,v])=>!v).map(([k])=>k);
+  const requiredMap = {
+    azure: ['tenantId','clientId','clientSecret','subscriptionId'],
+    aws: ['accessKeyId','secretAccessKey'],
+    gcp: ['projectId','serviceAccountKey'],
+    github: ['token','org'],
+  };
+  const missing = (requiredMap[name]||[]).filter(k=>!creds[k]);
   if (missing.length > 0) {
-    log.innerHTML += '<div class="log-red">[ERROR] Missing required fields: '+missing.join(', ')+'</div>';
-    log.innerHTML += '<div class="log-red">[FAIL] Please fill in all fields above</div>';
+    log.innerHTML += '<div class="log-red">[ERROR] Missing: '+missing.join(', ')+'</div>';
+    log.innerHTML += '<div class="log-red">[FAIL] Fill in missing fields or click Save to store credentials</div>';
     return;
   }
 
