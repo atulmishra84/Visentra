@@ -1187,15 +1187,10 @@ async function discoverAzure(tenantId, clientId, clientSecret, subscriptionId) {
         detect: 'Azure auto-discovery',
         notes: `${classification.label} | Resource Group: ${rg} | Region: ${region} | Type: ${res.type}`,
         controls: (()=>{
-          // Calculate initial compliance based on known risk factors
-          const hasPhi = agentPhi || classification.phi;
-          const hasPii = agentPii || classification.pii;
-          const isShadow = false; // auto-discovered, not shadow
-          // HIPAA: fail if PHI access without known BAA
-          // GDPR: warn if PII access (needs assessment)
-          // SOC2: warn (needs audit)
-          // EU AI Act: fail for high-risk AI (medical, scoring)
-          const isHighRiskAI = ['llm','ml-workspace','agent','cds','medical-device'].includes(agentType);
+          const hasPhi = classification.phi || false;
+          const hasPii = classification.pii || false;
+          const aType = classification.agentType || 'unknown';
+          const isHighRiskAI = ['llm','ml-workspace','agent','cds','medical-device'].includes(aType);
           return {
             soc2: 'warn',
             iso27001: 'warn',
@@ -1204,7 +1199,7 @@ async function discoverAzure(tenantId, clientId, clientSecret, subscriptionId) {
             euai: isHighRiskAI ? 'fail' : 'warn',
             hipaa: hasPhi ? 'fail' : 'pass',
             hitrust: hasPhi ? 'fail' : 'warn',
-            fda_samd: agentType === 'medical-device' ? 'warn' : 'pass',
+            fda_samd: aType === 'medical-device' ? 'warn' : 'pass',
           };
         })()
       });
