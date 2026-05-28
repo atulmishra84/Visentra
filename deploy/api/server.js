@@ -411,7 +411,7 @@ app.get('/api/activity', auth, asyncHandler(async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
-});
+}));
 
 app.post('/api/activity', auth, async (req, res) => {
   const { action, detail, agent_id, severity } = req.body;
