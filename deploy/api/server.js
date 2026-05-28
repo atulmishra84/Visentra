@@ -1186,7 +1186,27 @@ async function discoverAzure(tenantId, clientId, clientSecret, subscriptionId) {
         protocols: classification.protocols,
         detect: 'Azure auto-discovery',
         notes: `${classification.label} | Resource Group: ${rg} | Region: ${region} | Type: ${res.type}`,
-        controls: {soc2:'warn',gdpr:'warn',hipaa:'warn',nist:'warn',euai:'warn',iso27001:'warn'}
+        controls: (()=>{
+          // Calculate initial compliance based on known risk factors
+          const hasPhi = agentPhi || classification.phi;
+          const hasPii = agentPii || classification.pii;
+          const isShadow = false; // auto-discovered, not shadow
+          // HIPAA: fail if PHI access without known BAA
+          // GDPR: warn if PII access (needs assessment)
+          // SOC2: warn (needs audit)
+          // EU AI Act: fail for high-risk AI (medical, scoring)
+          const isHighRiskAI = ['llm','ml-workspace','agent','cds','medical-device'].includes(agentType);
+          return {
+            soc2: 'warn',
+            iso27001: 'warn',
+            gdpr: hasPii ? 'warn' : 'pass',
+            nist: 'warn',
+            euai: isHighRiskAI ? 'fail' : 'warn',
+            hipaa: hasPhi ? 'fail' : 'pass',
+            hitrust: hasPhi ? 'fail' : 'warn',
+            fda_samd: agentType === 'medical-device' ? 'warn' : 'pass',
+          };
+        })()
       });
 
       log.push({step:'found', status:'found',

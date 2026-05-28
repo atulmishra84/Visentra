@@ -5886,62 +5886,129 @@ function showBlast(ag){
    All globals prefixed 'ln' — no conflicts with v9 vars
 ======================================================== */
 const LN_COLS={SOURCE:{x:60,color:'#10b981',fill:'rgba(16,185,129,0.08)',stroke:'rgba(16,185,129,0.45)',text:'#065f46'},AGENT:{x:360,color:'#6366f1',fill:'rgba(99,102,241,0.08)',stroke:'rgba(99,102,241,0.45)',text:'#3730a3'},EXTERNAL:{x:660,color:'#8b5cf6',fill:'rgba(139,92,246,0.08)',stroke:'rgba(139,92,246,0.45)',text:'#5b21b6'},OUTPUT:{x:960,color:'#f59e0b',fill:'rgba(245,158,11,0.08)',stroke:'rgba(245,158,11,0.45)',text:'#92400e'}};
-const LN_NODES=[
-  {id:'src-ehr',col:'SOURCE',label:'Epic EHR',sub:'Patient Records (PHI)',phi:true,enc:true,baa:true,risk:'medium',owner:'CIO / IT Dept',purpose:'EHR source for clinical AI agents',domain:'healthcare',y:80},
-  {id:'src-pacs',col:'SOURCE',label:'PACS / DICOM',sub:'Imaging Data (PHI)',phi:true,enc:true,baa:true,risk:'medium',owner:'Radiology Dept',purpose:'Medical imaging for radiology AI pipeline',domain:'healthcare',y:180},
-  {id:'src-hl7',col:'SOURCE',label:'HL7 ADT Feed',sub:'ADT Messages (PHI)',phi:true,enc:false,baa:false,risk:'critical',owner:'Unknown',purpose:'UNAUTHORIZED shadow HL7 source',domain:'healthcare',y:280},
-  {id:'src-meds',col:'SOURCE',label:'Medication DB',sub:'Drug Records (de-id)',phi:false,enc:true,baa:true,risk:'low',owner:'Pharmacy Dept',purpose:'De-identified drug interaction source',domain:'healthcare',y:380},
-  {id:'src-genome',col:'SOURCE',label:'Genomics DB',sub:'Genomic Seq. (PHI)',phi:true,enc:true,baa:false,risk:'high',owner:'Research Lab',purpose:'Genomic sequences for polygenic risk scoring',domain:'healthcare',y:480},
-  {id:'src-crm',col:'SOURCE',label:'Salesforce CRM',sub:'Customer Records (PII)',phi:false,enc:true,baa:false,risk:'low',owner:'Sales Ops',purpose:'CRM data for sales AI automation',domain:'general',y:600},
-  {id:'src-slack',col:'SOURCE',label:'Slack Workspace',sub:'Internal Comms (PII)',phi:false,enc:true,baa:false,risk:'high',owner:'Shadow / Unknown',purpose:'UNAUTHORIZED unapproved data extraction',domain:'general',y:700},
-  {id:'src-hr',col:'SOURCE',label:'HR / Workday',sub:'CV & Personal Info (PII)',phi:false,enc:true,baa:false,risk:'medium',owner:'HR Department',purpose:'Resume data for screening agent',domain:'general',y:800},
-  {id:'ag-patient',col:'AGENT',label:'Patient Classifier',sub:'PHI clinical risk',phi:true,enc:true,baa:false,risk:'high',owner:'Clinical AI Team',purpose:'Risk stratification no BAA in place',domain:'healthcare',y:80,ctrl:{hipaa:'fail',gdpr:'pass',soc2:'warn'}},
-  {id:'ag-radiol',col:'AGENT',label:'Radiology Pipeline',sub:'PHI DICOM / FHIR',phi:true,enc:true,baa:true,risk:'medium',owner:'Radiology AI',purpose:'Automated radiology report generation',domain:'healthcare',y:205,ctrl:{hipaa:'warn',fda_samd:'fail',soc2:'pass'}},
-  {id:'ag-hl7shad',col:'AGENT',label:'Shadow HL7',sub:'PHI unauthorized',phi:true,enc:false,baa:false,risk:'critical',owner:'UNKNOWN',purpose:'No registered purpose immediate action required',domain:'healthcare',y:280,ctrl:{hipaa:'fail',hitrust:'fail'}},
-  {id:'ag-drug',col:'AGENT',label:'Drug Interaction AI',sub:'De-identified meds',phi:false,enc:true,baa:true,risk:'low',owner:'Pharmacy AI',purpose:'Drug-drug interaction detection',domain:'healthcare',y:380,ctrl:{hipaa:'pass',fda_samd:'pass',soc2:'pass'}},
-  {id:'ag-genome',col:'AGENT',label:'Genomics Research',sub:'PHI genomic seq.',phi:true,enc:true,baa:false,risk:'high',owner:'Research Team',purpose:'Polygenic risk scoring GDPR Art.9 gap',domain:'healthcare',y:480,ctrl:{gdpr:'fail',hipaa:'warn',hitrust:'fail'}},
-  {id:'ag-sales',col:'AGENT',label:'Salesforce AI',sub:'PII CRM records',phi:false,enc:true,baa:false,risk:'low',owner:'CRM Team',purpose:'Lead scoring and sales automation',domain:'general',y:600,ctrl:{gdpr:'pass',soc2:'pass',euai:'warn'}},
-  {id:'ag-langch',col:'AGENT',label:'LangChain',sub:'PII Slack / Docs',phi:false,enc:false,baa:false,risk:'high',owner:'Shadow / Unknown',purpose:'UNAUTHORIZED Slack data extraction',domain:'general',y:700,ctrl:{gdpr:'fail',soc2:'fail'}},
-  {id:'ag-hr',col:'AGENT',label:'HR Screener',sub:'PII CV data',phi:false,enc:true,baa:false,risk:'high',owner:'HR AI Team',purpose:'Resume screening no human review loop',domain:'general',y:800,ctrl:{euai:'fail',gdpr:'fail',soc2:'pass'}},
-  {id:'ext-openai',col:'EXTERNAL',label:'OpenAI API',sub:'LLM inference',phi:false,enc:true,baa:false,risk:'high',owner:'OpenAI Inc.',purpose:'GPT-4 model endpoint',domain:'general',y:115},
-  {id:'ext-anthr',col:'EXTERNAL',label:'Anthropic API',sub:'Claude reasoning',phi:false,enc:true,baa:false,risk:'low',owner:'Anthropic PBC',purpose:'Clinical reasoning and report generation',domain:'general',y:230},
-  {id:'ext-hf',col:'EXTERNAL',label:'HuggingFace',sub:'OSS model hosting',phi:false,enc:true,baa:false,risk:'medium',owner:'HuggingFace Inc.',purpose:'Open-source model weights and inference',domain:'general',y:430},
-  {id:'ext-gcp',col:'EXTERNAL',label:'GCP Vertex AI',sub:'Cloud ML inference',phi:false,enc:true,baa:false,risk:'medium',owner:'Google LLC',purpose:'Batch genomic model inference',domain:'general',y:555},
-  {id:'ext-shadow',col:'EXTERNAL',label:'Unknown Endpoint',sub:'Destination unknown',phi:true,enc:false,baa:false,risk:'critical',owner:'UNKNOWN',purpose:'UNAUTHORIZED potential data exfiltration',domain:'general',y:280},
-  {id:'out-ehr',col:'OUTPUT',label:'EHR Write-back',sub:'Clinical notes (PHI)',phi:true,enc:true,baa:true,risk:'medium',owner:'Clinical Ops',purpose:'Structured AI decision to Epic EHR',domain:'healthcare',y:80},
-  {id:'out-rads',col:'OUTPUT',label:'Radiology Report',sub:'Structured report (PHI)',phi:true,enc:true,baa:true,risk:'medium',owner:'Radiologists',purpose:'AI-generated diagnostic report',domain:'healthcare',y:205},
-  {id:'out-shadow',col:'OUTPUT',label:'Unknown Exfil',sub:'PHI / PII uncontrolled',phi:true,enc:false,baa:false,risk:'critical',owner:'UNKNOWN',purpose:'UNAUTHORIZED active exfiltration risk',domain:'healthcare',y:280},
-  {id:'out-pharm',col:'OUTPUT',label:'Formulary System',sub:'Drug alerts (safe)',phi:false,enc:true,baa:true,risk:'low',owner:'Pharmacy IT',purpose:'Real-time drug interaction alerts',domain:'healthcare',y:380},
-  {id:'out-research',col:'OUTPUT',label:'Research Archive',sub:'Genomic scores (PHI)',phi:true,enc:true,baa:false,risk:'high',owner:'Research DB Admin',purpose:'Long-term genomic storage BAA gap',domain:'healthcare',y:480},
-  {id:'out-dw',col:'OUTPUT',label:'Data Warehouse',sub:'Analytics (anon.)',phi:false,enc:true,baa:false,risk:'low',owner:'Analytics Team',purpose:'Business intelligence pipeline',domain:'general',y:600},
-  {id:'out-slack',col:'OUTPUT',label:'Slack Exfil',sub:'PII exfiltration',phi:false,enc:false,baa:false,risk:'critical',owner:'UNKNOWN',purpose:'UNAUTHORIZED PII exfil to Slack',domain:'general',y:700},
-  {id:'out-jira',col:'OUTPUT',label:'Jira / Tickets',sub:'Anonymized insights',phi:false,enc:true,baa:false,risk:'low',owner:'DevOps / Compliance',purpose:'Remediation ticket creation',domain:'general',y:800},
-];
-const LN_EDGES=[
-  {id:'e1',from:'src-ehr',to:'ag-patient',dtype:'HL7 FHIR R4 bundle',phi:true,enc:true,baa:false,risk:'high',purpose:'PHI patient features for risk model'},
-  {id:'e2',from:'ag-patient',to:'ext-openai',dtype:'Prompt + PHI context',phi:true,enc:true,baa:false,risk:'high',purpose:'GPT-4 clinical risk inference no BAA'},
-  {id:'e3',from:'ext-openai',to:'out-ehr',dtype:'JSON risk score',phi:false,enc:true,baa:true,risk:'medium',purpose:'Structured prediction to EHR clinical note'},
-  {id:'e4',from:'src-pacs',to:'ag-radiol',dtype:'DICOM images + metadata',phi:true,enc:true,baa:true,risk:'medium',purpose:'Imaging input for radiology AI pipeline'},
-  {id:'e5',from:'ag-radiol',to:'ext-anthr',dtype:'Image features + template',phi:false,enc:true,baa:true,risk:'low',purpose:'Claude generates structured report text'},
-  {id:'e6',from:'ext-anthr',to:'out-rads',dtype:'Structured radiology report',phi:true,enc:true,baa:true,risk:'low',purpose:'AI report to radiologist review queue'},
-  {id:'e7',from:'src-hl7',to:'ag-hl7shad',dtype:'Raw HL7 v2 ADT (PHI)',phi:true,enc:false,baa:false,risk:'critical',purpose:'UNAUTHORIZED live ADT ingestion no BAA'},
-  {id:'e8',from:'ag-hl7shad',to:'ext-shadow',dtype:'PHI forwarded uncontrolled',phi:true,enc:false,baa:false,risk:'critical',purpose:'UNAUTHORIZED exfil to unknown endpoint'},
-  {id:'e9',from:'ext-shadow',to:'out-shadow',dtype:'PHI dump unknown format',phi:true,enc:false,baa:false,risk:'critical',purpose:'Active HIPAA breach immediate action required'},
-  {id:'e10',from:'src-meds',to:'ag-drug',dtype:'Drug codes (de-identified)',phi:false,enc:true,baa:true,risk:'low',purpose:'De-id drug records for interaction model'},
-  {id:'e11',from:'ag-drug',to:'ext-hf',dtype:'Drug pair query',phi:false,enc:true,baa:true,risk:'low',purpose:'HuggingFace drug interaction inference'},
-  {id:'e12',from:'ext-hf',to:'out-pharm',dtype:'Interaction alert JSON',phi:false,enc:true,baa:true,risk:'low',purpose:'Real-time formulary alert'},
-  {id:'e13',from:'src-genome',to:'ag-genome',dtype:'VCF / FHIR Genomics (PHI)',phi:true,enc:true,baa:false,risk:'high',purpose:'Genomic sequences GDPR Art.9 applies'},
-  {id:'e14',from:'ag-genome',to:'ext-gcp',dtype:'Feature matrix (PHI batch)',phi:true,enc:true,baa:false,risk:'high',purpose:'GCP Vertex AI batch inference no BAA'},
-  {id:'e15',from:'ext-gcp',to:'out-research',dtype:'Polygenic risk scores (PHI)',phi:true,enc:true,baa:false,risk:'high',purpose:'Archive BAA gap GDPR consent missing'},
-  {id:'e16',from:'src-crm',to:'ag-sales',dtype:'Salesforce JSON (PII)',phi:false,enc:true,baa:false,risk:'low',purpose:'CRM records for lead scoring model'},
-  {id:'e17',from:'ag-sales',to:'ext-hf',dtype:'Anonymized text query',phi:false,enc:true,baa:false,risk:'low',purpose:'Semantic similarity via HuggingFace'},
-  {id:'e18',from:'ext-hf',to:'out-dw',dtype:'Scored leads (anon.)',phi:false,enc:true,baa:false,risk:'low',purpose:'Analytics pipeline business intelligence'},
-  {id:'e19',from:'src-slack',to:'ag-langch',dtype:'Raw Slack messages (PII)',phi:false,enc:false,baa:false,risk:'high',purpose:'UNAUTHORIZED no consent for extraction'},
-  {id:'e20',from:'ag-langch',to:'ext-openai',dtype:'Slack content to GPT-4',phi:false,enc:false,baa:false,risk:'high',purpose:'UNAUTHORIZED summarisation of PII comms'},
-  {id:'e21',from:'ext-openai',to:'out-slack',dtype:'PII summary to Slack',phi:false,enc:false,baa:false,risk:'critical',purpose:'UNAUTHORIZED exfil active breach risk'},
-  {id:'e22',from:'src-hr',to:'ag-hr',dtype:'CV PDF + structured PII',phi:false,enc:true,baa:false,risk:'medium',purpose:'Resume data EU AI Act Art.22 applies'},
-  {id:'e23',from:'ag-hr',to:'ext-openai',dtype:'CV text to GPT-4 scoring',phi:false,enc:true,baa:false,risk:'high',purpose:'No human review loop EU AI Act violation'},
-];
+let LN_NODES = [];
+let LN_EDGES = [];
+
+function lnBuildFromAgents() {
+  const agents = DB.agents || [];
+  LN_NODES = [];
+  LN_EDGES = [];
+
+  if (agents.length === 0) return;
+
+  // ── Source nodes (data sources each agent accesses) ──────
+  const sourceMap = {};
+  const addSource = (id, label, sub, phi, domain) => {
+    if (!sourceMap[id]) {
+      sourceMap[id] = true;
+      LN_NODES.push({id, col:'SOURCE', label, sub, phi:!!phi, enc:true, baa:false, risk:phi?'high':'medium',
+        owner:'IT / Data Governance', purpose:'Data source', domain:domain||'general', y:80});
+    }
+  };
+
+  // ── Agent nodes ───────────────────────────────────────────
+  agents.forEach((a, idx) => {
+    const nodeId = 'ag-' + String(a.id).replace(/-/g,'').substring(0,8);
+    const riskColor = {critical:'#ef4444',high:'#f59e0b',medium:'#3b82f6',low:'#10b981'}[a.risk] || '#6366f1';
+
+    LN_NODES.push({
+      id: nodeId,
+      col: 'AGENT',
+      label: a.name,
+      sub: a.type + (a.env ? ' · ' + a.env : ''),
+      phi: !!a.phi,
+      pii: !!a.pii,
+      enc: false,
+      baa: !!(a.controls && a.controls.hipaa === 'pass'),
+      risk: a.risk || 'medium',
+      owner: a.owner || 'Unassigned',
+      purpose: a.detect || 'AI Agent',
+      domain: a.domain || 'general',
+      shadow: !!a.shadow,
+      region: a.region || null,
+      resourceGroup: a.resourceGroup || null,
+      riskColor,
+      y: 80 + (idx % 8) * 60,
+    });
+
+    // Auto-generate source nodes based on agent type and data access
+    if (a.phi) {
+      const srcId = 'src-phi-' + (a.domain || 'health');
+      addSource(srcId, a.domain === 'radiology' ? 'PACS / DICOM' : 'EHR / PHI Store',
+        'Protected Health Information', true, a.domain || 'healthcare');
+      LN_EDGES.push({
+        id: 'e-' + nodeId + '-phi',
+        from: srcId, to: nodeId,
+        dtype: a.protocols?.[0] || 'REST API',
+        phi: true, enc: false, baa: false,
+        risk: 'high',
+        purpose: 'PHI data flow to AI agent'
+      });
+    }
+
+    if (a.pii && !a.phi) {
+      const srcId = 'src-pii-data';
+      addSource(srcId, 'PII Data Store', 'Personally Identifiable Information', false, 'general');
+      LN_EDGES.push({
+        id: 'e-' + nodeId + '-pii',
+        from: srcId, to: nodeId,
+        dtype: a.protocols?.[0] || 'REST API',
+        phi: false, enc: false, baa: false,
+        risk: 'medium',
+        purpose: 'PII data flow to AI agent'
+      });
+    }
+
+    // External provider node
+    const providerMap = {
+      llm: 'Azure OpenAI', 'ai-search': 'Azure AI Search',
+      'ml-workspace': 'Azure ML', copilot: 'Microsoft Copilot',
+      'code-assistant': 'GitHub Copilot', 'saas-ai': 'SaaS AI Provider',
+      'medical-device': 'Medical AI Device', cds: 'Clinical Decision Support',
+    };
+    const providerLabel = providerMap[a.type] || 'AI Provider';
+    const extId = 'ext-' + (a.type || 'ai').replace(/[^a-z]/g, '-');
+    if (!sourceMap['ext-' + extId]) {
+      sourceMap['ext-' + extId] = true;
+      LN_NODES.push({
+        id: extId, col: 'EXTERNAL',
+        label: providerLabel,
+        sub: a.protocols?.[0] || 'API',
+        phi: false, enc: true, baa: false,
+        risk: 'low', owner: 'Vendor', purpose: 'AI inference provider',
+        domain: 'general', y: 80,
+      });
+    }
+    LN_EDGES.push({
+      id: 'e-' + nodeId + '-ext',
+      from: nodeId, to: extId,
+      dtype: a.protocols?.[0] || 'REST API',
+      phi: !!a.phi, enc: true, baa: false,
+      risk: a.risk || 'medium',
+      purpose: 'AI inference call'
+    });
+
+    // Output node for shadow AI
+    if (a.shadow) {
+      const outId = 'out-shadow-' + nodeId;
+      LN_NODES.push({
+        id: outId, col: 'OUTPUT',
+        label: 'Unsanctioned Output',
+        sub: 'Shadow AI — unmonitored',
+        phi: !!a.phi, enc: false, baa: false,
+        risk: 'critical', owner: 'Unknown',
+        purpose: 'Unsanctioned AI output', domain: 'general', y: 80,
+      });
+      LN_EDGES.push({
+        id: 'e-' + nodeId + '-out',
+        from: nodeId, to: outId,
+        dtype: 'Unmonitored', phi: !!a.phi,
+        enc: false, baa: false, risk: 'critical',
+        purpose: 'Shadow AI output — no governance'
+      });
+    }
+  });
+};
 const LN_NW=168,LN_NH=52;
 let lnScale=0.72,lnTx=20,lnTy=20,lnDragging=false,lnDragX=0,lnDragY=0;
 let lnFilter='all',lnSelected=null,lnPanInited=false;
@@ -6097,9 +6164,17 @@ function lnInitPan(){
 }
 function renderLineage(){
   if (_apiToken) {
-    loadLiveAgents().then(()=>{ lnInitPan(); lnDraw(); lnApply(); });
+    loadLiveAgents().then(()=>{
+      lnBuildFromAgents();
+      lnInitPan();
+      lnDraw();
+      lnApply();
+    });
   } else {
-    lnInitPan(); lnDraw(); lnApply();
+    lnBuildFromAgents();
+    lnInitPan();
+    lnDraw();
+    lnApply();
   }
 }
 
