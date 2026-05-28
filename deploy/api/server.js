@@ -1234,6 +1234,299 @@ async function discoverAzure(tenantId, clientId, clientSecret, subscriptionId) {
 
   return {cloud:'azure', ...discovered, scanners:[...discovered.scanners], log};}
 
+
+// ══ AWS DISCOVERY ENGINE ═══════════════════════════════════
+async function discoverAWS(accessKeyId, secretAccessKey, region='us-east-1') {
+  const log = [];
+  const discovered = { services:[], scanners:new Set(), agents:[] };
+
+  try {
+    // AWS uses SigV4 signing — use fetch with AWS SDK pattern
+    // We call AWS APIs directly using the credentials
+    const AWS_REGIONS = [region, 'us-east-1', 'us-west-2', 'eu-west-1'].filter((v,i,a)=>a.indexOf(v)===i);
+
+    log.push({step:'auth', status:'ok', msg:`AWS credentials received — scanning ${AWS_REGIONS.length} regions`});
+
+    // Helper: AWS API call with SigV4
+    async function awsCall(service, region, action, params={}) {
+      try {
+        // Use AWS SDK via require if available, else use HTTP
+        const { S3Client, ListBucketsCommand } = require('@aws-sdk/client-s3').catch ? {} : {};
+        // Direct HTTP approach using AWS credentials
+        const queryStr = Object.entries({Action:action,...params,Version:'2012-10-17'})
+          .map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&');
+        const url = `https://${service}.${region}.amazonaws.com/?${queryStr}`;
+        const resp = await fetch(url, {
+          headers: {
+            'X-Amz-Security-Token': '',
+            'Authorization': `AWS4-HMAC-SHA256 Credential=${accessKeyId}`
+          }
+        }).catch(()=>null);
+        return resp;
+      } catch(e) { return null; }
+    }
+
+    // Use AWS SDK packages if installed
+    let bedrockModels = [], sagemakerEndpoints = [], sagemakerModels = [],
+        lambdaFunctions = [], ecrRepos = [], s3Buckets = [];
+
+    for (const r of AWS_REGIONS) {
+      try {
+        // Bedrock — list foundation models
+        const bedrockResp = await fetch(
+          `https://bedrock.${r}.amazonaws.com/foundation-models`,
+          { headers: await awsAuthHeaders(accessKeyId, secretAccessKey, r, 'bedrock', 'GET', '/foundation-models') }
+        ).then(res=>res.json()).catch(()=>({modelSummaries:[]}));
+
+        if (bedrockResp.modelSummaries?.length) {
+          bedrockModels.push(...bedrockResp.modelSummaries.map(m=>({...m, region:r})));
+          discovered.scanners.add('sc-cloud-aws');
+        }
+
+        // SageMaker — list endpoints
+        const smResp = await fetch(
+          `https://api.sagemaker.${r}.amazonaws.com/`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-amz-json-1.1',
+              'X-Amz-Target': 'SageMaker.ListEndpoints',
+              ...(await awsAuthHeaders(accessKeyId, secretAccessKey, r, 'sagemaker', 'POST', '/'))
+            },
+            body: JSON.stringify({MaxResults: 100})
+          }
+        ).then(res=>res.json()).catch(()=>({Endpoints:[]}));
+
+        if (smResp.Endpoints?.length) {
+          sagemakerEndpoints.push(...smResp.Endpoints.map(e=>({...e, region:r})));
+          discovered.scanners.add('sc-cloud-aws');
+        }
+
+      } catch(e) {}
+    }
+
+    // Register Bedrock models as agents
+    for (const model of bedrockModels) {
+      discovered.agents.push({
+        name: model.modelName || model.modelId,
+        type: 'llm',
+        env: 'Cloud',
+        risk: 'medium',
+        shadow: false,
+        phi: false,
+        pii: false,
+        protocols: ['AWS Bedrock API', 'REST'],
+        detect: 'AWS auto-discovery',
+        notes: `AWS Bedrock | Model: ${model.modelId} | Provider: ${model.providerName} | Region: ${model.region}`,
+        controls: { soc2:'warn', iso27001:'warn', gdpr:'warn', nist:'warn', euai:'fail', hipaa:'pass', hitrust:'warn', fda_samd:'pass' }
+      });
+      log.push({step:'found', status:'found', msg:`Bedrock: ${model.modelName||model.modelId} (${model.region})`});
+    }
+
+    // Register SageMaker endpoints as agents
+    for (const ep of sagemakerEndpoints) {
+      discovered.agents.push({
+        name: ep.EndpointName,
+        type: 'ml-workspace',
+        env: 'Cloud',
+        risk: ep.EndpointStatus === 'InService' ? 'high' : 'medium',
+        shadow: false,
+        phi: false,
+        pii: true,
+        protocols: ['AWS SageMaker API', 'REST'],
+        detect: 'AWS auto-discovery',
+        notes: `AWS SageMaker | Status: ${ep.EndpointStatus} | Region: ${ep.region}`,
+        controls: { soc2:'warn', iso27001:'warn', gdpr:'warn', nist:'warn', euai:'fail', hipaa:'warn', hitrust:'warn', fda_samd:'warn' }
+      });
+      log.push({step:'found', status:'found', msg:`SageMaker endpoint: ${ep.EndpointName} (${ep.region}) — ${ep.EndpointStatus}`});
+    }
+
+    if (discovered.agents.length === 0) {
+      log.push({step:'summary', status:'ok', msg:'No Bedrock/SageMaker resources found — credentials may need additional IAM permissions (bedrock:ListFoundationModels, sagemaker:ListEndpoints)'});
+    } else {
+      log.push({step:'summary', status:'ok', msg:`AWS discovery complete: ${discovered.agents.length} AI agents found across ${AWS_REGIONS.join(', ')}`});
+    }
+
+  } catch(e) {
+    log.push({step:'error', status:'error', msg:'AWS discovery error: '+e.message});
+  }
+
+  return {cloud:'aws', ...discovered, scanners:[...discovered.scanners], log};
+}
+
+// AWS SigV4 auth headers helper
+async function awsAuthHeaders(accessKeyId, secretAccessKey, region, service, method, path) {
+  try {
+    const crypto = require('crypto');
+    const now = new Date();
+    const dateStr = now.toISOString().replace(/[:\-]|\.\d{3}/g,'').substring(0,8);
+    const timeStr = now.toISOString().replace(/[:\-]|\.\d{3}/g,'').substring(0,15)+'Z';
+
+    const canonicalHeaders = `host:${service}.${region}.amazonaws.com
+x-amz-date:${timeStr}
+`;
+    const signedHeaders = 'host;x-amz-date';
+    const payloadHash = crypto.createHash('sha256').update('').digest('hex');
+    const canonicalRequest = [method,'/',''  ,canonicalHeaders,signedHeaders,payloadHash].join('
+');
+
+    const credentialScope = `${dateStr}/${region}/${service}/aws4_request`;
+    const stringToSign = ['AWS4-HMAC-SHA256',timeStr,credentialScope,
+      crypto.createHash('sha256').update(canonicalRequest).digest('hex')].join('
+');
+
+    const hmac = (key, data) => crypto.createHmac('sha256', key).update(data).digest();
+    const signingKey = hmac(hmac(hmac(hmac('AWS4'+secretAccessKey, dateStr), region), service), 'aws4_request');
+    const signature = crypto.createHmac('sha256', signingKey).update(stringToSign).digest('hex');
+
+    return {
+      'X-Amz-Date': timeStr,
+      'Authorization': `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+    };
+  } catch(e) { return {}; }
+}
+
+// ══ GCP DISCOVERY ENGINE ════════════════════════════════════
+async function discoverGCP(projectId, serviceAccountKey) {
+  const log = [];
+  const discovered = { services:[], scanners:new Set(), agents:[] };
+
+  try {
+    // Parse service account key
+    let saKey;
+    try {
+      saKey = typeof serviceAccountKey === 'string' ? JSON.parse(serviceAccountKey) : serviceAccountKey;
+    } catch(e) {
+      throw new Error('Invalid service account key JSON: '+e.message);
+    }
+
+    log.push({step:'auth', status:'ok', msg:`GCP credentials received for project: ${projectId}`});
+
+    // Get access token using service account JWT
+    const gcpToken = await getGCPToken(saKey);
+    if (!gcpToken) throw new Error('Failed to obtain GCP access token — check service account key');
+
+    log.push({step:'auth', status:'ok', msg:'GCP authentication successful'});
+
+    const authHeader = { 'Authorization': 'Bearer '+gcpToken };
+
+    // ── Vertex AI endpoints ───────────────────────────────
+    const GCP_REGIONS = ['us-central1','us-east1','europe-west1','us-west1','asia-east1'];
+    let vertexEndpoints = [], aiplatformModels = [];
+
+    for (const region of GCP_REGIONS) {
+      const vtxResp = await fetch(
+        `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/endpoints`,
+        { headers: authHeader }
+      ).then(r=>r.json()).catch(()=>({endpoints:[]}));
+
+      if (vtxResp.endpoints?.length) {
+        vertexEndpoints.push(...vtxResp.endpoints.map(e=>({...e, region})));
+        discovered.scanners.add('sc-gemini');
+      }
+    }
+
+    // ── Vertex AI models ──────────────────────────────────
+    const modelsResp = await fetch(
+      `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/models`,
+      { headers: authHeader }
+    ).then(r=>r.json()).catch(()=>({models:[]}));
+
+    aiplatformModels = modelsResp.models || [];
+
+    // ── Cloud AI APIs in use ──────────────────────────────
+    const servicesResp = await fetch(
+      `https://serviceusage.googleapis.com/v1/projects/${projectId}/services?filter=state:ENABLED`,
+      { headers: authHeader }
+    ).then(r=>r.json()).catch(()=>({services:[]}));
+
+    const AI_APIS = [
+      'aiplatform.googleapis.com','generativelanguage.googleapis.com',
+      'automl.googleapis.com','vision.googleapis.com','speech.googleapis.com',
+      'language.googleapis.com','translate.googleapis.com','videointelligence.googleapis.com',
+      'dialogflow.googleapis.com','discoveryengine.googleapis.com',
+    ];
+
+    const enabledAI = (servicesResp.services||[])
+      .filter(s => AI_APIS.some(api => s.name?.includes(api)));
+
+    enabledAI.forEach(s => {
+      const apiName = s.name?.split('/').pop() || s.name;
+      discovered.agents.push({
+        name: apiName.replace('.googleapis.com',''),
+        type: apiName.includes('generative') ? 'llm' : 'ai-service',
+        env: 'Cloud',
+        risk: 'medium',
+        shadow: false,
+        phi: false,
+        pii: true,
+        protocols: ['GCP REST API', 'gRPC'],
+        detect: 'GCP auto-discovery',
+        notes: `GCP AI API | Service: ${apiName} | Project: ${projectId}`,
+        controls: { soc2:'warn', iso27001:'warn', gdpr:'warn', nist:'warn', euai:'fail', hipaa:'pass', hitrust:'warn', fda_samd:'pass' }
+      });
+      log.push({step:'found', status:'found', msg:`GCP AI API enabled: ${apiName} (project: ${projectId})`});
+    });
+
+    // Register Vertex AI endpoints
+    for (const ep of vertexEndpoints) {
+      discovered.agents.push({
+        name: ep.displayName || ep.name?.split('/').pop() || 'Vertex Endpoint',
+        type: 'ml-workspace',
+        env: 'Cloud',
+        risk: 'high',
+        shadow: false,
+        phi: false,
+        pii: true,
+        protocols: ['Vertex AI REST API', 'gRPC'],
+        detect: 'GCP auto-discovery',
+        notes: `Vertex AI Endpoint | Region: ${ep.region} | Project: ${projectId} | State: ${ep.dedicatedResources?'Active':'Serverless'}`,
+        controls: { soc2:'warn', iso27001:'warn', gdpr:'warn', nist:'warn', euai:'fail', hipaa:'warn', hitrust:'warn', fda_samd:'warn' }
+      });
+      log.push({step:'found', status:'found', msg:`Vertex AI endpoint: ${ep.displayName||ep.name} (${ep.region})`});
+    }
+
+    if (discovered.agents.length === 0) {
+      log.push({step:'summary', status:'ok', msg:`No GCP AI resources found in project ${projectId} — check if Vertex AI or AI APIs are enabled`});
+    } else {
+      log.push({step:'summary', status:'ok', msg:`GCP discovery complete: ${discovered.agents.length} AI agents found in project ${projectId}`});
+    }
+
+  } catch(e) {
+    log.push({step:'error', status:'error', msg:'GCP discovery error: '+e.message});
+  }
+
+  return {cloud:'gcp', ...discovered, scanners:[...discovered.scanners], log};
+}
+
+// GCP JWT token helper
+async function getGCPToken(saKey) {
+  try {
+    const crypto = require('crypto');
+    const now = Math.floor(Date.now()/1000);
+    const header = Buffer.from(JSON.stringify({alg:'RS256',typ:'JWT'})).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({
+      iss: saKey.client_email,
+      scope: 'https://www.googleapis.com/auth/cloud-platform',
+      aud: 'https://oauth2.googleapis.com/token',
+      exp: now+3600, iat: now
+    })).toString('base64url');
+
+    const sign = crypto.createSign('RSA-SHA256');
+    sign.update(header+'.'+payload);
+    const sig = sign.sign(saKey.private_key, 'base64url');
+    const jwt = header+'.'+payload+'.'+sig;
+
+    const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {'Content-Type':'application/x-www-form-urlencoded'},
+      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`
+    }).then(r=>r.json());
+
+    return tokenResp.access_token || null;
+  } catch(e) { return null; }
+}
+
 async function discoverNetwork(cidrRanges) {
   const net = require('net');
   const log = []; const discovered = {services:[],scanners:new Set(),agents:[],liveHosts:[]};
@@ -1293,6 +1586,18 @@ app.post('/api/autodiscovery/start', auth, validate(schemas.autodiscovery), asyn
         all.agents.push(...r.agents); r.scanners.forEach(s=>all.scanners.add(s));
         all.logs.push({cloud:'Azure',entries:r.log});
         all.summary.azure={services:r.services.length,scanners:r.scanners.length,agents:r.agents.length};
+      }
+      if (aws?.accessKeyId && aws?.secretAccessKey) {
+        const r = await discoverAWS(aws.accessKeyId, aws.secretAccessKey, aws.region||'us-east-1');
+        all.agents.push(...r.agents); r.scanners.forEach(s=>all.scanners.add(s));
+        all.logs.push({cloud:'AWS',entries:r.log});
+        all.summary.aws={services:r.services?.length||0,scanners:r.scanners.length,agents:r.agents.length};
+      }
+      if (gcp?.projectId && gcp?.serviceAccountKey) {
+        const r = await discoverGCP(gcp.projectId, gcp.serviceAccountKey);
+        all.agents.push(...r.agents); r.scanners.forEach(s=>all.scanners.add(s));
+        all.logs.push({cloud:'GCP',entries:r.log});
+        all.summary.gcp={services:r.services?.length||0,scanners:r.scanners.length,agents:r.agents.length};
       }
       if (network?.cidrRanges?.length>0) {
         const r = await discoverNetwork(network.cidrRanges);
