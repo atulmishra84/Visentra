@@ -4176,30 +4176,49 @@ function renderDashboard(){
   if(compEl){
     compEl.innerHTML=fws.map(fw=>{
       const pass=A.filter(a=>a.controls&&a.controls[fw.key]==='pass').length;
-      const pct=total?Math.round(pass/total*100):0;
+      const warn=A.filter(a=>a.controls&&a.controls[fw.key]==='warn').length;
+      const fail=A.filter(a=>a.controls&&a.controls[fw.key]==='fail').length;
+      const assessed=pass+fail;
+      // pct based on assessed agents only, warn = not yet assessed
+      const pct=assessed?Math.round(pass/assessed*100):0;
+      const warnPct=total?Math.round(warn/total*100):0;
       const col=pct>=80?'var(--green)':pct>=50?'var(--amber)':'var(--red)';
       const bg=pct>=80?'var(--green-bg)':pct>=50?'var(--amber-bg)':'var(--red-bg)';
+      const displayPct = assessed > 0 ? pct+'%' : warnPct > 0 ? 'Pending' : 'N/A';
       return `<div class="mm-cell" style="background:${bg}">
         <div class="mm-fw">${fw.label}</div>
-        <div class="mm-pct" style="color:${col}">${pct}%</div>
-        <div class="mm-bar" style="background:${col};width:${pct}%;margin:5px auto 0;max-width:100%"></div>
+        <div class="mm-pct" style="color:${col}">${displayPct}</div>
+        <div class="mm-bar" style="background:${col};width:${assessed>0?pct:0}%;margin:5px auto 0;max-width:100%"></div>
+        ${warn>0?`<div style="font-size:9px;color:var(--amber-text);margin-top:2px">${warn} pending</div>`:''}
       </div>`;
     }).join('');
   }
 
   /* Recent activity */
   const actEl=se('dash-activity');
-  if(actEl&&DB.activity){
-    const iconMap={reg:'📋',alert:'⚠️',scan:'🔍',info:'ℹ️'};
-    const bgMap={reg:'var(--green-bg)',alert:'var(--red-bg)',scan:'var(--brand-bg)',info:'rgba(200,210,240,0.2)'};
-    actEl.innerHTML=DB.activity.slice(0,6).map(a=>`<div class="act-row">
-      <div class="act-icon" style="background:${bgMap[a.t]||bgMap.info}">${iconMap[a.t]||'•'}</div>
-      <div class="act-body">
-        <div class="act-title">${a.msg}</div>
-        <div class="act-meta">${a.m}</div>
-      </div>
-      <span class="act-time">${a.m?.split(' · ')[1]||'recent'}</span>
-    </div>`).join('');
+  if(actEl){
+    const acts = DB.activity||[];
+    const iconMap={discovery:'🔍',reg:'📋',alert:'⚠️',scan:'🔍',info:'ℹ️',policy:'⚡',compliance:'✅'};
+    const bgMap={discovery:'var(--brand-bg)',reg:'var(--green-bg)',alert:'var(--red-bg)',scan:'var(--brand-bg)',info:'rgba(200,210,240,0.2)',policy:'var(--amber-bg)',compliance:'var(--green-bg)'};
+    if (acts.length === 0) {
+      actEl.innerHTML='<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:20px 0">No recent activity</div>';
+    } else {
+      actEl.innerHTML=acts.slice(0,6).map(a=>{
+        // Support both demo format (a.t, a.msg, a.m) and DB format (a.category, a.description, a.created_at)
+        const cat = a.category || a.t || 'info';
+        const msg = a.description || a.msg || 'Activity';
+        const who = a.created_by || '';
+        const when = a.created_at ? new Date(a.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : (a.m?.split(' · ')[1]||'recent');
+        return `<div class="act-row">
+          <div class="act-icon" style="background:${bgMap[cat]||bgMap.info}">${iconMap[cat]||'•'}</div>
+          <div class="act-body">
+            <div class="act-title">${msg}</div>
+            <div class="act-meta">${who}${who&&when?' · ':''}${when}</div>
+          </div>
+          <span class="act-time">${when}</span>
+        </div>`;
+      }).join('');
+    }
   }
 }
 
@@ -6077,10 +6096,7 @@ function lnInitPan(){
   cv.addEventListener('click',()=>{lnSelected=null;lnDraw();document.getElementById('ln-insp-name').textContent='Select a node or flow';document.getElementById('ln-insp-sub').textContent='Click any element to inspect';document.getElementById('ln-insp-main').innerHTML='<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;height:180px"><div style="font-size:18px;width:40px;height:40px;border-radius:10px;background:var(--brand-bg);border:1px solid var(--brand-border);display:flex;align-items:center;justify-content:center">&#8599;</div><div style="font-size:12px;color:var(--text-muted);line-height:1.6">Click any node or flow to inspect data type, encryption, BAA, risk, owner and purpose.</div></div>';});
 }
 function renderLineage(){
-  // Ensure we have live data before rendering lineage
-  if (_apiToken && DB.agents && DB.agents.length > 0) {
-    lnInitPan(); lnDraw(); lnApply();
-  } else if (_apiToken) {
+  if (_apiToken) {
     loadLiveAgents().then(()=>{ lnInitPan(); lnDraw(); lnApply(); });
   } else {
     lnInitPan(); lnDraw(); lnApply();
@@ -7558,7 +7574,9 @@ function openDrawer(id){
         <div class="kv"><span class="kv-k">Data access</span><span class="kv-v" style="font-size:11px">${a.dataAccess}</span></div>
         <div class="kv"><span class="kv-k">PII exposure</span><span class="kv-v" style="color:${a.pii?'#dc2626':'#059669'}">${a.pii?'Yes — flagged':'None detected'}</span></div>
         <div class="kv"><span class="kv-k">Owner</span><span class="kv-v" style="font-size:11px">${a.owner||`<span style='color:#dc2626'>Unassigned</span>`}</span></div>
-        ${a.shadow?`<div class="kv"><span class="kv-k">Detection</span><span class="kv-v" style="font-size:11px">${a.detect}</span></div>`:''}
+        <div class="kv"><span class="kv-k">Detection method</span><span class="kv-v" style="font-size:11px">${a.detect||'Manual registration'}</span></div>
+        ${a.resourceGroup?`<div class="kv"><span class="kv-k">Resource Group</span><span class="kv-v" style="font-size:11px">${a.resourceGroup}</span></div>`:''}
+        ${a.region?`<div class="kv"><span class="kv-k">Region</span><span class="kv-v" style="font-size:11px">${a.region}</span></div>`:''}
       </div>
       <div>
         <div class="drw-sec-lbl">Protocols</div>
@@ -7567,9 +7585,9 @@ function openDrawer(id){
       <div>
         <div class="drw-sec-lbl">Compliance Controls — <span style="color:${col};font-weight:700">${s}%</span></div>
         ${Object.entries(typeof a.controls==='string'?JSON.parse(a.controls||'{}'):(a.controls||{})).map(([k,v])=>`<div class="ctrl-row">
-          <span style="width:18px;height:18px;border-radius:var(--r6);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;background:${v==='pass'?'var(--green-bg)':v==='fail'?'var(--red-bg)':'var(--amber-bg)'};color:${v==='pass'?'var(--green-text)':v==='fail'?'var(--red-text)':'var(--amber-text)'}">${v==='pass'?'✓':v==='fail'?'✗':'~'}</span>
+          <span style="width:18px;height:18px;border-radius:var(--r6);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;background:${v==='pass'?'var(--green-bg)':v==='fail'?'var(--red-bg)':'var(--amber-bg)'};color:${v==='pass'?'var(--green-text)':v==='fail'?'var(--red-text)':'var(--amber-text)'}">${v==='pass'?'✓':v==='fail'?'✗':'?'}</span>
           <span style="flex:1;color:var(--text-secondary);font-weight:500">${fn[k]||k}</span>
-          <span style="font-size:11px;font-weight:700;color:${v==='pass'?'var(--green-text)':v==='fail'?'var(--red-text)':'var(--amber-text)'}">${v}</span>
+          <span style="font-size:11px;font-weight:700;color:${v==='pass'?'var(--green-text)':v==='fail'?'var(--red-text)':'var(--amber-text)'}">${v==='warn'?'Not assessed':v}</span>
         </div>`).join('')}
       </div>
       <div style="display:flex;gap:8px">
@@ -7759,32 +7777,53 @@ async function loadLiveAgents() {
     const liveAgents = await res.json();
     if (Array.isArray(liveAgents) && liveAgents.length > 0) {
       // Map API format to frontend DB format
-      const mapped = liveAgents.map((a, i) => ({
-        id: a.id || (1000 + i),
-        name: a.name || 'Unknown Agent',
-        type: a.type || 'agent',
-        env: a.env || 'Cloud',
-        protocols: (()=>{ try { return typeof a.protocols==='string' ? JSON.parse(a.protocols) : (a.protocols||[]); } catch(e){return[];} })(),
-        lastSeen: a.last_seen ? new Date(a.last_seen).toLocaleString() : 'Just now',
-        risk: a.risk || 'medium',
-        shadow: a.shadow || false,
-        detect: a.detect || 'API registration',
-        dataAccess: a.data_access || null,
-        pii: a.pii || false,
-        phi: a.phi || false,
-        domain: a.domain || null,
-        notes: a.notes || '',
-        controls: (()=>{
-          try { return typeof a.controls==='string' ? JSON.parse(a.controls) : (a.controls||{soc2:'pass',iso27001:'pass',gdpr:'pass',nist:'pass',euai:'pass',hipaa:'pass',hitrust:'pass',fda_samd:'pass'}); }
-          catch(e) { return {soc2:'pass',iso27001:'pass',gdpr:'pass',nist:'pass',euai:'pass',hipaa:'pass',hitrust:'pass',fda_samd:'pass'}; }
-        })(),
-        firstDet: a.first_detected ? a.first_detected.split('T')[0] : new Date().toISOString().split('T')[0],
-        owner: a.owner || null,
-        ver: a.version || null,
-        approved: a.approved || false,
-        quarantined: a.quarantined || false,
-        hosted: a.hosted || false,
-      }));
+      const mapped = liveAgents.map((a, i) => {
+        // Parse JSON fields safely
+        const protocols = (()=>{ try { return typeof a.protocols==='string' ? JSON.parse(a.protocols) : (a.protocols||[]); } catch(e){return[];} })();
+        const meta = (()=>{ try { return typeof a.metadata==='string' ? JSON.parse(a.metadata) : (a.metadata||{}); } catch(e){return {};} })();
+        let controls = (()=>{ try { return typeof a.controls==='string' ? JSON.parse(a.controls) : (a.controls||{}); } catch(e){return {};} })();
+
+        // Default controls for unassessed agents
+        const defaultControls = {soc2:'warn',iso27001:'warn',gdpr:'warn',nist:'warn',euai:'warn',hipaa:'warn',hitrust:'warn',fda_samd:'warn'};
+        if (Object.keys(controls).length === 0) controls = defaultControls;
+
+        // Extract detect method from metadata if not in direct field
+        const detectMethod = a.detect ||
+          meta.detect ||
+          (meta.notes ? meta.notes.split('|')[0].trim() : null) ||
+          'Manual registration';
+
+        // Extract region and resource group from metadata notes
+        const notesStr = meta.notes || '';
+        const rgMatch = notesStr.match(/Resource Group:\s*([^|]+)/);
+        const regionMatch = notesStr.match(/Region:\s*([^|]+)/);
+
+        return {
+          id: a.id || (1000 + i),
+          name: a.name || 'Unknown Agent',
+          type: a.type || 'agent',
+          env: a.env || 'Cloud',
+          protocols: protocols,
+          lastSeen: a.last_seen ? new Date(a.last_seen).toLocaleString() : 'Just now',
+          risk: a.risk || 'medium',
+          shadow: a.shadow || false,
+          detect: detectMethod,
+          dataAccess: a.data_access || meta.dataAccess || null,
+          pii: a.pii || false,
+          phi: a.phi || false,
+          domain: a.domain || meta.domain || null,
+          notes: meta.notes || a.notes || '',
+          controls: controls,
+          firstDet: a.first_detected ? a.first_detected.split('T')[0] : new Date().toISOString().split('T')[0],
+          owner: a.owner || null,
+          ver: a.version || null,
+          approved: a.approved || false,
+          quarantined: a.quarantined || false,
+          hosted: a.hosted || false,
+          resourceGroup: rgMatch ? rgMatch[1].trim() : null,
+          region: regionMatch ? regionMatch[1].trim() : null,
+        };
+      });
       // Clear localStorage demo data and replace with live data
       DB.agents = mapped;
       // Clear any stale localStorage so demo data doesn't creep back
