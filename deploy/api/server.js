@@ -1773,6 +1773,198 @@ app.delete('/api/integrations/credentials/:provider', auth, async (req, res) => 
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ══ PROXY / CASB INTEGRATION ═══════════════════════════════
+
+// Known AI service domains and their classifications
+const AI_DOMAINS = {
+  // LLMs
+  'api.openai.com':            { name:'OpenAI API', type:'llm', risk:'high', pii:true },
+  'api.anthropic.com':         { name:'Anthropic Claude API', type:'llm', risk:'high', pii:true },
+  'generativelanguage.googleapis.com': { name:'Google Gemini API', type:'llm', risk:'high', pii:true },
+  'api.mistral.ai':            { name:'Mistral AI API', type:'llm', risk:'medium', pii:true },
+  'api.cohere.com':            { name:'Cohere API', type:'llm', risk:'medium', pii:true },
+  'api.together.xyz':          { name:'Together AI', type:'llm', risk:'medium', pii:true },
+  'api.perplexity.ai':         { name:'Perplexity AI', type:'llm', risk:'medium', pii:true },
+  'api.groq.com':              { name:'Groq API', type:'llm', risk:'medium', pii:true },
+  // Azure AI
+  'openai.azure.com':          { name:'Azure OpenAI', type:'llm', risk:'medium', pii:true },
+  'cognitiveservices.azure.com': { name:'Azure Cognitive Services', type:'ai-service', risk:'medium', pii:true },
+  // AWS
+  'bedrock-runtime.amazonaws.com': { name:'AWS Bedrock', type:'llm', risk:'medium', pii:true },
+  'bedrock.amazonaws.com':     { name:'AWS Bedrock', type:'llm', risk:'medium', pii:true },
+  // GCP
+  'aiplatform.googleapis.com': { name:'Vertex AI', type:'ml-workspace', risk:'medium', pii:true },
+  // Copilot
+  'copilot.microsoft.com':     { name:'Microsoft Copilot', type:'copilot', risk:'medium', pii:true },
+  'substrate.office.com':      { name:'M365 Copilot', type:'copilot', risk:'medium', pii:true },
+  // Code assistants
+  'githubcopilot.com':         { name:'GitHub Copilot', type:'code-assistant', risk:'low', pii:false },
+  'copilot-proxy.githubusercontent.com': { name:'GitHub Copilot', type:'code-assistant', risk:'low', pii:false },
+  // Productivity AI
+  'app.grammarly.com':         { name:'Grammarly AI', type:'saas-ai', risk:'low', pii:true },
+  'api.notion.so':             { name:'Notion AI', type:'saas-ai', risk:'low', pii:true },
+  'api.jasper.ai':             { name:'Jasper AI', type:'saas-ai', risk:'medium', pii:true },
+  // Healthcare AI
+  'nuance.com':                { name:'Nuance AI (Microsoft)', type:'medical-device', risk:'high', phi:true, pii:true },
+  'dax.nuance.com':            { name:'Nuance DAX (Clinical AI)', type:'medical-device', risk:'critical', phi:true, pii:true },
+  // Shadow AI
+  'chat.openai.com':           { name:'ChatGPT (Consumer)', type:'llm', risk:'high', pii:true, shadow:true },
+  'claude.ai':                 { name:'Claude.ai (Consumer)', type:'llm', risk:'high', pii:true, shadow:true },
+  'gemini.google.com':         { name:'Gemini (Consumer)', type:'llm', risk:'high', pii:true, shadow:true },
+  'poe.com':                   { name:'Poe AI', type:'llm', risk:'high', pii:true, shadow:true },
+  'character.ai':              { name:'Character.AI', type:'llm', risk:'high', pii:true, shadow:true },
+};
+
+// POST /api/proxy/ingest — receive proxy logs and extract AI traffic
+app.post('/api/proxy/ingest', auth, asyncHandler(async (req, res) => {
+  const { format, logs, source } = req.body;
+  const tId = req.user.tenantId || '00000000-0000-0000-0000-000000000001';
+
+  if (!logs || !Array.isArray(logs)) {
+    return res.status(400).json({ error: 'logs array required' });
+  }
+
+  const discovered = [];
+  const userAgentMap = {}; // track which users hit which AI
+
+  for (const entry of logs) {
+    // Support multiple proxy log formats
+    const url = entry.url || entry.URL || entry.destination || entry.dst_url || '';
+    const user = entry.user || entry.username || entry.src_user || entry.identity || 'unknown';
+    const device = entry.device || entry.src_ip || entry.hostname || 'unknown';
+    const timestamp = entry.timestamp || entry.time || new Date().toISOString();
+    const bytes = entry.bytes || entry.bytes_sent || 0;
+
+    // Extract domain from URL
+    let domain = '';
+    try {
+      domain = new URL(url.startsWith('http') ? url : 'https://'+url).hostname.replace(/^www\./, '');
+    } catch(e) { domain = url.split('/')[0]; }
+
+    // Check against AI domain list
+    const aiMatch = AI_DOMAINS[domain] ||
+      Object.entries(AI_DOMAINS).find(([d]) => domain.endsWith('.'+d) || domain === d)?.[1];
+
+    if (aiMatch) {
+      const key = domain + ':' + user;
+      if (!userAgentMap[key]) {
+        userAgentMap[key] = {
+          domain, user, device,
+          firstSeen: timestamp,
+          lastSeen: timestamp,
+          requestCount: 0,
+          totalBytes: 0,
+          ...aiMatch
+        };
+      }
+      userAgentMap[key].lastSeen = timestamp;
+      userAgentMap[key].requestCount++;
+      userAgentMap[key].totalBytes += parseInt(bytes) || 0;
+    }
+  }
+
+  // Convert to agents and save
+  let saved = 0;
+  for (const [key, data] of Object.entries(userAgentMap)) {
+    const agentName = `${data.name} (${data.user})`;
+    try {
+      const existing = await db.query(
+        'SELECT id FROM agents WHERE name=$1 AND tenant_id=$2 LIMIT 1',
+        [agentName, tId]
+      );
+      const controls = {
+        soc2:'warn', iso27001:'warn', gdpr: data.pii ? 'warn' : 'pass',
+        nist:'warn', euai: data.type==='llm' ? 'fail' : 'warn',
+        hipaa: data.phi ? 'fail' : 'pass', hitrust:'warn', fda_samd:'pass'
+      };
+      if (existing.rows.length > 0) {
+        await db.query(
+          'UPDATE agents SET last_seen=NOW(), updated_at=NOW() WHERE id=$1',
+          [existing.rows[0].id]
+        );
+      } else {
+        await db.query(
+          `INSERT INTO agents (id,name,type,env,risk,shadow,phi,pii,protocols,controls,metadata,detect,tenant_id,first_detected,last_seen,created_at,updated_at)
+           VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW(),NOW(),NOW())`,
+          [agentName, data.type||'llm', 'Cloud', data.risk||'medium',
+           data.shadow||false, data.phi||false, data.pii||false,
+           JSON.stringify(['HTTPS']),
+           JSON.stringify(controls),
+           JSON.stringify({
+             notes: `Proxy detected | Domain: ${data.domain} | User: ${data.user} | Device: ${data.device} | Requests: ${data.requestCount} | Bytes: ${data.totalBytes}`,
+             detect: 'Proxy/CASB log analysis',
+             source: source || 'proxy',
+             user: data.user, device: data.device,
+           }),
+           'Proxy/CASB log analysis', tId]
+        );
+        saved++;
+      }
+      discovered.push({name:agentName, domain:data.domain, user:data.user, requests:data.requestCount});
+    } catch(e) { logger.error('proxy ingest error', {error:e.message}); }
+  }
+
+  await db.query(
+    'INSERT INTO activity (id,category,description,created_by,tenant_id) VALUES (gen_random_uuid(),$1,$2,$3,$4)',
+    ['discovery', `Proxy scan: ${saved} new AI agents discovered from ${logs.length} log entries`, req.user.email, tId]
+  ).catch(()=>{});
+
+  res.json({
+    processed: logs.length,
+    aiTrafficEntries: Object.keys(userAgentMap).length,
+    newAgents: saved,
+    discovered
+  });
+}));
+
+// GET /api/proxy/domains — return full AI domain list for CASB policy import
+app.get('/api/proxy/domains', auth, (req, res) => {
+  const domains = Object.entries(AI_DOMAINS).map(([domain, info]) => ({
+    domain,
+    ...info,
+    category: info.shadow ? 'shadow-ai' : 'sanctioned-ai',
+  }));
+  res.json({
+    total: domains.length,
+    shadowAI: domains.filter(d=>d.shadow).length,
+    sanctioned: domains.filter(d=>!d.shadow).length,
+    domains
+  });
+});
+
+// GET /api/proxy/config/:type — return proxy config for Zscaler/Netskope/Bluecoat
+app.get('/api/proxy/config/:type', auth, (req, res) => {
+  const domains = Object.keys(AI_DOMAINS);
+  const shadowDomains = Object.entries(AI_DOMAINS).filter(([,v])=>v.shadow).map(([d])=>d);
+  const type = req.params.type;
+
+  if (type === 'zscaler') {
+    res.json({
+      instructions: 'Import these URL categories into Zscaler Internet Access',
+      categories: [
+        { name: 'AgentRadar-AI-Sanctioned', urls: domains.filter(d=>!AI_DOMAINS[d].shadow), action: 'allow-and-log' },
+        { name: 'AgentRadar-AI-Shadow', urls: shadowDomains, action: 'block-or-isolate' },
+      ]
+    });
+  } else if (type === 'netskope') {
+    res.json({
+      instructions: 'Use these app tags in Netskope CASB policies',
+      sanctionedApps: domains.filter(d=>!AI_DOMAINS[d].shadow),
+      unsanctionedApps: shadowDomains,
+      policy: 'Create a Netskope Real-time Protection policy: Match app-tag=AI-Shadow → Block + Alert AgentRadar'
+    });
+  } else if (type === 'bluecoat') {
+    const proxyConfig = domains.map(d => `define condition AI_TRAFFIC
+  url.domain=${d}
+end condition`).join('
+');
+    res.type('text/plain').send(proxyConfig);
+  } else {
+    res.json({ domains, shadowDomains, format: 'generic' });
+  }
+});
+
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ─────────────────────────────────────────
