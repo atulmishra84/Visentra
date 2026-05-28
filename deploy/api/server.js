@@ -1367,13 +1367,11 @@ x-amz-date:${timeStr}
 `;
     const signedHeaders = 'host;x-amz-date';
     const payloadHash = crypto.createHash('sha256').update('').digest('hex');
-    const canonicalRequest = [method,'/',''  ,canonicalHeaders,signedHeaders,payloadHash].join('
-');
+    const canonicalRequest = [method,'/',' ',canonicalHeaders,signedHeaders,payloadHash].join('\n');
 
     const credentialScope = `${dateStr}/${region}/${service}/aws4_request`;
     const stringToSign = ['AWS4-HMAC-SHA256',timeStr,credentialScope,
-      crypto.createHash('sha256').update(canonicalRequest).digest('hex')].join('
-');
+      crypto.createHash('sha256').update(canonicalRequest).digest('hex')].join('\n');
 
     const hmac = (key, data) => crypto.createHmac('sha256', key).update(data).digest();
     const signingKey = hmac(hmac(hmac(hmac('AWS4'+secretAccessKey, dateStr), region), service), 'aws4_request');
