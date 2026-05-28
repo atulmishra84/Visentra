@@ -407,10 +407,9 @@ app.get('/api/activity', auth, asyncHandler(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || '100'), 500);
   try {
     const { rows } = await db.query(
-      `SELECT id, category, description, created_by,
-              COALESCE(at, created_at) as created_at
+      `SELECT id, category, description, created_by, at as created_at
        FROM activity
-       ORDER BY COALESCE(at, created_at) DESC LIMIT $1`, [limit]
+       ORDER BY at DESC LIMIT $1`, [limit]
     );
     res.json(rows);
   } catch (e) {
