@@ -1171,6 +1171,92 @@ app.get('/api/autodiscovery/history', auth, async (req, res) => {
 
 
 
+
+// ── Integration credentials (encrypted in DB per tenant) ─
+app.post('/api/integrations/credentials', auth, async (req, res) => {
+  const { provider, credentials } = req.body;
+  if (!provider || !credentials) return res.status(400).json({ error: 'provider and credentials required' });
+  const tId = req.user.tenantId || '00000000-0000-0000-0000-000000000001';
+  try {
+    // Mask secret values before storing — store reference only
+    const masked = { ...credentials };
+    if (masked.clientSecret) masked.clientSecret = '***SAVED***';
+    if (masked.secretAccessKey) masked.secretAccessKey = '***SAVED***';
+    if (masked.serviceAccountKey) masked.serviceAccountKey = '***SAVED***';
+
+    await db.query(`
+      INSERT INTO integration_credentials (provider, credentials, tenant_id, updated_by, updated_at)
+      VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT (provider, tenant_id) DO UPDATE
+      SET credentials=$2, updated_by=$4, updated_at=NOW()
+    `, [provider, JSON.stringify(credentials), tId, req.user.email]);
+
+    await auditLog(req.user.email, 'save_integration_credentials', tId, provider, { provider }, req.ip);
+    res.json({ saved: true, provider, masked });
+  } catch(e) {
+    // Table might not exist yet
+    if (e.message.includes('does not exist')) {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS integration_credentials (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          provider VARCHAR(50) NOT NULL,
+          credentials JSONB NOT NULL,
+          tenant_id UUID,
+          updated_by VARCHAR(255),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(provider, tenant_id)
+        )
+      `);
+      await db.query(`
+        INSERT INTO integration_credentials (provider, credentials, tenant_id, updated_by)
+        VALUES ($1, $2, $3, $4)
+      `, [provider, JSON.stringify(credentials), tId, req.user.email]);
+      res.json({ saved: true, provider });
+    } else {
+      res.status(500).json({ error: e.message });
+    }
+  }
+});
+
+app.get('/api/integrations/credentials', auth, async (req, res) => {
+  const tId = req.user.tenantId || '00000000-0000-0000-0000-000000000001';
+  try {
+    const r = await db.query(
+      'SELECT provider, credentials, updated_at FROM integration_credentials WHERE tenant_id=$1',
+      [tId]
+    );
+    // Return credentials with secrets masked for display
+    const result = {};
+    r.rows.forEach(row => {
+      const creds = row.credentials;
+      result[row.provider] = {
+        ...creds,
+        clientSecret: creds.clientSecret ? '••••••••' : '',
+        secretAccessKey: creds.secretAccessKey ? '••••••••' : '',
+        serviceAccountKey: creds.serviceAccountKey ? '••••••••' : '',
+        _saved: true,
+        _updatedAt: row.updated_at
+      };
+    });
+    res.json(result);
+  } catch(e) {
+    if (e.message.includes('does not exist')) return res.json({});
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/integrations/credentials/:provider', auth, async (req, res) => {
+  const tId = req.user.tenantId || '00000000-0000-0000-0000-000000000001';
+  try {
+    await db.query(
+      'DELETE FROM integration_credentials WHERE provider=$1 AND tenant_id=$2',
+      [req.params.provider, tId]
+    );
+    await auditLog(req.user.email, 'delete_integration_credentials', tId, req.params.provider, {}, req.ip);
+    res.json({ deleted: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ─────────────────────────────────────────

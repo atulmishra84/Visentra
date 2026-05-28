@@ -6066,7 +6066,6 @@ function testConn(name) {
 
 function saveConn(name) {
   const log = document.getElementById('log-'+name);
-  // Save to sessionStorage so auto-discover wizard can pre-fill
   const credMap = {
     azure: { tenantId: document.getElementById('ci-az-tenant')?.value?.trim(),
              clientId: document.getElementById('ci-az-client')?.value?.trim(),
@@ -6079,19 +6078,72 @@ function saveConn(name) {
              serviceAccountKey: document.getElementById('ci-gcp-key')?.value?.trim() },
   };
   const creds = credMap[name];
-  if (creds) {
-    window._savedCreds = window._savedCreds || {};
-    window._savedCreds[name] = creds;
-    // Also save to sessionStorage (survives page refresh within session)
-    try { sessionStorage.setItem('ar-creds-'+name, JSON.stringify(creds)); } catch(e) {}
+  if (!creds || !Object.values(creds).some(v=>v)) {
+    if (log) { const d=document.createElement('div'); d.className='log-red';
+      d.textContent='[ERROR] Fill in credentials before saving'; log.appendChild(d); }
+    return;
   }
-  if (log) {
-    const d = document.createElement('div');
-    d.className = 'log-grn';
-    d.textContent = '[SAVED] Credentials stored for this session — click ⟳ Scan to run discovery';
-    log.appendChild(d);
+
+  // Save to memory + sessionStorage immediately
+  window._savedCreds = window._savedCreds || {};
+  window._savedCreds[name] = creds;
+  try { sessionStorage.setItem('ar-creds-'+name, JSON.stringify(creds)); } catch(e) {}
+
+  // Persist to database (survives logout/refresh permanently)
+  if (_apiToken) {
+    fetch('/api/integrations/credentials', {
+      method: 'POST',
+      headers: {'Authorization':'Bearer '+_apiToken, 'Content-Type':'application/json'},
+      body: JSON.stringify({ provider: name, credentials: creds })
+    }).then(r=>r.json()).then(data => {
+      if (data.saved) {
+        if (log) {
+          const d = document.createElement('div');
+          d.className = 'log-grn';
+          d.textContent = '[SAVED] Credentials stored permanently — will auto-load on next login';
+          log.appendChild(d);
+        }
+        showScannerToast(name.toUpperCase()+' credentials saved permanently', false);
+        // Mark fields as saved
+        const statusEl = document.getElementById('cs-'+name);
+        if (statusEl) { statusEl.textContent = 'Configured'; statusEl.style.color = '#10b981'; }
+      }
+    }).catch(e => {
+      if (log) { const d=document.createElement('div'); d.className='log-red';
+        d.textContent='[ERROR] Could not save to DB: '+e.message; log.appendChild(d); }
+    });
   }
-  showScannerToast('Credentials saved — click Scan to discover agents', false);
+}
+
+async function loadSavedIntegrations() {
+  if (!_apiToken) return;
+  try {
+    const saved = await fetch('/api/integrations/credentials', {
+      headers: {'Authorization':'Bearer '+_apiToken}
+    }).then(r=>r.json());
+
+    // Pre-fill integration panel fields with saved values
+    Object.entries(saved).forEach(([provider, creds]) => {
+      if (!creds._saved) return;
+      const fieldMap = {
+        azure: [['ci-az-tenant','tenantId'],['ci-az-client','clientId'],
+                ['ci-az-sub','subscriptionId']],
+        aws:   [['ci-aws-key','accessKeyId'],['ci-aws-region','region']],
+        gcp:   [['ci-gcp-project','projectId']],
+      };
+      (fieldMap[provider]||[]).forEach(([elId, key]) => {
+        const el = document.getElementById(elId);
+        if (el && creds[key]) el.value = creds[key];
+      });
+      // Show saved indicator
+      const statusEl = document.getElementById('cs-'+provider);
+      if (statusEl) { statusEl.textContent = 'Configured'; statusEl.style.color = '#10b981'; }
+      // Store full creds in memory for scanning (not masked version)
+      window._savedCreds = window._savedCreds || {};
+      window._savedCreds[provider] = creds;
+      console.log('[integrations] Loaded saved credentials for:', provider);
+    });
+  } catch(e) { console.log('[integrations] Could not load saved credentials:', e.message); }
 }
 
 function runCloudScan(cloud) {
@@ -7520,6 +7572,7 @@ async function doLogin() {
   setTimeout(() => {
     updateStats();
     if (typeof renderDashboard === 'function') renderDashboard();
+    loadSavedIntegrations(); // Load saved cloud credentials
   }, 200);
 }
 
