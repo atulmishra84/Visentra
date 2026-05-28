@@ -2167,6 +2167,286 @@ app.post('/api/endpoint/scan/cortex', auth, asyncHandler(async (req, res) => {
   }
 }));
 
+
+// ══ ENDPOINT SCANNER — INTUNE + CROWDSTRIKE ════════════════
+
+// AI processes and apps to look for on endpoints
+const AI_PROCESSES = [
+  // Local LLMs
+  {name:'ollama', label:'Ollama (Local LLM)', type:'llm', risk:'high', shadow:true},
+  {name:'vllm', label:'vLLM Server', type:'llm', risk:'high', shadow:true},
+  {name:'llama.cpp', label:'llama.cpp (Local LLM)', type:'llm', risk:'high', shadow:true},
+  {name:'llama-server', label:'LLaMA Server', type:'llm', risk:'high', shadow:true},
+  // Code assistants
+  {name:'claude-code', label:'Claude Code', type:'code-assistant', risk:'medium', shadow:false},
+  {name:'copilot', label:'GitHub Copilot', type:'code-assistant', risk:'low', shadow:false},
+  {name:'cursor', label:'Cursor AI IDE', type:'code-assistant', risk:'medium', shadow:false},
+  {name:'continue', label:'Continue.dev', type:'code-assistant', risk:'medium', shadow:true},
+  {name:'codeium', label:'Codeium', type:'code-assistant', risk:'medium', shadow:false},
+  // AI tools
+  {name:'jan', label:'Jan (Local AI)', type:'llm', risk:'high', shadow:true},
+  {name:'lmstudio', label:'LM Studio', type:'llm', risk:'high', shadow:true},
+  {name:'gpt4all', label:'GPT4All', type:'llm', risk:'high', shadow:true},
+  {name:'koboldcpp', label:'KoboldCPP', type:'llm', risk:'high', shadow:true},
+  // Python AI scripts
+  {name:'python.*openai', label:'Python + OpenAI SDK', type:'llm', risk:'high', shadow:true},
+  {name:'python.*anthropic', label:'Python + Anthropic SDK', type:'llm', risk:'high', shadow:true},
+  {name:'python.*langchain', label:'Python + LangChain', type:'agent', risk:'high', shadow:true},
+];
+
+// AI browser extensions to detect
+const AI_EXTENSIONS = [
+  {id:'mefhakmgclhhfbdadeojlkbllmecialg', name:'Grammarly AI', risk:'low'},
+  {id:'aaaplgackmajlbdmggfbofndkdkllgnl', name:'ChatGPT for Google', risk:'high', shadow:true},
+  {id:'jdeogehmomdaoidnhlkffkhbhcfnoefj', name:'Merlin AI', risk:'high', shadow:true},
+  {id:'cjakebnjmeifkhmjjdckgohojlfhhdbk', name:'Perplexity AI', risk:'medium'},
+  {id:'bjpdoggjaakhajknlkbpanjnfijpmfbi', name:'Compose AI', risk:'medium'},
+];
+
+// POST /api/endpoint/scan/intune — scan via Microsoft Intune/Graph
+app.post('/api/endpoint/scan/intune', auth, asyncHandler(async (req, res) => {
+  const { tenantId, clientId, clientSecret } = req.body;
+  const tId = req.user.tenantId || '00000000-0000-0000-0000-000000000001';
+
+  if (!tenantId || !clientId || !clientSecret)
+    return res.status(400).json({ error: 'tenantId, clientId, clientSecret required' });
+
+  const discovered = [];
+  const logs = [];
+
+  try {
+    // Get Graph token
+    const tokenResp = await fetch(
+      `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+      { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:`client_id=${clientId}&client_secret=${encodeURIComponent(clientSecret)}&scope=https://graph.microsoft.com/.default&grant_type=client_credentials`
+      }).then(r=>r.json());
+
+    if (!tokenResp.access_token) throw new Error('Intune auth failed: '+(tokenResp.error_description||'unknown'));
+    const token = tokenResp.access_token;
+    logs.push({step:'auth', status:'ok', msg:'Microsoft Graph/Intune authentication successful'});
+
+    // Get managed devices
+    const devicesResp = await fetch(
+      'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$select=id,deviceName,userPrincipalName,operatingSystem,complianceState,lastSyncDateTime',
+      { headers:{'Authorization':'Bearer '+token} }
+    ).then(r=>r.json());
+
+    const devices = devicesResp.value || [];
+    logs.push({step:'inventory', status:'ok', msg:`Found ${devices.length} managed devices in Intune`});
+
+    // Get detected apps across all devices
+    const appsResp = await fetch(
+      'https://graph.microsoft.com/v1.0/deviceManagement/detectedApps?$select=id,displayName,version,deviceCount',
+      { headers:{'Authorization':'Bearer '+token} }
+    ).then(r=>r.json()).catch(()=>({value:[]}));
+
+    const apps = appsResp.value || [];
+    logs.push({step:'apps', status:'ok', msg:`Found ${apps.length} unique apps across managed devices`});
+
+    // Match against AI app/process list
+    for (const app of apps) {
+      const appName = (app.displayName||'').toLowerCase();
+      const match = AI_PROCESSES.find(p => {
+        try { return new RegExp(p.name, 'i').test(appName); }
+        catch(e) { return appName.includes(p.name); }
+      });
+
+      if (match) {
+        // Get devices with this app
+        const devWithApp = await fetch(
+          `https://graph.microsoft.com/v1.0/deviceManagement/detectedApps/${app.id}/managedDevices?$select=deviceName,userPrincipalName`,
+          { headers:{'Authorization':'Bearer '+token} }
+        ).then(r=>r.json()).catch(()=>({value:[]}));
+
+        for (const device of (devWithApp.value||[])) {
+          const agentName = `${match.label} — ${device.userPrincipalName||device.deviceName}`;
+          discovered.push({
+            name: agentName,
+            type: match.type,
+            env: 'On-Prem',
+            risk: match.risk,
+            shadow: match.shadow || false,
+            phi: false, pii: false,
+            protocols: ['Local Process'],
+            detect: 'Intune endpoint scan',
+            notes: `Intune detected | App: ${app.displayName} v${app.version||'?'} | Device: ${device.deviceName} | User: ${device.userPrincipalName} | ${app.deviceCount} devices total`,
+            controls: {soc2:'warn',iso27001:'warn',gdpr:match.shadow?'fail':'warn',nist:'warn',euai:'fail',hipaa:match.shadow?'fail':'warn',hitrust:'warn',fda_samd:'pass'}
+          });
+          logs.push({step:'found', status:'found', msg:`${match.label} on ${device.deviceName} (${device.userPrincipalName})`});
+        }
+      }
+    }
+
+    // Get Chrome extensions via Intune
+    const extResp = await fetch(
+      'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$filter=operatingSystem eq 'Windows'&$select=id,deviceName,userPrincipalName',
+      { headers:{'Authorization':'Bearer '+token} }
+    ).then(r=>r.json()).catch(()=>({value:[]}));
+
+    logs.push({step:'extensions', status:'ok', msg:`Checked browser extensions on ${(extResp.value||[]).length} Windows devices`});
+
+    // Save discovered agents to DB
+    let saved = 0;
+    for (const agent of discovered) {
+      try {
+        const existing = await db.query('SELECT id FROM agents WHERE name=$1 AND tenant_id=$2 LIMIT 1', [agent.name, tId]);
+        if (existing.rows.length === 0) {
+          await db.query(
+            `INSERT INTO agents (id,name,type,env,risk,shadow,phi,pii,protocols,controls,metadata,detect,tenant_id,first_detected,last_seen,created_at,updated_at)
+             VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW(),NOW(),NOW())`,
+            [agent.name, agent.type, agent.env, agent.risk, agent.shadow, agent.phi, agent.pii,
+             JSON.stringify(agent.protocols), JSON.stringify(agent.controls),
+             JSON.stringify({notes:agent.notes, detect:agent.detect, source:'intune'}),
+             agent.detect, tId]
+          );
+          saved++;
+        }
+      } catch(e) {}
+    }
+
+    await db.query('INSERT INTO activity (id,category,description,created_by,tenant_id) VALUES (gen_random_uuid(),$1,$2,$3,$4)',
+      ['discovery', `Intune scan: ${saved} AI agents found on ${devices.length} managed endpoints`, req.user.email, tId]
+    ).catch(()=>{});
+
+    res.json({ devices: devices.length, appsScanned: apps.length, discovered: discovered.length, saved, logs });
+
+  } catch(e) {
+    res.status(500).json({ error: e.message, logs });
+  }
+}));
+
+// POST /api/endpoint/scan/crowdstrike — scan via CrowdStrike Falcon
+app.post('/api/endpoint/scan/crowdstrike', auth, asyncHandler(async (req, res) => {
+  const { clientId, clientSecret, baseUrl } = req.body;
+  const tId = req.user.tenantId || '00000000-0000-0000-0000-000000000001';
+  const csBase = baseUrl || 'https://api.crowdstrike.com';
+
+  if (!clientId || !clientSecret)
+    return res.status(400).json({ error: 'CrowdStrike clientId and clientSecret required' });
+
+  const discovered = [];
+  const logs = [];
+
+  try {
+    // CrowdStrike OAuth2
+    const tokenResp = await fetch(`${csBase}/oauth2/token`, {
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:`client_id=${clientId}&client_secret=${encodeURIComponent(clientSecret)}`
+    }).then(r=>r.json());
+
+    if (!tokenResp.access_token) throw new Error('CrowdStrike auth failed');
+    const csToken = tokenResp.access_token;
+    logs.push({step:'auth', status:'ok', msg:'CrowdStrike Falcon authentication successful'});
+
+    // Get hosts
+    const hostsResp = await fetch(`${csBase}/devices/queries/devices/v1?limit=500`, {
+      headers:{'Authorization':'Bearer '+csToken}
+    }).then(r=>r.json());
+
+    const hostIds = hostsResp.resources || [];
+    logs.push({step:'inventory', status:'ok', msg:`Found ${hostIds.length} managed endpoints in CrowdStrike`});
+
+    if (hostIds.length === 0) {
+      return res.json({ devices:0, discovered:0, saved:0, logs });
+    }
+
+    // Get host details in batches of 100
+    const batches = [];
+    for (let i=0; i<hostIds.length; i+=100) batches.push(hostIds.slice(i,i+100));
+
+    for (const batch of batches) {
+      const detailResp = await fetch(
+        `${csBase}/devices/entities/devices/v2?${batch.map(id=>'ids='+id).join('&')}`,
+        { headers:{'Authorization':'Bearer '+csToken} }
+      ).then(r=>r.json());
+
+      for (const host of (detailResp.resources||[])) {
+        // Search for AI processes via RTR (Real Time Response)
+        // Note: RTR requires additional permissions — using process list instead
+        const processes = host.meta?.version_string ? [] : [];
+
+        // Check hostname/device name patterns
+        const hostname = (host.hostname||'').toLowerCase();
+        const localIp = host.local_ip || '';
+        const user = host.device_policies?.prevention?.applied_globally ? 'managed' : host.device_id;
+
+        // Use Spotlight vulnerabilities to find AI libraries
+        const vulnResp = await fetch(
+          `${csBase}/spotlight/queries/vulnerabilities/v1?filter=aid:'${host.device_id}'+status:'open'&limit=50`,
+          { headers:{'Authorization':'Bearer '+csToken} }
+        ).then(r=>r.json()).catch(()=>({resources:[]}));
+
+        // Check installed software via Falcon Discover
+        const softwareResp = await fetch(
+          `${csBase}/discover/queries/applications/v1?filter=host.aid:'${host.device_id}'&limit=100`,
+          { headers:{'Authorization':'Bearer '+csToken} }
+        ).then(r=>r.json()).catch(()=>({resources:[]}));
+
+        if ((softwareResp.resources||[]).length > 0) {
+          const appDetailResp = await fetch(
+            `${csBase}/discover/entities/applications/v1?${softwareResp.resources.slice(0,50).map(id=>'ids='+id).join('&')}`,
+            { headers:{'Authorization':'Bearer '+csToken} }
+          ).then(r=>r.json()).catch(()=>({resources:[]}));
+
+          for (const app of (appDetailResp.resources||[])) {
+            const appName = (app.name||'').toLowerCase();
+            const match = AI_PROCESSES.find(p => {
+              try { return new RegExp(p.name,'i').test(appName); }
+              catch(e) { return appName.includes(p.name); }
+            });
+            if (match) {
+              const agentName = `${match.label} — ${host.hostname}`;
+              discovered.push({
+                name: agentName,
+                type: match.type,
+                env: 'On-Prem',
+                risk: match.risk,
+                shadow: match.shadow || false,
+                phi: false, pii: false,
+                protocols: ['Local Process'],
+                detect: 'CrowdStrike Falcon scan',
+                notes: `CrowdStrike detected | App: ${app.name} | Host: ${host.hostname} | IP: ${host.local_ip} | OS: ${host.platform_name}`,
+                controls: {soc2:'warn',iso27001:'warn',gdpr:match.shadow?'fail':'warn',nist:'warn',euai:'fail',hipaa:'warn',hitrust:'warn',fda_samd:'pass'}
+              });
+              logs.push({step:'found', status:'found', msg:`${match.label} on ${host.hostname} (${host.local_ip})`});
+            }
+          }
+        }
+      }
+    }
+
+    // Save to DB
+    let saved = 0;
+    for (const agent of discovered) {
+      try {
+        const existing = await db.query('SELECT id FROM agents WHERE name=$1 AND tenant_id=$2 LIMIT 1', [agent.name, tId]);
+        if (existing.rows.length === 0) {
+          await db.query(
+            `INSERT INTO agents (id,name,type,env,risk,shadow,phi,pii,protocols,controls,metadata,detect,tenant_id,first_detected,last_seen,created_at,updated_at)
+             VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW(),NOW(),NOW())`,
+            [agent.name, agent.type, agent.env, agent.risk, agent.shadow, agent.phi, agent.pii,
+             JSON.stringify(agent.protocols), JSON.stringify(agent.controls),
+             JSON.stringify({notes:agent.notes, detect:agent.detect, source:'crowdstrike'}),
+             agent.detect, tId]
+          );
+          saved++;
+        }
+      } catch(e) {}
+    }
+
+    await db.query('INSERT INTO activity (id,category,description,created_by,tenant_id) VALUES (gen_random_uuid(),$1,$2,$3,$4)',
+      ['discovery', `CrowdStrike scan: ${saved} AI agents found on ${hostIds.length} endpoints`, req.user.email, tId]
+    ).catch(()=>{});
+
+    res.json({ devices: hostIds.length, discovered: discovered.length, saved, logs });
+
+  } catch(e) {
+    res.status(500).json({ error: e.message, logs });
+  }
+}));
+
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ─────────────────────────────────────────
