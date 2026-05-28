@@ -6147,7 +6147,7 @@ function testConn(name) {
 
   if (hasMaskedSecret && _apiToken) {
     log.innerHTML += '<div class="log-acc">[AUTH] Loading saved credentials from vault…</div>';
-    fetch('/api/integrations/credentials', {
+    fetch('/api/integrations/credentials/full', {
       headers: {'Authorization':'Bearer '+_apiToken}
     }).then(r=>r.json()).then(allCreds => {
       const fullCreds = allCreds[name];
@@ -8175,8 +8175,17 @@ async function startFullDiscovery() {
   const results = document.getElementById('cd-results');
   const resultsBody = document.getElementById('cd-results-body');
 
-  // Build payload from whatever credentials are filled in
+  // Build payload — load full unmasked creds from DB first
   const payload = {};
+  let _dbCreds = {};
+  try {
+    _dbCreds = await fetch('/api/integrations/credentials/full', {
+      headers: {'Authorization':'Bearer '+_apiToken}
+    }).then(r=>r.json());
+    // Merge into window._savedCreds
+    window._savedCreds = window._savedCreds || {};
+    Object.assign(window._savedCreds, _dbCreds);
+  } catch(e) {}
 
   const azTenant = document.getElementById('cd-az-tenant')?.value?.trim();
   const azClient = document.getElementById('cd-az-client')?.value?.trim();

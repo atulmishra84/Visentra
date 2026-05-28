@@ -95,10 +95,10 @@ const schemas = {
 
   autodiscovery: z.object({
     azure: z.object({
-      tenantId: z.string().uuid(),
-      clientId: z.string().uuid(),
+      tenantId: z.string().min(1),
+      clientId: z.string().min(1),
       clientSecret: z.string().min(1),
-      subscriptionId: z.string().uuid(),
+      subscriptionId: z.string().min(1),
     }).optional(),
     aws: z.object({
       accessKeyId: z.string().min(16).max(128),
@@ -1216,6 +1216,24 @@ app.post('/api/integrations/credentials', auth, async (req, res) => {
     } else {
       res.status(500).json({ error: e.message });
     }
+  }
+});
+
+app.get('/api/integrations/credentials/full', auth, async (req, res) => {
+  const tId = req.user.tenantId || '00000000-0000-0000-0000-000000000001';
+  try {
+    const r = await db.query(
+      'SELECT provider, credentials, updated_at FROM integration_credentials WHERE tenant_id=$1',
+      [tId]
+    );
+    const result = {};
+    r.rows.forEach(row => {
+      result[row.provider] = { ...row.credentials, _saved: true, _updatedAt: row.updated_at };
+    });
+    res.json(result);
+  } catch(e) {
+    if (e.message.includes('does not exist')) return res.json({});
+    res.status(500).json({ error: e.message });
   }
 });
 
