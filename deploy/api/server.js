@@ -338,7 +338,7 @@ app.get('/api/agents', auth, asyncHandler(async (req, res) => {
   try {
     const { rows } = await db.query(
       `SELECT id, name, type, env, risk, shadow, phi, pii, hosted, quarantined,
-              last_seen, owner, controls, first_detected, metadata,
+              last_seen, owner, controls, protocols, first_detected, metadata,
               COALESCE(metadata->>'detect', metadata->>'notes', 'manual') as detect
        FROM agents ORDER BY risk DESC, last_seen DESC LIMIT 500`
     );
@@ -407,7 +407,13 @@ app.get('/api/activity', auth, asyncHandler(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || '100'), 500);
   try {
     const { rows } = await db.query(
-      'SELECT * FROM activity_log ORDER BY created_at DESC LIMIT $1', [limit]
+      `SELECT id,
+              COALESCE(action, 'info') as category,
+              COALESCE(detail, action, 'Activity') as description,
+              COALESCE(user_id, 'system') as created_by,
+              created_at
+       FROM activity_log
+       ORDER BY created_at DESC LIMIT $1`, [limit]
     );
     res.json(rows);
   } catch (e) {
@@ -1313,8 +1319,8 @@ app.post('/api/autodiscovery/start', auth, validate(schemas.autodiscovery), asyn
         } catch(e){}
       }
 
-      await db.query('INSERT INTO activity (category,description,created_by,tenant_id) VALUES ($1,$2,$3,$4)',
-        ['discovery',`Auto-discovery: ${saved} agents found, ${[...all.scanners].length} scanners enabled`,req.user.email,tId]).catch(()=>{});
+      await db.query('INSERT INTO activity_log (id,user_id,action,detail,severity,tenant_id) VALUES (gen_random_uuid(),$1,$2,$3,$4,$5)',
+        [req.user.email, 'discovery', `Auto-discovery: ${saved} agents found, ${[...all.scanners].length} scanners enabled`, 'info', tId]).catch(()=>{});
       await db.query('UPDATE scanner_runs SET status=$1,agents_found=$2 WHERE id=$3',['completed',saved,sessionId]).catch(()=>{});
 
       global.autodiscoveryResults=global.autodiscoveryResults||{};
