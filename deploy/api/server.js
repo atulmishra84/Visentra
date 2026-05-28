@@ -227,6 +227,7 @@ function createRedis(password) {
 // ── Express app ───────────────────────────────────────────
 const app = express();
 
+app.set('trust proxy', 1); // Trust NGINX ingress
 app.use(compression());
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: process.env.ALLOWED_ORIGINS || '*', credentials: true }));
