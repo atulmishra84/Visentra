@@ -1955,10 +1955,7 @@ app.get('/api/proxy/config/:type', auth, (req, res) => {
       policy: 'Create a Netskope Real-time Protection policy: Match app-tag=AI-Shadow → Block + Alert AgentRadar'
     });
   } else if (type === 'bluecoat') {
-    const proxyConfig = domains.map(d => `define condition AI_TRAFFIC
-  url.domain=${d}
-end condition`).join('
-');
+    const proxyConfig = domains.map(d => `define condition AI_TRAFFIC\n  url.domain=${d}\nend condition`).join('\n');
     res.type('text/plain').send(proxyConfig);
   } else {
     res.json({ domains, shadowDomains, format: 'generic' });
