@@ -338,7 +338,8 @@ app.get('/api/agents', auth, asyncHandler(async (req, res) => {
   try {
     const { rows } = await db.query(
       `SELECT id, name, type, env, risk, shadow, phi, pii, hosted, quarantined,
-              last_seen, owner, controls, first_detected, metadata
+              last_seen, owner, controls, first_detected, metadata,
+              COALESCE(metadata->>'detect', metadata->>'notes', 'manual') as detect
        FROM agents ORDER BY risk DESC, last_seen DESC LIMIT 500`
     );
     res.json(rows);
@@ -1304,7 +1305,7 @@ app.post('/api/autodiscovery/start', auth, validate(schemas.autodiscovery), asyn
               [agent.name, agent.type||'unknown', agent.env||'Cloud', agent.risk||'medium',
                agent.shadow||false, agent.phi||false, agent.pii||false,
                JSON.stringify(agent.protocols||[]), JSON.stringify(agent.controls||{}),
-               JSON.stringify({notes:agent.notes||''}),
+               JSON.stringify({notes:agent.notes||'', detect:agent.detect||'Azure auto-discovery', source:'autodiscovery'}),
                agent.detect||'auto-discovery', tId]
             );
           }
