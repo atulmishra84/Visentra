@@ -1962,6 +1962,211 @@ app.get('/api/proxy/config/:type', auth, (req, res) => {
   }
 });
 
+
+// POST /api/endpoint/scan/cortex — scan via Palo Alto Cortex XDR
+app.post('/api/endpoint/scan/cortex', auth, asyncHandler(async (req, res) => {
+  const { apiKey, apiKeyId, fqdn } = req.body;
+  const tId = req.user.tenantId || '00000000-0000-0000-0000-000000000001';
+
+  if (!apiKey || !apiKeyId || !fqdn)
+    return res.status(400).json({ error: 'apiKey, apiKeyId and fqdn required' });
+
+  const discovered = [];
+  const logs = [];
+
+  try {
+    const crypto = require('crypto');
+
+    // Cortex XDR uses HMAC-SHA256 auth
+    function cortexAuthHeaders(apiKey, apiKeyId) {
+      const nonce = crypto.randomBytes(16).toString('hex');
+      const timestamp = Date.now().toString();
+      const authString = apiKey + nonce + timestamp;
+      const authHash = crypto.createHash('sha256').update(authString).digest('hex');
+      return {
+        'x-xdr-auth-id': String(apiKeyId),
+        'x-xdr-nonce': nonce,
+        'x-xdr-timestamp': timestamp,
+        'x-xdr-auth-hash': authHash,
+        'Content-Type': 'application/json',
+      };
+    }
+
+    const baseUrl = `https://api-${fqdn}.xdr.us.paloaltonetworks.com/public_api/v1`;
+    const headers = cortexAuthHeaders(apiKey, apiKeyId);
+
+    // Step 1: Get all endpoints
+    const endpointsResp = await fetch(`${baseUrl}/endpoints/get_endpoints/`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        request_data: {
+          filters: [{ field: 'endpoint_status', operator: 'in', value: ['connected', 'disconnected'] }],
+          search_from: 0,
+          search_to: 500,
+        }
+      })
+    }).then(r=>r.json()).catch(()=>({reply:{endpoints:[]}}));
+
+    const endpoints = endpointsResp.reply?.endpoints || [];
+    logs.push({step:'inventory', status:'ok', msg:`Found ${endpoints.length} endpoints in Cortex XDR`});
+
+    if (endpoints.length === 0) {
+      logs.push({step:'summary', status:'warn', msg:'No endpoints found — check API key permissions (Endpoint Administration read)'});
+      return res.json({devices:0, discovered:0, saved:0, logs});
+    }
+
+    // Step 2: Get installed software via XQL query
+    const xqlQuery = `
+      dataset = xdr_data
+      | filter event_type = "PROCESS"
+      | filter lowercase(action_process_image_name) in (
+          "ollama", "vllm", "llama-server", "llama.cpp",
+          "claude-code", "cursor", "jan", "lmstudio", "gpt4all",
+          "koboldcpp", "codeium", "continue"
+        )
+      | fields agent_hostname, agent_ip_addresses, actor_primary_username,
+               action_process_image_name, action_process_image_path,
+               action_process_command_line, event_timestamp
+      | limit 1000
+    `;
+
+    const xqlResp = await fetch(`${baseUrl}/xql/start_xql_query/`, {
+      method: 'POST',
+      headers: cortexAuthHeaders(apiKey, apiKeyId),
+      body: JSON.stringify({ request_data: { query: xqlQuery, timeframe: { relativeTime: 'last_24_hours' } } })
+    }).then(r=>r.json()).catch(()=>({reply:{}}));
+
+    const queryId = xqlResp.reply?.queryId;
+    logs.push({step:'xql', status:'ok', msg:'XQL process query submitted'});
+
+    if (queryId) {
+      // Poll for XQL results
+      await new Promise(r=>setTimeout(r,3000));
+      const resultsResp = await fetch(`${baseUrl}/xql/get_query_results/`, {
+        method: 'POST',
+        headers: cortexAuthHeaders(apiKey, apiKeyId),
+        body: JSON.stringify({ request_data: { query_id: queryId, format: 'json' } })
+      }).then(r=>r.json()).catch(()=>({reply:{results:{data:[]}}}));
+
+      const processes = resultsResp.reply?.results?.data || [];
+      logs.push({step:'processes', status:'ok', msg:`Found ${processes.length} AI process events`});
+
+      for (const proc of processes) {
+        const procName = (proc.action_process_image_name||'').toLowerCase();
+        const match = AI_PROCESSES.find(p => {
+          try { return new RegExp(p.name,'i').test(procName); }
+          catch(e) { return procName.includes(p.name); }
+        });
+
+        if (match) {
+          const agentName = `${match.label} — ${proc.agent_hostname}`;
+          discovered.push({
+            name: agentName,
+            type: match.type,
+            env: 'On-Prem',
+            risk: match.risk,
+            shadow: match.shadow || false,
+            phi: false, pii: false,
+            protocols: ['Local Process'],
+            detect: 'Cortex XDR scan',
+            notes: `Cortex XDR detected | Process: ${proc.action_process_image_name} | Host: ${proc.agent_hostname} | User: ${proc.actor_primary_username} | IP: ${(proc.agent_ip_addresses||[]).join(',')} | Path: ${proc.action_process_image_path||'?'}`,
+            controls: {soc2:'warn',iso27001:'warn',gdpr:match.shadow?'fail':'warn',nist:'warn',euai:'fail',hipaa:'warn',hitrust:'warn',fda_samd:'pass'}
+          });
+          logs.push({step:'found', status:'found',
+            msg:`${match.label} on ${proc.agent_hostname} (user: ${proc.actor_primary_username||'unknown'})`});
+        }
+      }
+    }
+
+    // Step 3: Also scan for AI-related network connections via XQL
+    const networkXql = `
+      dataset = xdr_data
+      | filter event_type = "NETWORK"
+      | filter lowercase(dst_hostname) in (
+          "api.anthropic.com", "api.openai.com", "generativelanguage.googleapis.com",
+          "api.mistral.ai", "claude.ai", "chat.openai.com", "gemini.google.com",
+          "openai.azure.com", "api.cohere.com", "api.perplexity.ai"
+        )
+      | fields agent_hostname, agent_ip_addresses, actor_primary_username,
+               dst_hostname, dst_port, action_local_ip, event_timestamp
+      | dedup agent_hostname, dst_hostname
+      | limit 500
+    `;
+
+    const netXqlResp = await fetch(`${baseUrl}/xql/start_xql_query/`, {
+      method: 'POST',
+      headers: cortexAuthHeaders(apiKey, apiKeyId),
+      body: JSON.stringify({ request_data: { query: networkXql, timeframe: { relativeTime: 'last_24_hours' } } })
+    }).then(r=>r.json()).catch(()=>({reply:{}}));
+
+    if (netXqlResp.reply?.queryId) {
+      await new Promise(r=>setTimeout(r,3000));
+      const netResults = await fetch(`${baseUrl}/xql/get_query_results/`, {
+        method: 'POST',
+        headers: cortexAuthHeaders(apiKey, apiKeyId),
+        body: JSON.stringify({ request_data: { query_id: netXqlResp.reply.queryId, format: 'json' } })
+      }).then(r=>r.json()).catch(()=>({reply:{results:{data:[]}}}));
+
+      const netEvents = netResults.reply?.results?.data || [];
+      logs.push({step:'network', status:'ok', msg:`Found ${netEvents.length} AI network connections`});
+
+      for (const evt of netEvents) {
+        const domain = evt.dst_hostname || '';
+        const aiInfo = AI_DOMAINS[domain];
+        if (aiInfo) {
+          const agentName = `${aiInfo.name} — ${evt.agent_hostname} (network)`;
+          if (!discovered.find(d=>d.name===agentName)) {
+            discovered.push({
+              name: agentName,
+              type: aiInfo.type || 'llm',
+              env: 'Cloud',
+              risk: aiInfo.risk || 'high',
+              shadow: aiInfo.shadow || false,
+              phi: aiInfo.phi || false,
+              pii: aiInfo.pii || false,
+              protocols: ['HTTPS'],
+              detect: 'Cortex XDR network scan',
+              notes: `Cortex XDR network | Host: ${evt.agent_hostname} | User: ${evt.actor_primary_username||'?'} | Destination: ${domain} | IP: ${(evt.agent_ip_addresses||[]).join(',')}`,
+              controls: {soc2:'warn',iso27001:'warn',gdpr:aiInfo.shadow?'fail':'warn',nist:'warn',euai:aiInfo.type==='llm'?'fail':'warn',hipaa:aiInfo.phi?'fail':'pass',hitrust:'warn',fda_samd:'pass'}
+            });
+            logs.push({step:'found', status:'found',
+              msg:`AI network traffic: ${domain} from ${evt.agent_hostname} (${evt.actor_primary_username||'unknown'})`});
+          }
+        }
+      }
+    }
+
+    // Save to DB
+    let saved = 0;
+    for (const agent of discovered) {
+      try {
+        const existing = await db.query('SELECT id FROM agents WHERE name=$1 AND tenant_id=$2 LIMIT 1',[agent.name,tId]);
+        if (existing.rows.length === 0) {
+          await db.query(
+            `INSERT INTO agents (id,name,type,env,risk,shadow,phi,pii,protocols,controls,metadata,detect,tenant_id,first_detected,last_seen,created_at,updated_at)
+             VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW(),NOW(),NOW())`,
+            [agent.name,agent.type,agent.env,agent.risk,agent.shadow,agent.phi,agent.pii,
+             JSON.stringify(agent.protocols),JSON.stringify(agent.controls),
+             JSON.stringify({notes:agent.notes,detect:agent.detect,source:'cortex-xdr'}),
+             agent.detect,tId]
+          );
+          saved++;
+        }
+      } catch(e) {}
+    }
+
+    await db.query('INSERT INTO activity (id,category,description,created_by,tenant_id) VALUES (gen_random_uuid(),$1,$2,$3,$4)',
+      ['discovery',`Cortex XDR scan: ${saved} AI agents found across ${endpoints.length} endpoints`,req.user.email,tId]
+    ).catch(()=>{});
+
+    res.json({devices:endpoints.length, discovered:discovered.length, saved, logs});
+
+  } catch(e) {
+    res.status(500).json({error:e.message, logs});
+  }
+}));
+
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Error handler ─────────────────────────────────────────
