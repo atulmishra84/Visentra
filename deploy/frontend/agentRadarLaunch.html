@@ -5974,120 +5974,183 @@ function lnBuildFromAgents() {
   const agents = DB.agents || [];
   LN_NODES = [];
   LN_EDGES = [];
-
   if (agents.length === 0) return;
 
-  // ── Source nodes (data sources each agent accesses) ──────
-  const sourceMap = {};
-  const addSource = (id, label, sub, phi, domain) => {
-    if (!sourceMap[id]) {
-      sourceMap[id] = true;
-      LN_NODES.push({id, col:'SOURCE', label, sub, phi:!!phi, enc:true, baa:false, risk:phi?'high':'medium',
-        owner:'IT / Data Governance', purpose:'Data source', domain:domain||'general', y:80});
-    }
+  const LN_ROW_H = 70; // vertical spacing between nodes
+  const sourceYMap = {};  // track y position per source type
+  const extYMap = {};     // track y position per external provider
+  const outYMap = {};     // track y position per output type
+  let agentY = 50;
+
+  // Provider label map
+  const providerMap = {
+    llm:'Azure OpenAI', 'ai-search':'Azure AI Search',
+    'ml-workspace':'Azure ML Workspace', copilot:'Microsoft Copilot',
+    'code-assistant':'GitHub Copilot', 'saas-ai':'SaaS AI',
+    'medical-device':'Medical AI', cds:'Clinical Decision Support',
+    'rpa-ai':'RPA + AI', agent:'AI Agent Pipeline',
+    chatbot:'Azure Bot Service', 'api-gateway':'API Management',
   };
 
-  // ── Agent nodes ───────────────────────────────────────────
-  agents.forEach((a, idx) => {
-    const nodeId = 'ag-' + String(a.id).replace(/-/g,'').substring(0,8);
-    const riskColor = {critical:'#ef4444',high:'#f59e0b',medium:'#3b82f6',low:'#10b981'}[a.risk] || '#6366f1';
+  // Track added nodes to avoid duplicates
+  const addedSources = {};
+  const addedExt = {};
+  const addedOut = {};
 
+  agents.forEach((a) => {
+    const nodeId = 'ag-' + String(a.id).replace(/-/g,'').substring(0,8);
+    const protocols = Array.isArray(a.protocols) ? a.protocols : [];
+
+    // ── Agent node ──────────────────────────────────────────
     LN_NODES.push({
       id: nodeId,
       col: 'AGENT',
-      label: a.name,
-      sub: a.type + (a.env ? ' · ' + a.env : ''),
+      label: (a.name||'Unknown').substring(0,22),
+      sub: (a.type||'agent') + (a.env ? ' · '+a.env : ''),
       phi: !!a.phi,
       pii: !!a.pii,
-      enc: false,
+      enc: !!(a.controls && (a.controls.soc2 === 'pass' || a.controls.iso27001 === 'pass')),
       baa: !!(a.controls && a.controls.hipaa === 'pass'),
       risk: a.risk || 'medium',
       owner: a.owner || 'Unassigned',
-      purpose: a.detect || 'AI Agent',
+      purpose: a.detect || 'Auto-discovered',
       domain: a.domain || 'general',
       shadow: !!a.shadow,
-      region: a.region || null,
-      resourceGroup: a.resourceGroup || null,
-      riskColor,
-      y: 80 + (idx % 8) * 60,
+      y: agentY,
     });
 
-    // Auto-generate source nodes based on agent type and data access
+    // ── Source node (what data flows INTO agent) ────────────
+    let srcId, srcLabel, srcSub;
     if (a.phi) {
-      const srcId = 'src-phi-' + (a.domain || 'health');
-      addSource(srcId, a.domain === 'radiology' ? 'PACS / DICOM' : 'EHR / PHI Store',
-        'Protected Health Information', true, a.domain || 'healthcare');
-      LN_EDGES.push({
-        id: 'e-' + nodeId + '-phi',
-        from: srcId, to: nodeId,
-        dtype: a.protocols?.[0] || 'REST API',
-        phi: true, enc: false, baa: false,
-        risk: 'high',
-        purpose: 'PHI data flow to AI agent'
-      });
+      srcId = 'src-phi';
+      srcLabel = 'PHI Data Store';
+      srcSub = 'Protected Health Information';
+    } else if (a.pii) {
+      srcId = 'src-pii';
+      srcLabel = 'PII Data Store';
+      srcSub = 'Personal Identifiable Info';
+    } else {
+      srcId = 'src-app-data';
+      srcLabel = 'Application Data';
+      srcSub = 'Business / operational data';
     }
 
-    if (a.pii && !a.phi) {
-      const srcId = 'src-pii-data';
-      addSource(srcId, 'PII Data Store', 'Personally Identifiable Information', false, 'general');
-      LN_EDGES.push({
-        id: 'e-' + nodeId + '-pii',
-        from: srcId, to: nodeId,
-        dtype: a.protocols?.[0] || 'REST API',
-        phi: false, enc: false, baa: false,
-        risk: 'medium',
-        purpose: 'PII data flow to AI agent'
+    if (!addedSources[srcId]) {
+      addedSources[srcId] = true;
+      sourceYMap[srcId] = 50;
+      LN_NODES.push({
+        id: srcId, col: 'SOURCE',
+        label: srcLabel, sub: srcSub,
+        phi: !!a.phi, enc: true, baa: a.phi ? false : true,
+        risk: a.phi ? 'high' : 'medium',
+        owner: 'Data Governance', purpose: 'Data source',
+        domain: a.phi ? 'healthcare' : 'general',
+        y: sourceYMap[srcId],
       });
+    } else {
+      // Stack source nodes vertically if different
     }
 
-    // External provider node
-    const providerMap = {
-      llm: 'Azure OpenAI', 'ai-search': 'Azure AI Search',
-      'ml-workspace': 'Azure ML', copilot: 'Microsoft Copilot',
-      'code-assistant': 'GitHub Copilot', 'saas-ai': 'SaaS AI Provider',
-      'medical-device': 'Medical AI Device', cds: 'Clinical Decision Support',
-    };
-    const providerLabel = providerMap[a.type] || 'AI Provider';
-    const extId = 'ext-' + (a.type || 'ai').replace(/[^a-z]/g, '-');
-    if (!sourceMap['ext-' + extId]) {
-      sourceMap['ext-' + extId] = true;
+    // Edge: source → agent
+    LN_EDGES.push({
+      id: 'e-src-' + nodeId,
+      from: srcId, to: nodeId,
+      dtype: protocols[0] || (a.phi ? 'HL7/FHIR' : 'REST API'),
+      phi: !!a.phi, enc: !!a.phi,
+      baa: !!(a.controls && a.controls.hipaa === 'pass'),
+      risk: a.phi ? 'high' : (a.pii ? 'medium' : 'low'),
+      purpose: a.phi ? 'PHI data flow' : 'Data input to AI',
+    });
+
+    // ── External provider node (AI inference) ──────────────
+    const extLabel = providerMap[a.type] || 'AI Provider';
+    const extId = 'ext-' + (a.type||'ai').replace(/[^a-z0-9]/g,'-');
+
+    if (!addedExt[extId]) {
+      addedExt[extId] = true;
+      extYMap[extId] = Object.keys(addedExt).length * LN_ROW_H - LN_ROW_H + 50;
       LN_NODES.push({
         id: extId, col: 'EXTERNAL',
-        label: providerLabel,
-        sub: a.protocols?.[0] || 'API',
+        label: extLabel,
+        sub: protocols[0] || 'Cloud API',
         phi: false, enc: true, baa: false,
-        risk: 'low', owner: 'Vendor', purpose: 'AI inference provider',
-        domain: 'general', y: 80,
+        risk: 'low', owner: 'Cloud Vendor',
+        purpose: 'AI inference endpoint',
+        domain: 'general',
+        y: extYMap[extId],
       });
     }
+
+    // Edge: agent → external provider
     LN_EDGES.push({
-      id: 'e-' + nodeId + '-ext',
+      id: 'e-ext-' + nodeId,
       from: nodeId, to: extId,
-      dtype: a.protocols?.[0] || 'REST API',
+      dtype: protocols[1] || protocols[0] || 'REST API',
       phi: !!a.phi, enc: true, baa: false,
       risk: a.risk || 'medium',
-      purpose: 'AI inference call'
+      purpose: 'AI inference call',
     });
 
-    // Output node for shadow AI
+    // ── Output node ─────────────────────────────────────────
+    let outId, outLabel, outSub, outRisk;
     if (a.shadow) {
-      const outId = 'out-shadow-' + nodeId;
+      outId = 'out-shadow';
+      outLabel = 'Shadow AI Output';
+      outSub = 'Unmonitored — no governance';
+      outRisk = 'critical';
+    } else if (a.phi) {
+      outId = 'out-clinical';
+      outLabel = 'Clinical Decision';
+      outSub = 'AI-assisted care output';
+      outRisk = 'high';
+    } else {
+      outId = 'out-app';
+      outLabel = 'Application Output';
+      outSub = 'Governed AI response';
+      outRisk = 'low';
+    }
+
+    if (!addedOut[outId]) {
+      addedOut[outId] = true;
+      outYMap[outId] = Object.keys(addedOut).length * LN_ROW_H - LN_ROW_H + 50;
       LN_NODES.push({
         id: outId, col: 'OUTPUT',
-        label: 'Unsanctioned Output',
-        sub: 'Shadow AI — unmonitored',
-        phi: !!a.phi, enc: false, baa: false,
-        risk: 'critical', owner: 'Unknown',
-        purpose: 'Unsanctioned AI output', domain: 'general', y: 80,
-      });
-      LN_EDGES.push({
-        id: 'e-' + nodeId + '-out',
-        from: nodeId, to: outId,
-        dtype: 'Unmonitored', phi: !!a.phi,
-        enc: false, baa: false, risk: 'critical',
-        purpose: 'Shadow AI output — no governance'
+        label: outLabel, sub: outSub,
+        phi: !!a.phi, enc: !a.shadow, baa: false,
+        risk: outRisk, owner: a.shadow ? 'Unknown' : 'Application',
+        purpose: 'AI output destination',
+        domain: 'general',
+        y: outYMap[outId],
       });
     }
+
+    // Edge: external → output (or agent → output for shadow)
+    LN_EDGES.push({
+      id: 'e-out-' + nodeId,
+      from: a.shadow ? nodeId : extId,
+      to: outId,
+      dtype: a.shadow ? 'Unmonitored' : 'AI Response',
+      phi: !!a.phi, enc: !a.shadow, baa: false,
+      risk: outRisk,
+      purpose: a.shadow ? 'Shadow AI — unmonitored output' : 'Governed AI output',
+    });
+
+    agentY += LN_ROW_H;
+  });
+
+  // Fix source y positions to center relative to agents
+  const totalH = agentY - LN_ROW_H;
+  Object.keys(sourceYMap).forEach((sid, i) => {
+    const node = LN_NODES.find(n => n.id === sid);
+    if (node) node.y = 50 + i * 120;
+  });
+  Object.keys(extYMap).forEach((eid) => {
+    const node = LN_NODES.find(n => n.id === eid);
+    if (node) node.y = extYMap[eid];
+  });
+  Object.keys(outYMap).forEach((oid) => {
+    const node = LN_NODES.find(n => n.id === oid);
+    if (node) node.y = outYMap[oid];
   });
 };
 const LN_NW=168,LN_NH=52;
