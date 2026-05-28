@@ -344,7 +344,7 @@ app.get('/api/agents', auth, asyncHandler(async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
-});
+}));
 
 app.post('/api/agents', auth, validate(schemas.agent), async (req, res) => {
   const a = req.body;
