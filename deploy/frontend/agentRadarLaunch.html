@@ -2684,6 +2684,86 @@ input[type=checkbox]{accent-color:var(--brand)}
       </div>
     </div>
 
+    <!-- Endpoint & Proxy scanners -->
+    <div style="margin-top:12px">
+      <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Endpoint & Traffic Scanners</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+
+        <!-- Cortex XDR -->
+        <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <div style="width:28px;height:28px;background:rgba(239,68,68,0.1);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px">🔴</div>
+            <div style="flex:1"><div style="font-size:12px;font-weight:700">Cortex XDR</div>
+            <div style="font-size:10px;color:var(--text-muted)">AI processes + network via XQL</div></div>
+            <div id="cd-cortex-status" style="font-size:10px;padding:2px 6px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted)">Off</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <input id="cd-cortex-key" placeholder="API Key" style="font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+            <input id="cd-cortex-keyid" placeholder="API Key ID" style="font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+            <input id="cd-cortex-fqdn" placeholder="Tenant FQDN (e.g. acme)" style="font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+          </div>
+        </div>
+
+        <!-- CrowdStrike -->
+        <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <div style="width:28px;height:28px;background:rgba(234,88,12,0.1);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px">🦅</div>
+            <div style="flex:1"><div style="font-size:12px;font-weight:700">CrowdStrike Falcon</div>
+            <div style="font-size:10px;color:var(--text-muted)">Endpoint AI process detection</div></div>
+            <div id="cd-cs-status" style="font-size:10px;padding:2px 6px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted)">Off</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <input id="cd-cs-key" placeholder="Client ID" style="font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+            <input id="cd-cs-secret" type="password" placeholder="Client Secret" style="font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+            <select id="cd-cs-region" style="font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%">
+              <option value="https://api.crowdstrike.com">US-1 (default)</option>
+              <option value="https://api.us-2.crowdstrike.com">US-2</option>
+              <option value="https://api.eu-1.crowdstrike.com">EU-1</option>
+              <option value="https://api.laggar.gcw.crowdstrike.com">GOV</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Proxy / CASB -->
+        <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <div style="width:28px;height:28px;background:rgba(16,185,129,0.1);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px">🌐</div>
+            <div style="flex:1"><div style="font-size:12px;font-weight:700">Proxy / CASB Logs</div>
+            <div style="font-size:10px;color:var(--text-muted)">Zscaler · Netskope · Bluecoat</div></div>
+            <div id="cd-proxy-status" style="font-size:10px;padding:2px 6px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted)">Off</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <select id="cd-proxy-type" style="font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%">
+              <option value="">Select proxy type...</option>
+              <option value="zscaler">Zscaler ZIA</option>
+              <option value="netskope">Netskope</option>
+              <option value="bluecoat">Bluecoat / Symantec</option>
+              <option value="generic">Generic (CSV/JSON)</option>
+            </select>
+            <textarea id="cd-proxy-logs" placeholder='Paste proxy logs (JSON array) or upload file&#10;[{"url":"https://api.openai.com","user":"john@co.com","device":"PC-001"}]' style="font-size:10px;padding:6px 8px;border-radius:6px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box;resize:vertical;min-height:60px;font-family:monospace"></textarea>
+            <button onclick="exportZscalerConfig()" style="font-size:10px;padding:4px 8px;border-radius:6px;border:1px solid var(--glass-border-dim);background:var(--bg-secondary);cursor:pointer;color:var(--text-primary)">📥 Export Zscaler Policy</button>
+          </div>
+        </div>
+
+        <!-- Microsoft Intune -->
+        <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <div style="width:28px;height:28px;background:rgba(0,120,212,0.1);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px">💻</div>
+            <div style="flex:1"><div style="font-size:12px;font-weight:700">Microsoft Intune</div>
+            <div style="font-size:10px;color:var(--text-muted)">AI apps on managed devices</div></div>
+            <div id="cd-intune-status" style="font-size:10px;padding:2px 6px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted)">Off</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <input id="cd-intune-tenant" placeholder="Tenant ID" style="font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+            <input id="cd-intune-client" placeholder="Client ID (App Registration)" style="font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+            <input id="cd-intune-secret" type="password" placeholder="Client Secret" style="font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+            <div style="font-size:10px;color:var(--text-muted)">Needs: DeviceManagementApps.Read.All</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
     <!-- Single action button -->
     <div style="display:flex;gap:10px;align-items:center">
       <button onclick="startFullDiscovery()" id="cd-scan-btn"
@@ -8482,6 +8562,104 @@ async function startFullDiscovery() {
     alert('Please enter credentials for at least one environment');
     return;
   }
+
+  // Run endpoint scans in parallel (non-blocking)
+  runEndpointScans();
+
+
+async function runEndpointScans() {
+  if (!_apiToken) return;
+
+  // Cortex XDR
+  const cortexKey  = document.getElementById('cd-cortex-key')?.value?.trim();
+  const cortexKeyId= document.getElementById('cd-cortex-keyid')?.value?.trim();
+  const cortexFqdn = document.getElementById('cd-cortex-fqdn')?.value?.trim();
+  if (cortexKey && cortexKeyId && cortexFqdn) {
+    const statusEl = document.getElementById('cd-cortex-status');
+    if (statusEl) { statusEl.textContent = 'Scanning...'; statusEl.style.color='#f59e0b'; }
+    fetch('/api/endpoint/scan/cortex', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body: JSON.stringify({apiKey:cortexKey, apiKeyId:cortexKeyId, fqdn:cortexFqdn})
+    }).then(r=>r.json()).then(d=>{
+      const count = d.discovered||0;
+      if (statusEl) { statusEl.textContent = count+' found'; statusEl.style.color='#10b981'; }
+      if (count>0) { loadLiveAgents(); showScannerToast('Cortex XDR: '+count+' AI agents found on endpoints', false); }
+    }).catch(()=>{ if (statusEl) { statusEl.textContent = 'Error'; statusEl.style.color='#ef4444'; }});
+  }
+
+  // CrowdStrike
+  const csKey    = document.getElementById('cd-cs-key')?.value?.trim();
+  const csSecret = document.getElementById('cd-cs-secret')?.value?.trim();
+  const csRegion = document.getElementById('cd-cs-region')?.value;
+  if (csKey && csSecret) {
+    const statusEl = document.getElementById('cd-cs-status');
+    if (statusEl) { statusEl.textContent = 'Scanning...'; statusEl.style.color='#f59e0b'; }
+    fetch('/api/endpoint/scan/crowdstrike', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body: JSON.stringify({clientId:csKey, clientSecret:csSecret, baseUrl:csRegion})
+    }).then(r=>r.json()).then(d=>{
+      const count = d.discovered||0;
+      if (statusEl) { statusEl.textContent = count+' found'; statusEl.style.color='#10b981'; }
+      if (count>0) { loadLiveAgents(); showScannerToast('CrowdStrike: '+count+' AI agents found on endpoints', false); }
+    }).catch(()=>{ if (statusEl) { statusEl.textContent = 'Error'; statusEl.style.color='#ef4444'; }});
+  }
+
+  // Intune
+  const intuneTenant = document.getElementById('cd-intune-tenant')?.value?.trim();
+  const intuneClient = document.getElementById('cd-intune-client')?.value?.trim();
+  const intuneSecret = document.getElementById('cd-intune-secret')?.value?.trim();
+  if (intuneTenant && intuneClient && intuneSecret) {
+    const statusEl = document.getElementById('cd-intune-status');
+    if (statusEl) { statusEl.textContent = 'Scanning...'; statusEl.style.color='#f59e0b'; }
+    fetch('/api/endpoint/scan/intune', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body: JSON.stringify({tenantId:intuneTenant, clientId:intuneClient, clientSecret:intuneSecret})
+    }).then(r=>r.json()).then(d=>{
+      const count = d.discovered||0;
+      if (statusEl) { statusEl.textContent = count+' found'; statusEl.style.color='#10b981'; }
+      if (count>0) { loadLiveAgents(); showScannerToast('Intune: '+count+' AI apps found on managed devices', false); }
+    }).catch(()=>{ if (statusEl) { statusEl.textContent = 'Error'; statusEl.style.color='#ef4444'; }});
+  }
+
+  // Proxy logs
+  const proxyLogs = document.getElementById('cd-proxy-logs')?.value?.trim();
+  const proxyType = document.getElementById('cd-proxy-type')?.value;
+  if (proxyLogs && proxyType) {
+    const statusEl = document.getElementById('cd-proxy-status');
+    if (statusEl) { statusEl.textContent = 'Processing...'; statusEl.style.color='#f59e0b'; }
+    try {
+      const logs = JSON.parse(proxyLogs);
+      fetch('/api/proxy/ingest', {
+        method:'POST',
+        headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+        body: JSON.stringify({source:proxyType, logs})
+      }).then(r=>r.json()).then(d=>{
+        const count = d.newAgents||0;
+        if (statusEl) { statusEl.textContent = count+' found'; statusEl.style.color='#10b981'; }
+        if (count>0) { loadLiveAgents(); showScannerToast('Proxy: '+count+' AI agents discovered from logs', false); }
+      }).catch(()=>{ if (statusEl) { statusEl.textContent = 'Error'; statusEl.style.color='#ef4444'; }});
+    } catch(e) {
+      if (statusEl) { statusEl.textContent = 'Invalid JSON'; statusEl.style.color='#ef4444'; }
+    }
+  }
+}
+
+async function exportZscalerConfig() {
+  if (!_apiToken) return;
+  const data = await fetch('/api/proxy/config/zscaler', {
+    headers:{'Authorization':'Bearer '+_apiToken}
+  }).then(r=>r.json()).catch(()=>null);
+  if (!data) return;
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'agentRadar-zscaler-policy.json';
+  a.click();
+  showScannerToast('Zscaler policy exported', false);
+}
 
   // Save credentials to DB
   for (const [provider, creds] of Object.entries(payload)) {
