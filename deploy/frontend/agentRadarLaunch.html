@@ -2582,6 +2582,136 @@ input[type=checkbox]{accent-color:var(--brand)}
     <!-- ══ INTEGRATIONS ══ -->
     <div class="view" id="view-integrations">
 
+  <!-- ══ CONNECT & DISCOVER — PRIMARY UI ══ -->
+  <div id="connect-discover-panel" style="padding:20px 24px">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <div style="width:40px;height:40px;background:linear-gradient(135deg,#2563eb,#7c3aed);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">⚡</div>
+      <div>
+        <div style="font-size:20px;font-weight:800;font-family:var(--font-display)">Connect Your Environment</div>
+        <div style="font-size:12px;color:var(--text-muted)">Provide read-only credentials — AgentRadar finds every AI agent automatically. No configuration needed.</div>
+      </div>
+      <div id="cd-last-scan" style="margin-left:auto;font-size:11px;color:var(--text-muted)"></div>
+    </div>
+
+    <!-- How it works -->
+    <div style="display:flex;gap:8px;margin:16px 0;padding:12px 16px;background:rgba(37,99,235,0.06);border:1px solid rgba(37,99,235,0.15);border-radius:10px">
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.7">
+        <span style="font-weight:700;color:#2563eb">How it works: </span>
+        Paste your cloud credentials → AgentRadar probes your environment → discovers every AI agent (active, dormant, in-development) → saves to inventory → shows risk and compliance gaps.
+        <span style="font-weight:700;color:#2563eb"> You don't need to know what AI you have. We find it.</span>
+      </div>
+    </div>
+
+    <!-- Cloud credential cards -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px" id="cd-cloud-grid">
+
+      <!-- Azure -->
+      <div id="cd-azure-card" style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:16px;transition:border-color .15s">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <div style="width:32px;height:32px;background:rgba(0,120,212,0.1);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px">🔷</div>
+          <div style="flex:1"><div style="font-size:13px;font-weight:700;color:var(--text-primary)">Microsoft Azure + M365</div>
+          <div style="font-size:11px;color:var(--text-muted)">Azure OpenAI · AKS · Copilot · Entra ID</div></div>
+          <div id="cd-azure-status" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--bg-secondary);color:var(--text-muted)">Not connected</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <input id="cd-az-tenant" placeholder="Tenant ID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)" style="font-size:11px;padding:7px 10px;border-radius:7px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+          <input id="cd-az-client" placeholder="Client ID (App Registration)" style="font-size:11px;padding:7px 10px;border-radius:7px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+          <input id="cd-az-secret" type="password" placeholder="Client Secret" style="font-size:11px;padding:7px 10px;border-radius:7px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+          <input id="cd-az-sub" placeholder="Subscription ID" style="font-size:11px;padding:7px 10px;border-radius:7px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+          <div style="font-size:10px;color:var(--text-muted);padding:2px 0">Required: App Registration with Reader role on subscription</div>
+        </div>
+      </div>
+
+      <!-- AWS -->
+      <div id="cd-aws-card" style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <div style="width:32px;height:32px;background:rgba(255,153,0,0.1);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px">🟠</div>
+          <div style="flex:1"><div style="font-size:13px;font-weight:700;color:var(--text-primary)">Amazon AWS</div>
+          <div style="font-size:11px;color:var(--text-muted)">Bedrock · SageMaker · EKS · Lambda</div></div>
+          <div id="cd-aws-status" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--bg-secondary);color:var(--text-muted)">Not connected</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <input id="cd-aws-key" placeholder="Access Key ID (AKIA...)" style="font-size:11px;padding:7px 10px;border-radius:7px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+          <input id="cd-aws-secret" type="password" placeholder="Secret Access Key" style="font-size:11px;padding:7px 10px;border-radius:7px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+          <input id="cd-aws-region" placeholder="Primary region (us-east-1)" style="font-size:11px;padding:7px 10px;border-radius:7px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+          <div style="font-size:10px;color:var(--text-muted);padding:2px 0">Required: IAM user with ReadOnlyAccess policy</div>
+        </div>
+      </div>
+
+      <!-- GCP -->
+      <div id="cd-gcp-card" style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <div style="width:32px;height:32px;background:rgba(66,133,244,0.1);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px">🟢</div>
+          <div style="flex:1"><div style="font-size:13px;font-weight:700;color:var(--text-primary)">Google Cloud</div>
+          <div style="font-size:11px;color:var(--text-muted)">Vertex AI · Gemini · GKE · BigQuery ML</div></div>
+          <div id="cd-gcp-status" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--bg-secondary);color:var(--text-muted)">Not connected</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <input id="cd-gcp-project" placeholder="Project ID" style="font-size:11px;padding:7px 10px;border-radius:7px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box">
+          <textarea id="cd-gcp-key" placeholder='Service Account Key JSON {"type":"service_account",...}' style="font-size:11px;padding:7px 10px;border-radius:7px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box;resize:vertical;min-height:60px;font-family:monospace"></textarea>
+          <div style="font-size:10px;color:var(--text-muted);padding:2px 0">Required: Service account with roles/viewer</div>
+        </div>
+      </div>
+
+      <!-- On-premise network -->
+      <div id="cd-network-card" style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <div style="width:32px;height:32px;background:rgba(99,102,241,0.1);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px">📡</div>
+          <div style="flex:1"><div style="font-size:13px;font-weight:700;color:var(--text-primary)">On-Premise Network</div>
+          <div style="font-size:11px;color:var(--text-muted)">Local LLMs · DICOM · HL7 · AI servers</div></div>
+          <div id="cd-net-status" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--bg-secondary);color:var(--text-muted)">Not connected</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <textarea id="cd-net-cidrs" placeholder="Network ranges to scan (one per line or comma-separated)&#10;10.1.0.0/24&#10;192.168.1.0/24&#10;172.16.0.0/16" style="font-size:11px;padding:7px 10px;border-radius:7px;border:1px solid var(--glass-border-dim);background:var(--bg-primary);color:var(--text-primary);width:100%;box-sizing:border-box;resize:vertical;min-height:80px;font-family:monospace"></textarea>
+          <div style="font-size:10px;color:var(--text-muted);padding:2px 0">Scans for Ollama, vLLM, DICOM, HL7, and 8 other AI service ports</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Single action button -->
+    <div style="display:flex;gap:10px;align-items:center">
+      <button onclick="startFullDiscovery()" id="cd-scan-btn"
+        style="background:linear-gradient(135deg,#2563eb,#7c3aed);color:white;border:none;border-radius:10px;padding:12px 28px;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px;transition:opacity .15s">
+        ⚡ Discover All AI Agents
+      </button>
+      <button onclick="cdSaveOnly()" style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:10px;padding:12px 20px;font-size:13px;cursor:pointer;color:var(--text-primary)">
+        💾 Save Credentials Only
+      </button>
+      <div id="cd-progress" style="font-size:12px;color:var(--text-muted);display:none">
+        <span id="cd-progress-msg">Scanning...</span>
+      </div>
+    </div>
+
+    <!-- Results panel -->
+    <div id="cd-results" style="display:none;margin-top:16px;background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;padding:16px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px">Discovery Results</div>
+      <div id="cd-results-body"></div>
+    </div>
+
+    <!-- Advanced settings toggle -->
+    <div style="margin-top:12px">
+      <button onclick="document.getElementById('cd-advanced').style.display=document.getElementById('cd-advanced').style.display==='none'?'block':'none'"
+        style="background:none;border:none;font-size:12px;color:var(--text-muted);cursor:pointer;padding:0">
+        ▸ Advanced scanner configuration
+      </button>
+      <div id="cd-advanced" style="display:none;margin-top:10px;padding:12px;background:var(--bg-secondary);border-radius:8px;font-size:12px;color:var(--text-muted)">
+        Advanced options are auto-configured based on your environment. Manual scanner configuration is available below if needed.
+      </div>
+    </div>
+  </div>
+
+  <!-- Divider -->
+  <div style="border-top:1px solid var(--glass-border-dim);margin:0 24px 20px"></div>
+
+  <!-- Legacy manual tabs (collapsed by default) -->
+  <div style="padding:0 24px">
+    <button onclick="document.getElementById('legacy-integ').style.display=document.getElementById('legacy-integ').style.display==='none'?'block':'none'"
+      style="background:none;border:none;font-size:12px;color:var(--text-muted);cursor:pointer;padding:0;margin-bottom:12px">
+      ▸ Manual scanner configuration (advanced)
+    </button>
+    <div id="legacy-integ" style="display:none">
       <!-- Status bar -->
       <div class="env-status-bar" id="env-status-bar">
         <div class="esb-item"><div class="esb-dot" style="background:var(--green)"></div><span class="esb-label">Cloud scan</span><span class="esb-val" id="esb-cloud">Offline</span></div>
@@ -7617,6 +7747,7 @@ async function doLogin() {
     updateStats();
     if (typeof renderDashboard === 'function') renderDashboard();
     loadSavedIntegrations(); // Load saved cloud credentials
+    loadConnectDiscoverState(); // Pre-fill connect & discover panel
   }, 200);
 }
 
@@ -8031,6 +8162,205 @@ async function approveAgent(id) {
     showScannerToast('Agent approved', false);
   } catch(e) { alert('Error: '+e.message); }
 }
+
+
+/* ══ CONNECT & DISCOVER — MAIN ENTRY POINT ══ */
+
+async function startFullDiscovery() {
+  if (!_apiToken) { alert('Please sign in first'); return; }
+
+  const btn = document.getElementById('cd-scan-btn');
+  const prog = document.getElementById('cd-progress');
+  const progMsg = document.getElementById('cd-progress-msg');
+  const results = document.getElementById('cd-results');
+  const resultsBody = document.getElementById('cd-results-body');
+
+  // Build payload from whatever credentials are filled in
+  const payload = {};
+
+  const azTenant = document.getElementById('cd-az-tenant')?.value?.trim();
+  const azClient = document.getElementById('cd-az-client')?.value?.trim();
+  const azSecret = document.getElementById('cd-az-secret')?.value?.trim();
+  const azSub    = document.getElementById('cd-az-sub')?.value?.trim();
+  if (azTenant && azClient && azSecret && azSub)
+    payload.azure = { tenantId:azTenant, clientId:azClient, clientSecret:azSecret, subscriptionId:azSub };
+
+  const awsKey    = document.getElementById('cd-aws-key')?.value?.trim();
+  const awsSecret = document.getElementById('cd-aws-secret')?.value?.trim();
+  const awsRegion = document.getElementById('cd-aws-region')?.value?.trim() || 'us-east-1';
+  if (awsKey && awsSecret)
+    payload.aws = { accessKeyId:awsKey, secretAccessKey:awsSecret, region:awsRegion };
+
+  const gcpProject = document.getElementById('cd-gcp-project')?.value?.trim();
+  const gcpKey     = document.getElementById('cd-gcp-key')?.value?.trim();
+  if (gcpProject && gcpKey)
+    payload.gcp = { projectId:gcpProject, serviceAccountKey:gcpKey };
+
+  const netCidrs = document.getElementById('cd-net-cidrs')?.value?.trim();
+  if (netCidrs)
+    payload.network = { cidrRanges: netCidrs.split(/[,
+]/).map(s=>s.trim()).filter(Boolean) };
+
+  if (Object.keys(payload).length === 0) {
+    alert('Please enter credentials for at least one environment');
+    return;
+  }
+
+  // Save credentials to DB
+  for (const [provider, creds] of Object.entries(payload)) {
+    if (provider === 'network') continue;
+    fetch('/api/integrations/credentials', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body: JSON.stringify({ provider, credentials: creds })
+    }).catch(()=>{});
+  }
+
+  // Start scanning
+  btn.style.opacity = '0.6';
+  btn.disabled = true;
+  if (prog) prog.style.display = 'flex';
+  if (results) results.style.display = 'none';
+
+  const clouds = Object.keys(payload).join(', ').toUpperCase();
+  if (progMsg) progMsg.textContent = 'Scanning ' + clouds + '... (2-5 minutes)';
+
+  try {
+    const resp = await fetch('/api/autodiscovery/start', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    }).then(r=>r.json());
+
+    if (!resp.sessionId) throw new Error(resp.error || 'Failed to start discovery');
+
+    // Poll for results
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      attempts++;
+      if (progMsg) progMsg.textContent = 'Scanning ' + clouds + '... (' + (attempts*3) + 's)';
+
+      const status = await fetch('/api/autodiscovery/status/'+resp.sessionId, {
+        headers:{'Authorization':'Bearer '+_apiToken}
+      }).then(r=>r.json()).catch(()=>({}));
+
+      if (status.status === 'completed' || status.status === 'error') {
+        clearInterval(poll);
+        btn.style.opacity = '1';
+        btn.disabled = false;
+        if (prog) prog.style.display = 'none';
+
+        if (status.status === 'completed') {
+          // Show results
+          const total = status.agentCount || 0;
+          const scanners = (status.scanners||[]).length;
+          const summary = status.summary || {};
+
+          if (results) results.style.display = 'block';
+          if (resultsBody) resultsBody.innerHTML = `
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+              <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+                <div style="font-size:24px;font-weight:800;color:#2563eb">${total}</div>
+                <div style="font-size:11px;color:var(--text-muted)">Agents discovered</div>
+              </div>
+              <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+                <div style="font-size:24px;font-weight:800;color:#7c3aed">${scanners}</div>
+                <div style="font-size:11px;color:var(--text-muted)">Scanners auto-enabled</div>
+              </div>
+              <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+                <div style="font-size:24px;font-weight:800;color:#059669">${Object.keys(summary).length}</div>
+                <div style="font-size:11px;color:var(--text-muted)">Environments scanned</div>
+              </div>
+            </div>
+            ${total > 0 ? '<div style="font-size:12px;color:#059669;font-weight:600">✅ Discovery complete — agents saved to inventory</div>' : '<div style="font-size:12px;color:var(--text-muted)">No new agents found (may already be in inventory)</div>'}
+            <div style="margin-top:10px;display:flex;gap:8px">
+              <button onclick="go('discovery')" class="btn primary sm">View Agent Inventory →</button>
+              <button onclick="go('registered-agents')" class="btn sm">Registered Agents →</button>
+            </div>`;
+
+          // Reload agents
+          loadLiveAgents().then(()=>{ updateStats(); });
+          showScannerToast('Discovery complete: ' + total + ' agents found', false);
+
+          // Update last scan time
+          const lastScan = document.getElementById('cd-last-scan');
+          if (lastScan) lastScan.textContent = 'Last scan: ' + new Date().toLocaleTimeString();
+
+          // Update status badges
+          Object.keys(payload).forEach(p => {
+            const el = document.getElementById('cd-'+p+'-status');
+            if (el) { el.textContent = 'Scanned ✓'; el.style.background='rgba(5,150,105,0.1)'; el.style.color='#059669'; }
+          });
+        } else {
+          showScannerToast('Discovery error: ' + status.error, true);
+        }
+      }
+      if (attempts > 100) clearInterval(poll);
+    }, 3000);
+
+  } catch(e) {
+    btn.style.opacity = '1';
+    btn.disabled = false;
+    if (prog) prog.style.display = 'none';
+    alert('Error starting discovery: ' + e.message);
+  }
+}
+
+async function cdSaveOnly() {
+  if (!_apiToken) { alert('Please sign in first'); return; }
+  const providers = {
+    azure: { tenantId:document.getElementById('cd-az-tenant')?.value?.trim(), clientId:document.getElementById('cd-az-client')?.value?.trim(), clientSecret:document.getElementById('cd-az-secret')?.value?.trim(), subscriptionId:document.getElementById('cd-az-sub')?.value?.trim() },
+    aws: { accessKeyId:document.getElementById('cd-aws-key')?.value?.trim(), secretAccessKey:document.getElementById('cd-aws-secret')?.value?.trim(), region:document.getElementById('cd-aws-region')?.value?.trim()||'us-east-1' },
+    gcp: { projectId:document.getElementById('cd-gcp-project')?.value?.trim(), serviceAccountKey:document.getElementById('cd-gcp-key')?.value?.trim() },
+  };
+  let saved = 0;
+  for (const [provider, creds] of Object.entries(providers)) {
+    if (!Object.values(creds).some(v=>v)) continue;
+    await fetch('/api/integrations/credentials', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body: JSON.stringify({ provider, credentials: creds })
+    });
+    saved++;
+    const el = document.getElementById('cd-'+provider+'-status');
+    if (el) { el.textContent = 'Saved ✓'; el.style.background='rgba(5,150,105,0.1)'; el.style.color='#059669'; }
+  }
+  showScannerToast(saved + ' credential set(s) saved — click Discover to scan', false);
+}
+
+async function loadConnectDiscoverState() {
+  if (!_apiToken) return;
+  try {
+    const saved = await fetch('/api/integrations/credentials', {
+      headers:{'Authorization':'Bearer '+_apiToken}
+    }).then(r=>r.json());
+
+    Object.entries(saved).forEach(([provider, creds]) => {
+      if (!creds._saved) return;
+      // Pre-fill non-secret fields
+      const fieldMap = {
+        azure: [['cd-az-tenant','tenantId'],['cd-az-client','clientId'],['cd-az-sub','subscriptionId']],
+        aws:   [['cd-aws-key','accessKeyId'],['cd-aws-region','region']],
+        gcp:   [['cd-gcp-project','projectId']],
+      };
+      (fieldMap[provider]||[]).forEach(([elId,key]) => {
+        const el = document.getElementById(elId);
+        if (el && creds[key]) el.value = creds[key];
+      });
+      // Show saved status
+      const statusEl = document.getElementById('cd-'+provider+'-status');
+      if (statusEl) {
+        statusEl.textContent = 'Credentials saved';
+        statusEl.style.background = 'rgba(37,99,235,0.1)';
+        statusEl.style.color = '#2563eb';
+      }
+      // Store in memory
+      window._savedCreds = window._savedCreds || {};
+      window._savedCreds[provider] = creds;
+    });
+  } catch(e) {}
+}
+/* ══ END CONNECT & DISCOVER ══ */
 
 function doSignOut() {
   if (!confirm('Sign out of AgentRadar?')) return;
