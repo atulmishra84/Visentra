@@ -8198,8 +8198,7 @@ async function startFullDiscovery() {
 
   const netCidrs = document.getElementById('cd-net-cidrs')?.value?.trim();
   if (netCidrs)
-    payload.network = { cidrRanges: netCidrs.split(/[,
-]/).map(s=>s.trim()).filter(Boolean) };
+    payload.network = { cidrRanges: netCidrs.split(/[,\n]/).map(s=>s.trim()).filter(Boolean) };
 
   if (Object.keys(payload).length === 0) {
     alert('Please enter credentials for at least one environment');
