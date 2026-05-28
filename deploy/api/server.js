@@ -2280,7 +2280,7 @@ app.post('/api/endpoint/scan/intune', auth, asyncHandler(async (req, res) => {
 
     // Get Chrome extensions via Intune
     const extResp = await fetch(
-      'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$filter=operatingSystem eq 'Windows'&$select=id,deviceName,userPrincipalName',
+      `https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$filter=operatingSystem eq 'Windows'&$select=id,deviceName,userPrincipalName`,
       { headers:{'Authorization':'Bearer '+token} }
     ).then(r=>r.json()).catch(()=>({value:[]}));
 
