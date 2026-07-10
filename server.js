@@ -36,19 +36,29 @@ app.set('trust proxy', 1);
 app.use(
   helmet({
     contentSecurityPolicy: {
-      useDefaults: true,
+      useDefaults: false,
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrcAttr: ["'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
         imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'", 'https://api.anthropic.com', 'https://login.microsoftonline.com', 'https://graph.microsoft.com'],
+        connectSrc: [
+          "'self'",
+          'https://api.anthropic.com',
+          'https://login.microsoftonline.com',
+          'https://graph.microsoft.com',
+        ],
         frameAncestors: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        objectSrc: ["'none'"],
       },
     },
     hsts: { maxAge: 31536000, includeSubDomains: true },
     frameguard: { action: 'deny' },
+    crossOriginEmbedderPolicy: false,
   })
 );
 app.use(express.json({ limit: '1mb' }));

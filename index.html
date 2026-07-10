@@ -8028,22 +8028,23 @@ async function doLogin() {
       body: JSON.stringify({email, password})
     });
     const data = await res.json();
-    if (data.token) {
+    if (res.ok && data.token) {
       _apiToken = data.token;
       _apiMode = true;
-      // Extract role from JWT payload
       try {
         const payload = JSON.parse(atob(data.token.split('.')[1]));
-        currentRole = payload.role || 'ciso';
+        currentRole = payload.role || payload.uiRole || 'ciso';
         sessionStorage.setItem('ar-role', currentRole);
       } catch(e) {}
-      // Load live agents from API into DB BEFORE rendering anything
       await loadLiveAgents();
     } else {
-      if (errEl) { errEl.textContent = 'Invalid credentials — using demo data'; errEl.style.display = 'block'; }
+      const msg = (data && data.error) ? data.error : 'Invalid credentials';
+      if (errEl) { errEl.textContent = msg + ' — check email/password'; errEl.style.display = 'block'; }
+      return; // stay on login screen for bad credentials
     }
   } catch(e) {
-    if (errEl) { errEl.textContent = 'API unavailable — running in demo mode'; errEl.style.display = 'block'; }
+    if (errEl) { errEl.textContent = 'API unavailable — ' + (e.message||'network error'); errEl.style.display = 'block'; }
+    return;
   }
 
   const name = email.split('@')[0].replace('.',' ').replace(/\b\w/g,l=>l.toUpperCase());
