@@ -198,7 +198,10 @@ app.post('/api/auth/logout', authenticate, async (req, res) => {
 
 app.get('/api/auth/me', authenticate, async (req, res) => {
   const result = await query(
-    `SELECT id, email, name, role, tenant_id, mfa_enabled, last_login FROM users WHERE id = $1`,
+    `SELECT u.id, u.email, u.name, u.role, u.tenant_id, u.mfa_enabled, u.last_login, t.name AS tenant_name
+     FROM users u
+     LEFT JOIN tenants t ON t.id = u.tenant_id
+     WHERE u.id = $1`,
     [req.user.sub]
   );
   const u = result.rows[0];
@@ -210,6 +213,7 @@ app.get('/api/auth/me', authenticate, async (req, res) => {
       name: u.name,
       role: u.role,
       tenantId: u.tenant_id,
+      tenantName: u.tenant_name,
       mfaEnabled: u.mfa_enabled,
       mfaRequired: mfa.roleRequiresMfa(u.role),
       lastLogin: u.last_login,
@@ -711,7 +715,7 @@ api.use('/risk-acceptances', require('./src/routes/riskAcceptances'));
 api.use('/webhooks', require('./src/routes/webhooks'));
 api.use('/endpoint', require('./src/routes/endpoint'));
 api.use('/proxy', require('./src/routes/proxy'));
-api.use('/', require('./src/routes/governance'));
+api.use('/governance', require('./src/routes/governance'));
 api.use('/', require('./src/routes/exports'));
 
 app.get('/api/version', (_req, res) => {
