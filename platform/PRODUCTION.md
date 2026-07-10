@@ -34,6 +34,10 @@ ALLOW_DEMO_SEED=false
 
 ## 3. Azure deploy
 
+> **Note:** The Container Apps Postgres/Neo4j path is an **evaluation / POC** data plane
+> (no persistent volumes). For production, use Azure Database for PostgreSQL Flexible
+> Server with backups and Key Vault for secrets.
+
 ### Customer one-click (recommended)
 
 ```bash
@@ -41,7 +45,9 @@ cd platform/cloud-deploy
 ./install.sh
 ```
 
-Builds images in your Azure ACR (no local Docker). See [`cloud-deploy/README.md`](./cloud-deploy/README.md).
+Builds images in your Azure ACR (no local Docker). On **upgrade**, you must export the
+original `JWT_SECRET`, `ENCRYPTION_KEY`, `POSTGRES_PASSWORD`, and admin password.
+See [`cloud-deploy/README.md`](./cloud-deploy/README.md).
 
 ### Operator script (local Docker)
 

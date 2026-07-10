@@ -1,3 +1,5 @@
+import { safeFetch, assertAllowedUrl, ALLOW } from "../utils/http.js";
+
 /**
  * Live Azure Resource Manager discovery using connector service-principal credentials.
  * Ingests subscription inventory (cloud resources), with AI-relevant items flagged.
@@ -38,11 +40,15 @@ export async function getAzureAccessToken({ tenantId, clientId, clientSecret }) 
     scope: "https://management.azure.com/.default"
   });
 
-  const res = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body
-  });
+  const res = await safeFetch(
+    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body
+    },
+    ALLOW.microsoftLogin
+  );
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(json.error_description || json.error || `Azure token failed (${res.status})`);
@@ -57,9 +63,14 @@ async function listSubscriptionResources(token, subscriptionId) {
     `?api-version=2021-04-01`;
 
   while (url) {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    assertAllowedUrl(url, ALLOW.azureArm);
+    const res = await safeFetch(
+      url,
+      {
+        headers: { Authorization: `Bearer ${token}` }
+      },
+      ALLOW.azureArm
+    );
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
       throw new Error(json.error?.message || `Azure resource list failed (${res.status})`);
@@ -202,10 +213,10 @@ export async function validateAzureConnector(conn) {
     clientSecret: conn.secrets.clientSecret
   });
   const subscriptionId = conn.config.subscriptionId;
-  const res = await fetch(
+  const res = await safeFetch(
     `https://management.azure.com/subscriptions/${subscriptionId}?api-version=2020-01-01`,
     { headers: { Authorization: `Bearer ${token}` } }
-  );
+  , ALLOW.azureArm);
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(json.error?.message || `Subscription check failed (${res.status})`);

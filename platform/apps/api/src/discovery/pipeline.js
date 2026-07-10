@@ -224,15 +224,44 @@ export async function ingestObservations(pool, neo4j, tenantId, jobId, observati
   return agentsFound;
 }
 
-export async function runDiscoveryJob(pool, neo4j, { tenantId, collectorIds, triggeredBy, broadcast }) {
+/**
+ * Atomically claim one running discovery job per tenant (advisory lock + insert).
+ * Throws err.status=409 if a job is already running.
+ */
+export async function claimDiscoveryJob(pool, { tenantId, collectorIds, triggeredBy }) {
   const collectors = collectorIds?.length ? collectorIds : DEFAULT_COLLECTORS;
-  const jobRes = await pool.query(
-    `INSERT INTO discovery_jobs (tenant_id, collector_ids, status, triggered_by, started_at)
-     VALUES ($1,$2,'running',$3,NOW()) RETURNING *`,
-    [tenantId, collectors, triggeredBy || "system"]
-  );
-  const job = jobRes.rows[0];
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Serialize claim attempts per tenant (key namespace 872314 = "AgentRadar discovery")
+    await client.query(`SELECT pg_advisory_xact_lock(872314, hashtext($1::text))`, [tenantId]);
+    const running = await client.query(
+      `SELECT id FROM discovery_jobs WHERE tenant_id=$1 AND status='running' ORDER BY created_at DESC LIMIT 1`,
+      [tenantId]
+    );
+    if (running.rows.length) {
+      const err = new Error("A discovery job is already running for this tenant");
+      err.status = 409;
+      err.jobId = running.rows[0].id;
+      throw err;
+    }
+    const jobRes = await client.query(
+      `INSERT INTO discovery_jobs (tenant_id, collector_ids, status, triggered_by, started_at)
+       VALUES ($1,$2,'running',$3,NOW()) RETURNING *`,
+      [tenantId, collectors, triggeredBy || "system"]
+    );
+    await client.query("COMMIT");
+    return jobRes.rows[0];
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
+export async function executeDiscoveryJob(pool, neo4j, job, { tenantId, triggeredBy, broadcast }) {
+  const collectors = job.collector_ids || DEFAULT_COLLECTORS;
   await pool.query(
     `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
      VALUES ($1,'job.started','info',$2,$3::jsonb)`,
@@ -273,4 +302,9 @@ export async function runDiscoveryJob(pool, neo4j, { tenantId, collectorIds, tri
     );
     throw err;
   }
+}
+
+export async function runDiscoveryJob(pool, neo4j, { tenantId, collectorIds, triggeredBy, broadcast }) {
+  const job = await claimDiscoveryJob(pool, { tenantId, collectorIds, triggeredBy });
+  return executeDiscoveryJob(pool, neo4j, job, { tenantId, triggeredBy, broadcast });
 }
