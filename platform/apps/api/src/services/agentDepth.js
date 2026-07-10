@@ -141,10 +141,12 @@ export function buildAgentAccess(obs = {}) {
   set("cloudAdmin", existing.scopes?.cloudAdmin ?? meta.cloudAdmin);
 
   // Merge any explicit scopes from collectors
-  if (existing.scopes && typeof existing.scopes === "object") {
-    for (const [k, v] of Object.entries(existing.scopes)) {
-      if (ACCESS_KEYS.includes(k) || typeof v === "boolean") set(k, v);
-    }
+  const explicitScopes = {
+    ...(meta.scopes && typeof meta.scopes === "object" ? meta.scopes : {}),
+    ...(existing.scopes && typeof existing.scopes === "object" ? existing.scopes : {})
+  };
+  for (const [k, v] of Object.entries(explicitScopes)) {
+    if (ACCESS_KEYS.includes(k) || typeof v === "boolean") set(k, v);
   }
 
   const granted = Object.entries(scopes)
