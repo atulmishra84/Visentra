@@ -13,6 +13,7 @@ import { SearchPage } from "./pages/SearchPage";
 import { TimelinePage } from "./pages/TimelinePage";
 import { TopologyMapPage } from "./pages/TopologyMapPage";
 import { ConnectorsPage } from "./pages/ConnectorsPage";
+import { ShadowAiPage } from "./pages/ShadowAiPage";
 import { UsageDashboardPage } from "./pages/UsageDashboardPage";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -44,6 +45,7 @@ export default function App() {
         <Route index element={<Navigate to="/executive" replace />} />
         <Route path="/executive" element={<ExecutiveDashboardPage />} />
         <Route path="/operations" element={<OperationsDashboardPage />} />
+        <Route path="/shadow-ai" element={<ShadowAiPage />} />
         <Route path="/discovery" element={<DiscoveryDashboardPage />} />
         <Route path="/discovery/events" element={<DiscoveryEventsPage />} />
         <Route path="/inventory" element={<InventoryPage title="Asset Inventory" />} />

@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { runCollectors, DEFAULT_COLLECTORS } from "./collectors.js";
+import { applyShadowAiToObservation } from "../services/shadowAi.js";
 
 function asArray(v) {
   if (!v) return [];
@@ -68,7 +69,8 @@ export async function ingestObservations(pool, neo4j, tenantId, jobId, observati
   let agentsFound = 0;
   const client = await pool.connect();
   try {
-    for (const obs of observations) {
+    for (const rawObs of observations) {
+      const obs = applyShadowAiToObservation(rawObs);
       await client.query("BEGIN");
       try {
         const fingerprint = obs.fingerprint || `anon:${randomUUID()}`;

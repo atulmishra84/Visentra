@@ -14,8 +14,12 @@ export type Agent = Record<string, unknown> & {
   cloud?: string;
   category?: string;
   department?: string;
-  confidence?: number;
+      confidence?: number;
   confidence_score?: number;
+  shadowAi?: boolean;
+  shadowAiScore?: number;
+  shadowAiReasons?: string[];
+  shadowAiTags?: string[];
   lastObservedAt?: string;
   last_seen?: string;
 };

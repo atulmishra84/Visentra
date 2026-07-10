@@ -9,6 +9,7 @@ const sections = [
     items: [
       { to: "/executive", label: "Executive Overview" },
       { to: "/operations", label: "Operations Workbench" },
+      { to: "/shadow-ai", label: "Shadow AI" },
       { to: "/discovery", label: "Discovery" }
     ]
   },

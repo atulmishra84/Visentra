@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { KpiCard } from "../components/KpiCard";
 import { apiRequest, listFromPayload, numberAt, valueAt } from "../lib/api";
 
@@ -92,22 +93,31 @@ export function ExecutiveDashboardPage() {
         <div>
           <p className="eyebrow">Executive</p>
           <h1>AI Agent Visibility Overview</h1>
-          <p className="page-description">Inventory, ownership, confidence, and discovery coverage for leadership.</p>
+          <p className="page-description">Inventory, ownership, Shadow AI exposure, and discovery coverage for leadership.</p>
         </div>
         <span className="status-pill">Last updated {new Date().toLocaleTimeString()}</span>
       </header>
 
       <section className="card-grid">
         <KpiCard label="Total Agents" value={metric(dashboard, ["totalAgents", "agentsTotal", "total"])} trend="Discovered inventory" />
-        <KpiCard label="New Agents" value={metric(dashboard, ["newAgents", "newlyDiscovered", "new"])} trend="Selected period" />
         <KpiCard label="Ownerless" value={metric(dashboard, ["ownerlessAgents", "ownerless"])} trend="Needs attribution" tone="warn" />
         <KpiCard
-          label="Coverage"
-          value={`${metric(dashboard, ["coverageScore", "coverage"], 0)}%`}
-          trend="Source visibility score"
+          label="Shadow AI"
+          value={metric(dashboard, ["shadowAiAgents", "shadowAi"])}
+          trend="Unmanaged / unsanctioned AI"
+          tone="warn"
+        />
+        <KpiCard
+          label="Avg confidence"
+          value={`${Math.round(metric(dashboard, ["avgConfidence"], 0) * 100)}%`}
+          trend="Discovery confidence"
           tone="good"
         />
       </section>
+
+      <p className="muted" style={{ marginBottom: 16 }}>
+        Investigate Shadow AI findings in the <Link to="/shadow-ai">Shadow AI</Link> workbench.
+      </p>
 
       <section className="split-grid">
         <BarList title="Models in Use" rows={modelRows} />

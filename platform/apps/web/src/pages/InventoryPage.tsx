@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { DataTable, type Column } from "../components/DataTable";
 import { DetailDrawer } from "../components/DetailDrawer";
 import { FacetBar, type Facets } from "../components/FacetBar";
@@ -37,19 +37,23 @@ function categoryBadge(category: string) {
 
 export function InventoryPage({ title }: { title: string }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [facets, setFacets] = useState<Facets>({});
   const [payload, setPayload] = useState<unknown>(null);
   const [selected, setSelected] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<"csv" | "json" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const shadowOnly = searchParams.get("shadow") === "true";
 
   useEffect(() => {
     let mounted = true;
     setLoading(true);
     setError(null);
 
-    apiRequest<unknown>("/api/agents", { query: { ...facets, limit: 500 } })
+    apiRequest<unknown>("/api/agents", {
+      query: { ...facets, limit: 500, shadow: shadowOnly ? "true" : undefined }
+    })
       .then((data) => mounted && setPayload(data))
       .catch(
         (requestError) =>
@@ -60,7 +64,7 @@ export function InventoryPage({ title }: { title: string }) {
     return () => {
       mounted = false;
     };
-  }, [facets]);
+  }, [facets, shadowOnly]);
 
   const agents = useMemo(() => listFromPayload<Agent>(payload, ["items", "agents"]), [payload]);
 
@@ -166,7 +170,9 @@ export function InventoryPage({ title }: { title: string }) {
           <p className="eyebrow">Inventory</p>
           <h1>{title}</h1>
           <p className="page-description">
-            Unified inventory from discovery: AI agents, cloud resources, and EDR endpoints. Filter by category to focus.
+            {shadowOnly
+              ? "Filtered to Shadow AI candidates (ownerless / unmanaged / unsanctioned AI signals)."
+              : "Unified inventory from discovery: AI agents, cloud resources, and EDR endpoints. Filter by category to focus."}
           </p>
         </div>
         <div className="toolbar">

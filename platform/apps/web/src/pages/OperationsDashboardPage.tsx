@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { DataTable, type Column } from "../components/DataTable";
 import { DetailDrawer } from "../components/DetailDrawer";
 import { KpiCard } from "../components/KpiCard";
@@ -77,12 +77,17 @@ export function OperationsDashboardPage() {
         <div>
           <p className="eyebrow">Operations</p>
           <h1>Analyst Workbench</h1>
-          <p className="page-description">New discoveries, changed relationships, ownerless agents, and low-confidence candidates.</p>
+          <p className="page-description">
+            New discoveries, Shadow AI candidates, ownerless agents, and low-confidence findings.
+          </p>
         </div>
+        <Link className="button primary" to="/shadow-ai">
+          Open Shadow AI
+        </Link>
       </header>
 
       <section className="card-grid">
-        <KpiCard label="New Discoveries" value={numberAt(dashboard, ["newDiscoveries", "newAgents"], queue.length)} />
+        <KpiCard label="Shadow AI" value={numberAt(dashboard, ["shadowAiAgents", "shadowAi"], queue.length)} tone="warn" />
         <KpiCard label="Ownerless" value={numberAt(dashboard, ["ownerlessAgents", "ownerless"], 0)} tone="warn" />
         <KpiCard label="Low Confidence" value={numberAt(dashboard, ["lowConfidence", "lowConfidenceAgents"], 0)} tone="warn" />
         <KpiCard label="Changed Edges" value={numberAt(dashboard, ["changedRelationships", "changedEdges"], 0)} />

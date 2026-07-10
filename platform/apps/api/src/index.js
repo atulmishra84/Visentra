@@ -16,6 +16,7 @@ import {
   deleteConnector,
   testConnector
 } from "./services/connectors.js";
+import { classifyShadowAi, summarizeShadowFindings } from "./services/shadowAi.js";
 
 const PORT = Number(process.env.PORT || 8080);
 const JWT_SECRET = process.env.JWT_SECRET || "agentradar-dev-secret-change-me";
@@ -151,6 +152,19 @@ function agentFilters(query, startIdx = 2) {
     clauses.push(`AND prompt_templates::text ILIKE $${i}`);
     params.push(`%${query.prompt}%`);
     i += 1;
+  }
+  if (query.shadow === "true" || query.shadow === true || query.shadowAi === "true") {
+    clauses.push(
+      `AND (
+         risk_indicators::text ILIKE '%shadow%'
+         OR risk_indicators::text ILIKE '%unmanaged%'
+         OR metadata->>'shadowAi' = 'true'
+         OR (owner IS NULL AND (
+           category IN ('ide','local_llm','browser','saas','mcp','framework','autonomous')
+           OR (category = 'cloud' AND (metadata->>'aiRelevant')::text = 'true')
+         ))
+       )`
+    );
   }
   if (query.project) {
     clauses.push(`AND (repository ILIKE $${i} OR metadata::text ILIKE $${i})`);
@@ -427,7 +441,19 @@ app.get("/api/agents/:id", auth, async (req, res) => {
      WHERE tenant_id=$1 AND agent_id=$2 ORDER BY observed_at DESC LIMIT 20`,
     [req.tenantId, req.params.id]
   );
-  res.json({ agent: agent.rows[0], relationships: rels.rows, observations: observations.rows });
+  const row = agent.rows[0];
+  const shadow = classifyShadowAi(row);
+  res.json({
+    agent: {
+      ...row,
+      shadowAi: shadow.isShadow,
+      shadowAiScore: shadow.score,
+      shadowAiReasons: shadow.reasons,
+      shadowAiTags: shadow.tags
+    },
+    relationships: rels.rows,
+    observations: observations.rows
+  });
 });
 
 app.get("/api/assets", auth, async (req, res) => {
@@ -558,6 +584,51 @@ app.get("/api/discovery/events", auth, async (req, res) => {
   res.json({ events: result.rows, items: result.rows });
 });
 
+app.get("/api/shadow-ai", auth, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 200, 500);
+    // Prefer AI-ish inventory; classifier decides Shadow vs not
+    const result = await pool.query(
+      `SELECT * FROM agents
+       WHERE tenant_id=$1
+         AND (
+           category IN ('ide','local','local_llm','framework','mcp','browser','autonomous','saas','container')
+           OR model IS NOT NULL
+           OR framework IS NOT NULL
+           OR ide IS NOT NULL
+           OR (category = 'cloud' AND (
+             metadata->>'aiRelevant' = 'true'
+             OR model = 'ai-relevant'
+             OR name ILIKE '%(AI)%'
+             OR name ILIKE '%ai%'
+             OR name ILIKE '%openai%'
+             OR name ILIKE '%copilot%'
+           ))
+           OR risk_indicators::text ILIKE '%shadow%'
+           OR risk_indicators::text ILIKE '%unmanaged%'
+           OR metadata->>'shadowAi' = 'true'
+         )
+       ORDER BY last_seen DESC
+       LIMIT $2`,
+      [req.tenantId, limit]
+    );
+
+    const summary = summarizeShadowFindings(result.rows);
+    res.json({
+      total: summary.total,
+      byTag: summary.byTag,
+      findings: summary.findings,
+      items: summary.findings,
+      agents: summary.findings,
+      definition:
+        "Shadow AI = AI agents/tools discovered without clear ownership or outside managed/sanctioned posture (visibility only)."
+    });
+  } catch (err) {
+    console.error("shadow-ai query failed:", err);
+    res.status(500).json({ error: { message: err.message }, findings: [], total: 0 });
+  }
+});
+
 app.get("/api/dashboards/:name", auth, async (req, res) => {
   const name = req.params.name;
   const total = await pool.query(`SELECT COUNT(*)::int AS c FROM agents WHERE tenant_id=$1`, [req.tenantId]);
@@ -573,6 +644,30 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
     `SELECT COALESCE(AVG(confidence_score),0)::float AS c FROM agents WHERE tenant_id=$1`,
     [req.tenantId]
   );
+  const ownerless = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM agents
+     WHERE tenant_id=$1 AND (owner IS NULL OR btrim(owner)='')`,
+    [req.tenantId]
+  );
+  const lowConfidence = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM agents WHERE tenant_id=$1 AND confidence_score < 0.55`,
+    [req.tenantId]
+  );
+  const shadowCandidates = await pool.query(
+    `SELECT * FROM agents
+     WHERE tenant_id=$1
+       AND (
+         category IN ('ide','local_llm','browser','saas','mcp','framework','autonomous')
+         OR model IS NOT NULL OR framework IS NOT NULL OR ide IS NOT NULL
+         OR risk_indicators::text ILIKE '%shadow%'
+         OR metadata->>'shadowAi' = 'true'
+         OR (category='cloud' AND metadata->>'aiRelevant'='true')
+       )
+     ORDER BY last_seen DESC LIMIT 300`,
+    [req.tenantId]
+  );
+  const shadowSummary = summarizeShadowFindings(shadowCandidates.rows);
+
   const categories = await usageBreakdown(req.tenantId, "category");
   const models = await usageBreakdown(req.tenantId, "model");
   const frameworks = await usageBreakdown(req.tenantId, "framework");
@@ -591,6 +686,13 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
     totalAgents: total.rows[0].c,
     runningAgents: running.rows[0].c,
     uniqueOwners: owners.rows[0].c,
+    ownerlessAgents: ownerless.rows[0].c,
+    ownerless: ownerless.rows[0].c,
+    lowConfidence: lowConfidence.rows[0].c,
+    lowConfidenceAgents: lowConfidence.rows[0].c,
+    shadowAiAgents: shadowSummary.total,
+    shadowAi: shadowSummary.total,
+    shadowAiByTag: shadowSummary.byTag,
     avgConfidence: Number(avgConf.rows[0].c.toFixed?.(3) ?? avgConf.rows[0].c),
     categories,
     agentsByCategory: categories,
@@ -611,9 +713,18 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
     });
   }
   if (name === "operations") {
+    const queue = shadowSummary.findings.slice(0, 50).map((f) => ({
+      ...f,
+      queue: "shadow_ai",
+      type: "shadow_ai",
+      title: f.name
+    }));
     return res.json({
       dashboard: {
         ...base,
+        queue,
+        items: queue,
+        newDiscoveries: queue.length,
         collectorHealth: COLLECTOR_IDS.map((id) => ({ name: id, status: "ready" })),
         openJobs: jobs.rows.filter((j) => j.status === "running").length
       }
