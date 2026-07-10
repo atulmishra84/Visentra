@@ -8,7 +8,7 @@ import {
   type Node,
   type NodeMouseHandler
 } from "@xyflow/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { type GraphEdge, type GraphNode, type GraphPayload, valueAt } from "../lib/api";
 
 type TopologyGraphProps = {
@@ -37,6 +37,24 @@ const palette: Record<string, string> = {
   asset: "#8ba3be"
 };
 
+function cssVar(name: string, fallback: string): string {
+  if (typeof window === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function graphTheme() {
+  return {
+    nodeBg: cssVar("--graph-node-bg", "rgba(10, 22, 38, 0.94)"),
+    text: cssVar("--text", "#eef6ff"),
+    muted: cssVar("--text-muted", "#94a8bf"),
+    edge: cssVar("--graph-edge", "rgba(65, 214, 195, 0.55)"),
+    labelBg: cssVar("--graph-label-bg", "rgba(8, 17, 31, 0.9)"),
+    brand: cssVar("--brand", "#41d6c3"),
+    grid: cssVar("--panel-border-strong", "rgba(139, 163, 190, 0.2)")
+  };
+}
+
 function nodeKind(node: GraphNode): string {
   const raw = String(node.type ?? node.category ?? node.label ?? "asset").toLowerCase();
   return raw.replace(/[^a-z0-9]/g, "");
@@ -64,6 +82,7 @@ function normalizeEdges(graph?: GraphPayload): GraphEdge[] {
 
 /** Layered radial/grid hybrid so large graphs stay readable with fitView */
 function layoutNodes(nodes: GraphNode[]): Node[] {
+  const theme = graphTheme();
   const agents = nodes.filter((n) => String(n.type).toLowerCase() === "agent");
   const others = nodes.filter((n) => String(n.type).toLowerCase() !== "agent");
   const positioned: Node[] = [];
@@ -91,9 +110,9 @@ function layoutNodes(nodes: GraphNode[]): Node[] {
         minWidth: 160,
         maxWidth: 200,
         border: `1px solid ${color}`,
-        background: "rgba(10, 22, 38, 0.94)",
+        background: theme.nodeBg,
         boxShadow: `0 0 24px ${color}22`,
-        color: "#eef6ff",
+        color: theme.text,
         padding: 10,
         fontSize: 12
       }
@@ -125,9 +144,9 @@ function layoutNodes(nodes: GraphNode[]): Node[] {
         minWidth: 140,
         maxWidth: 190,
         border: `1px solid ${color}`,
-        background: "rgba(10, 22, 38, 0.94)",
+        background: theme.nodeBg,
         boxShadow: `0 0 20px ${color}18`,
-        color: "#eef6ff",
+        color: theme.text,
         padding: 10,
         fontSize: 12
       }
@@ -138,15 +157,16 @@ function layoutNodes(nodes: GraphNode[]): Node[] {
 }
 
 function layoutEdges(edges: GraphEdge[]): Edge[] {
+  const theme = graphTheme();
   return edges.map((edge, index) => ({
     id: String(edge.id ?? `${edge.from ?? edge.source}-${edge.to ?? edge.target}-${index}`),
     source: String(edge.source ?? edge.from),
     target: String(edge.target ?? edge.to),
     label: String(edge.type ?? edge.label ?? ""),
     animated: edges.length < 80,
-    style: { stroke: "rgba(65, 214, 195, 0.55)" },
-    labelStyle: { fill: "#94a8bf", fontWeight: 600, fontSize: 10 },
-    labelBgStyle: { fill: "rgba(8, 17, 31, 0.9)" }
+    style: { stroke: theme.edge },
+    labelStyle: { fill: theme.muted, fontWeight: 600, fontSize: 10 },
+    labelBgStyle: { fill: theme.labelBg }
   }));
 }
 
@@ -156,9 +176,17 @@ function TopologyGraphInner({
   emptyMessage = "No graph relationships are available for the current scope.",
   onNodeSelect
 }: TopologyGraphProps) {
+  const [themeTick, setThemeTick] = useState(0);
+  useEffect(() => {
+    const observer = new MutationObserver(() => setThemeTick((value) => value + 1));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+
   const graphNodes = useMemo(() => normalizeNodes(graph), [graph]);
-  const nodes = useMemo(() => layoutNodes(graphNodes), [graphNodes]);
-  const edges = useMemo(() => layoutEdges(normalizeEdges(graph)), [graph]);
+  const nodes = useMemo(() => layoutNodes(graphNodes), [graphNodes, themeTick]);
+  const edges = useMemo(() => layoutEdges(normalizeEdges(graph)), [graph, themeTick]);
+  const theme = useMemo(() => graphTheme(), [themeTick]);
   const meta = (graph as GraphPayload & { meta?: { message?: string; nodeCount?: number; edgeCount?: number } })
     ?.meta;
 
@@ -191,8 +219,8 @@ function TopologyGraphInner({
         proOptions={{ hideAttribution: true }}
         onNodeClick={handleNodeClick}
       >
-        <Background color="rgba(139, 163, 190, 0.2)" gap={28} />
-        <MiniMap pannable zoomable nodeColor={(node) => String(node.style?.border ?? "#41d6c3")} />
+        <Background color={theme.grid} gap={28} />
+        <MiniMap pannable zoomable nodeColor={(node) => String(node.style?.border ?? theme.brand)} />
         <Controls />
       </ReactFlow>
     </div>

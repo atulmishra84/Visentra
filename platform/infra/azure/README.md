@@ -54,6 +54,17 @@ export ALLOW_DEMO_SEED=false
 
 Deploy sets `NODE_ENV=production`, injects `ENCRYPTION_KEY`, and locks `CORS_ORIGIN` to the web FQDN.
 
+## Customer one-click package
+
+For installs into a customer Azure subscription (ACR cloud builds, interactive prompts):
+
+```bash
+cd platform/cloud-deploy
+./install.sh
+```
+
+See [`../../cloud-deploy/README.md`](../../cloud-deploy/README.md).
+
 Outputs (non-secret) are written to `.last-deploy.env` (gitignored). The admin password is printed once — store it in a secret manager.
 
 ## After deploy

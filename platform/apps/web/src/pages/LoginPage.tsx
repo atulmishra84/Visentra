@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { API_BASE_URL } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { getPreferredTheme, toggleTheme, type ThemeMode } from "../lib/theme";
 
 const isProdBuild = import.meta.env.PROD;
 
@@ -11,6 +12,7 @@ export function LoginPage() {
   const [email, setEmail] = useState(isProdBuild ? "" : "admin@agentradar.local");
   const [password, setPassword] = useState(isProdBuild ? "" : "AgentRadar!dev");
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<ThemeMode>(() => getPreferredTheme());
 
   const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/executive";
 
@@ -31,6 +33,14 @@ export function LoginPage() {
 
   return (
     <div className="login-page">
+      <button
+        className="theme-toggle login-theme-toggle"
+        type="button"
+        aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+        onClick={() => setTheme(toggleTheme(theme))}
+      >
+        {theme === "light" ? "Dark mode" : "Light mode"}
+      </button>
       <section className="login-hero">
         <div className="brand-lockup" style={{ borderBottom: 0 }}>
           <div className="brand-mark">AR</div>

@@ -23,9 +23,18 @@ Greenfield implementation of the Discovery & Visibility track. See the engineeri
 
 See [`docs/blueprint/01-product-vision.md`](../docs/blueprint/01-product-vision.md) and [`docs/blueprint/12-discovery-engine.md`](../docs/blueprint/12-discovery-engine.md).
 
-## Azure deploy
+## Azure deploy (customer cloud — one click)
 
-Production-oriented deploy (secrets required — see [`PRODUCTION.md`](./PRODUCTION.md)):
+Install AgentRadar into **your Azure subscription** (no local Docker required):
+
+```bash
+cd platform/cloud-deploy
+./install.sh
+```
+
+See [`platform/cloud-deploy/README.md`](./cloud-deploy/README.md).
+
+### Operator path (local Docker)
 
 ```bash
 az login --use-device-code

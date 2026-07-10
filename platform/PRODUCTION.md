@@ -34,6 +34,17 @@ ALLOW_DEMO_SEED=false
 
 ## 3. Azure deploy
 
+### Customer one-click (recommended)
+
+```bash
+cd platform/cloud-deploy
+./install.sh
+```
+
+Builds images in your Azure ACR (no local Docker). See [`cloud-deploy/README.md`](./cloud-deploy/README.md).
+
+### Operator script (local Docker)
+
 ```bash
 cd platform/infra/azure
 export BOOTSTRAP_ADMIN_EMAIL=admin@yourcompany.com
