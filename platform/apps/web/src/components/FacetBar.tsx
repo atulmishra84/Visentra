@@ -9,6 +9,10 @@ export type Facets = {
   department?: string;
   evidenceClass?: string;
   agentStatus?: string;
+  access?: string;
+  accessSensitivity?: string;
+  overPermissioned?: string;
+  hasInstructions?: string;
 };
 
 type FacetBarProps = {
@@ -21,6 +25,10 @@ const facetFields: Array<keyof Facets> = [
   "category",
   "evidenceClass",
   "agentStatus",
+  "accessSensitivity",
+  "access",
+  "overPermissioned",
+  "hasInstructions",
   "cloud",
   "ide",
   "owner",
@@ -28,6 +36,8 @@ const facetFields: Array<keyof Facets> = [
   "model",
   "department"
 ];
+
+const BOOL_FACETS = new Set<keyof Facets>(["overPermissioned", "hasInstructions"]);
 
 function labelFor(key: keyof Facets): string {
   if (key === "q") return "Search";
@@ -37,6 +47,10 @@ function labelFor(key: keyof Facets): string {
   if (key === "framework") return "Type / framework";
   if (key === "evidenceClass") return "Evidence";
   if (key === "agentStatus") return "Status";
+  if (key === "access") return "Can access";
+  if (key === "accessSensitivity") return "Access sensitivity";
+  if (key === "overPermissioned") return "Over-permissioned";
+  if (key === "hasInstructions") return "Has instructions";
   return key[0].toUpperCase() + key.slice(1);
 }
 
@@ -71,11 +85,18 @@ export function FacetBar({ facets, options = {}, onChange }: FacetBarProps) {
             onChange={(event) => update(field, event.target.value)}
           >
             <option value="">All</option>
-            {(options[field] ?? []).map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
+            {BOOL_FACETS.has(field) ? (
+              <>
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </>
+            ) : (
+              (options[field] ?? []).map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))
+            )}
           </select>
         </div>
       ))}

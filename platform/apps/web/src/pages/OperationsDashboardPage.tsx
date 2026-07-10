@@ -5,12 +5,15 @@ import { DetailDrawer } from "../components/DetailDrawer";
 import { KpiCard } from "../components/KpiCard";
 import { apiRequest, compactDate, listFromPayload, numberAt, valueAt } from "../lib/api";
 
+type QueueFilter = "all" | "config_drift" | "blast_radius" | "shadow_ai";
+
 export function OperationsDashboardPage() {
   const navigate = useNavigate();
   const [payload, setPayload] = useState<Record<string, unknown> | null>(null);
   const [selected, setSelected] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>("all");
 
   useEffect(() => {
     let mounted = true;
@@ -29,6 +32,10 @@ export function OperationsDashboardPage() {
     () => listFromPayload<Record<string, unknown>>(dashboard, ["queue", "items", "agents", "newDiscoveries", "changedRelationships"]),
     [dashboard]
   );
+  const filteredQueue = useMemo(() => {
+    if (queueFilter === "all") return queue;
+    return queue.filter((row) => valueAt(row, ["queue", "type"], "") === queueFilter);
+  }, [queue, queueFilter]);
 
   const columns: Array<Column<Record<string, unknown>>> = [
     {
@@ -40,8 +47,18 @@ export function OperationsDashboardPage() {
     {
       key: "queue",
       header: "Queue",
-      render: (row) => <span className="badge">{valueAt(row, ["queue", "type", "status"], "triage")}</span>,
+      render: (row) => {
+        const q = valueAt(row, ["queue", "type", "status"], "triage");
+        const tone = q === "blast_radius" || q === "config_drift" ? "bad" : "";
+        return <span className={`badge ${tone}`}>{q.replace(/_/g, " ")}</span>;
+      },
       sortValue: (row) => valueAt(row, ["queue", "type", "status"])
+    },
+    {
+      key: "summary",
+      header: "Signal",
+      render: (row) => valueAt(row, ["summary", "description"], "—"),
+      sortValue: (row) => valueAt(row, ["summary", "description"])
     },
     {
       key: "owner",
@@ -78,20 +95,47 @@ export function OperationsDashboardPage() {
           <p className="eyebrow">Operations</p>
           <h1>Analyst Workbench</h1>
           <p className="page-description">
-            New discoveries, Shadow AI candidates, ownerless agents, and low-confidence findings.
+            Config drift, high blast-radius agents, Shadow AI candidates, and ownerless / low-confidence findings.
           </p>
         </div>
-        <Link className="button primary" to="/shadow-ai">
-          Open Shadow AI
-        </Link>
+        <div className="toolbar">
+          <Link className="button" to="/discovery/changes">
+            Change intelligence
+          </Link>
+          <Link className="button primary" to="/shadow-ai">
+            Open Shadow AI
+          </Link>
+        </div>
       </header>
 
       <section className="card-grid">
-        <KpiCard label="Shadow AI" value={numberAt(dashboard, ["shadowAiAgents", "shadowAi"], queue.length)} tone="warn" />
+        <KpiCard label="Config drift" value={numberAt(dashboard, ["configDrift"], 0)} tone="warn" />
+        <KpiCard label="High blast radius" value={numberAt(dashboard, ["highBlastRadius"], 0)} tone="warn" />
+        <KpiCard label="Shadow AI" value={numberAt(dashboard, ["shadowAiAgents", "shadowAi"], 0)} tone="warn" />
         <KpiCard label="Ownerless" value={numberAt(dashboard, ["ownerlessAgents", "ownerless"], 0)} tone="warn" />
-        <KpiCard label="Low Confidence" value={numberAt(dashboard, ["lowConfidence", "lowConfidenceAgents"], 0)} tone="warn" />
-        <KpiCard label="Changed Edges" value={numberAt(dashboard, ["changedRelationships", "changedEdges"], 0)} />
+        <KpiCard label="New discoveries" value={numberAt(dashboard, ["newDiscoveries"], 0)} />
+        <KpiCard label="Changed edges" value={numberAt(dashboard, ["changedRelationships", "changedEdges"], 0)} />
       </section>
+
+      <div className="toolbar" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        {(
+          [
+            ["all", "All"],
+            ["config_drift", "Config drift"],
+            ["blast_radius", "Blast radius"],
+            ["shadow_ai", "Shadow AI"]
+          ] as Array<[QueueFilter, string]>
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            className={`button ${queueFilter === id ? "primary" : "ghost"}`}
+            type="button"
+            onClick={() => setQueueFilter(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       <section className="panel">
         <div className="page-header">
@@ -100,7 +144,12 @@ export function OperationsDashboardPage() {
             <p className="muted">Click a row for a drawer, or open the full agent detail when an ID is present.</p>
           </div>
         </div>
-        <DataTable columns={columns} rows={queue} onRowClick={setSelected} emptyMessage="No operations findings returned." />
+        <DataTable
+          columns={columns}
+          rows={filteredQueue}
+          onRowClick={setSelected}
+          emptyMessage="No operations findings returned."
+        />
       </section>
 
       <DetailDrawer

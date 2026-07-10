@@ -98,6 +98,23 @@ paths:
           name: agentStatus
           schema: { type: string, enum: [confirmed, candidate] }
         - in: query
+          name: access
+          schema: { type: string }
+          description: Filter agents that can access a scope (e.g. filesystem, github, secrets)
+        - in: query
+          name: canAccess
+          schema: { type: string }
+          description: Alias for access
+        - in: query
+          name: accessSensitivity
+          schema: { type: string, enum: [low, medium, high, critical] }
+        - in: query
+          name: overPermissioned
+          schema: { type: string, enum: ['true', 'false'] }
+        - in: query
+          name: hasInstructions
+          schema: { type: string, enum: ['true', 'false'] }
+        - in: query
           name: shadow
           schema: { type: string, enum: ['true', 'false'] }
         - in: query
@@ -229,6 +246,43 @@ paths:
       responses:
         '200':
           description: Events
+  /api/discovery/changes:
+    get:
+      tags: [discovery]
+      summary: Discovery change intelligence (new, updated, config drift)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: sinceHours
+          schema: { type: integer, default: 168 }
+        - in: query
+          name: hours
+          schema: { type: integer }
+          description: Alias for sinceHours
+        - in: query
+          name: agentId
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 100 }
+      responses:
+        '200':
+          description: Change summary and lists
+  /api/risk/paths:
+    get:
+      tags: [agents]
+      summary: Blast-radius / attack-path scores for agents
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: agentId
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 25 }
+      responses:
+        '200':
+          description: Ranked blast-radius items
   /api/dashboards/{name}:
     get:
       tags: [dashboards]
@@ -451,6 +505,21 @@ components:
         confidence_score: { type: number }
         last_seen: { type: string, format: date-time }
         metadata: { type: object, additionalProperties: true }
+        agentConfig:
+          type: object
+          description: Discovered configuration (tools, MCP, instructions, knowledge)
+          additionalProperties: true
+        agentAccess:
+          type: object
+          description: Discovered access/permissions map
+          additionalProperties: true
+        blastRadius:
+          type: object
+          description: Blast-radius score and paths
+          additionalProperties: true
+        howIdentified: { type: string, nullable: true }
+        evidenceClass: { type: string, nullable: true }
+        agentStatus: { type: string, nullable: true }
     GraphNode:
       type: object
       properties:

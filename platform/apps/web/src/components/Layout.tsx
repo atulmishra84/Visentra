@@ -37,6 +37,7 @@ const sections = [
     items: [
       { to: "/timeline", label: "Agent Timeline" },
       { to: "/discovery/events", label: "Discovery Events" },
+      { to: "/discovery/changes", label: "Change Intelligence" },
       { to: "/coverage", label: "Coverage Map" },
       { to: "/search", label: "Global Search" }
     ]

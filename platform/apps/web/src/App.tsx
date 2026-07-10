@@ -17,6 +17,7 @@ import { ShadowAiPage } from "./pages/ShadowAiPage";
 import { CoveragePage } from "./pages/CoveragePage";
 import { AuditPage } from "./pages/AuditPage";
 import { UsageDashboardPage } from "./pages/UsageDashboardPage";
+import { DiscoveryChangesPage } from "./pages/DiscoveryChangesPage";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { isAuthenticated, loading } = useAuth();
@@ -50,6 +51,7 @@ export default function App() {
         <Route path="/shadow-ai" element={<ShadowAiPage />} />
         <Route path="/discovery" element={<DiscoveryDashboardPage />} />
         <Route path="/discovery/events" element={<DiscoveryEventsPage />} />
+        <Route path="/discovery/changes" element={<DiscoveryChangesPage />} />
         <Route path="/coverage" element={<CoveragePage />} />
         <Route path="/inventory" element={<InventoryPage title="Asset Inventory" />} />
         <Route path="/inventory/explorer" element={<InventoryPage title="Inventory Explorer" />} />
