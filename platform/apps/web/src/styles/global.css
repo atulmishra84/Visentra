@@ -1187,79 +1187,122 @@ tbody tr:hover {
   margin-bottom: 16px;
 }
 
-.funnel {
-  display: flex;
-  flex-direction: column;
+.funnel-chart {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.35fr) minmax(240px, 0.9fr);
+  gap: 20px;
   align-items: center;
-  gap: 0;
   padding: 8px 0 4px;
 }
 
-.funnel-stage-wrap {
+.funnel-svg {
   width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  height: auto;
+  display: block;
+  overflow: visible;
 }
 
-.funnel-drop {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  margin: 2px 0 6px;
-  font-size: 0.78rem;
-}
-
-.funnel-drop-line {
-  width: 1px;
-  height: 14px;
-  background: var(--panel-border-strong);
-}
-
-.funnel-stage {
-  display: grid;
-  gap: 6px;
-  max-width: 100%;
-  margin: 0 auto;
-  padding: 14px 18px;
-  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--panel-border));
-  border-radius: 14px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--brand) 16%, transparent), transparent 70%),
-    var(--panel-face);
-  color: inherit;
+.funnel-polygon {
   cursor: pointer;
-  text-align: left;
-  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
-  animation: funnel-in 420ms ease both;
+  stroke: color-mix(in srgb, var(--panel) 35%, transparent);
+  stroke-width: 1;
+  transition: filter 180ms ease, opacity 180ms ease;
+  animation: funnel-in 480ms ease both;
 }
 
-.funnel-stage:hover {
-  transform: translateY(-1px) scale(1.01);
-  border-color: color-mix(in srgb, var(--brand) 55%, var(--panel-border));
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+.funnel-band:nth-child(2) .funnel-polygon { animation-delay: 40ms; }
+.funnel-band:nth-child(3) .funnel-polygon { animation-delay: 80ms; }
+.funnel-band:nth-child(4) .funnel-polygon { animation-delay: 120ms; }
+.funnel-band:nth-child(5) .funnel-polygon { animation-delay: 160ms; }
+.funnel-band:nth-child(6) .funnel-polygon { animation-delay: 200ms; }
+
+.funnel-polygon:hover,
+.funnel-polygon:focus {
+  filter: brightness(1.08);
+  outline: none;
 }
 
-.funnel-stage-main {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.funnel-count {
-  font-size: 1.35rem;
+.funnel-svg-label {
+  fill: #fff;
+  font-size: 15px;
   font-weight: 700;
-  color: var(--text);
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
-.funnel-stage-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--text-muted);
-  font-size: 0.82rem;
+.funnel-svg-value {
+  fill: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.funnel-svg-pct {
+  fill: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.funnel-legend {
+  display: grid;
+  gap: 8px;
+}
+
+.funnel-legend-row {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  padding: 10px 12px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.funnel-legend-row:hover {
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--panel-border));
+  transform: translateX(2px);
+}
+
+.funnel-legend-swatch {
+  width: 10px;
+  height: 28px;
+  border-radius: 4px;
+}
+
+.funnel-legend-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.funnel-legend-copy strong {
+  font-size: 0.92rem;
+}
+
+.funnel-legend-copy .muted {
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.funnel-legend-metrics {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  font-size: 0.9rem;
+}
+
+.funnel-legend-metrics .muted {
+  font-size: 0.72rem;
 }
 
 .funnel-dropoffs {
@@ -1362,7 +1405,7 @@ tbody tr:hover {
 @keyframes funnel-in {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.98);
+    transform: translateY(10px) scale(0.97);
   }
   to {
     opacity: 1;
@@ -1371,12 +1414,10 @@ tbody tr:hover {
 }
 
 @media (max-width: 900px) {
-  .donut-block {
+  .donut-block,
+  .funnel-chart {
     grid-template-columns: 1fr;
   }
-
-  .funnel-stage {
-    width: 100% !important;
-  }
 }
+
 

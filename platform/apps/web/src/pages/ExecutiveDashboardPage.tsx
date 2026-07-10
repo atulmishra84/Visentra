@@ -51,42 +51,123 @@ function VisibilityFunnel({
     return <div className="empty-state">No funnel stages available.</div>;
   }
 
-  const max = Math.max(1, stages[0]?.count || 0);
+  const max = Math.max(1, ...stages.map((s) => s.count), stages[0]?.count || 0);
+  const width = 720;
+  const height = 420;
+  const padX = 48;
+  const padY = 12;
+  const gap = 6;
+  const stageH = (height - padY * 2 - gap * (stages.length - 1)) / stages.length;
+  const centerX = width / 2;
+  const minWidth = width * 0.22;
+  const maxWidth = width - padX * 2;
+
+  const palette = [
+    "var(--brand)",
+    "color-mix(in srgb, var(--brand) 70%, var(--blue))",
+    "var(--blue)",
+    "color-mix(in srgb, var(--blue) 65%, #7dd3c7)",
+    "color-mix(in srgb, var(--brand) 45%, #7dd3c7)"
+  ];
+
+  const widths = stages.map((stage) => {
+    const ratio = Math.sqrt(Math.max(stage.count, 0) / max);
+    return Math.max(minWidth, maxWidth * (0.35 + 0.65 * ratio));
+  });
+
+  const segments = stages.map((stage, index) => {
+    const topW = widths[index];
+    const bottomW = widths[Math.min(index + 1, widths.length - 1)] ?? topW;
+    // Classic funnel: each band tapers toward the next stage width
+    const y0 = padY + index * (stageH + gap);
+    const y1 = y0 + stageH;
+    const topLeft = centerX - topW / 2;
+    const topRight = centerX + topW / 2;
+    // Use next stage's width at bottom so bands form a continuous funnel silhouette
+    const nextTopW = index < stages.length - 1 ? widths[index + 1] : bottomW * 0.92;
+    const botLeft = centerX - nextTopW / 2;
+    const botRight = centerX + nextTopW / 2;
+    const points = `${topLeft},${y0} ${topRight},${y0} ${botRight},${y1} ${botLeft},${y1}`;
+    const midY = (y0 + y1) / 2;
+    const drop = index > 0 ? Math.max(0, stages[index - 1].count - stage.count) : 0;
+    return { stage, index, points, midY, y0, y1, topW, drop, fill: palette[index % palette.length] };
+  });
 
   return (
-    <div className="funnel" role="list">
-      {stages.map((stage, index) => {
-        const widthPct = Math.max(28, (stage.count / max) * 100);
-        const drop = index > 0 ? Math.max(0, stages[index - 1].count - stage.count) : 0;
-        return (
-          <div className="funnel-stage-wrap" key={stage.id} role="listitem">
-            {index > 0 ? (
-              <div className="funnel-drop">
-                <span className="funnel-drop-line" />
-                <span className="muted mono">
-                  −{drop} ({stage.conversionFromPrev ?? 0}% retained)
-                </span>
-              </div>
-            ) : null}
-            <button
-              type="button"
-              className="funnel-stage"
-              style={{ width: `${widthPct}%` }}
-              onClick={() => onSelect(stage)}
-              title={stage.description || stage.label}
+    <div className="funnel-chart">
+      <svg
+        className="funnel-svg"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label="Visibility funnel chart"
+      >
+        <defs>
+          {segments.map((seg) => (
+            <linearGradient key={`grad-${seg.stage.id}`} id={`funnel-grad-${seg.stage.id}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={seg.fill} stopOpacity="0.95" />
+              <stop offset="100%" stopColor={seg.fill} stopOpacity="0.72" />
+            </linearGradient>
+          ))}
+        </defs>
+
+        {segments.map((seg) => (
+          <g key={seg.stage.id} className="funnel-band">
+            <polygon
+              points={seg.points}
+              fill={`url(#funnel-grad-${seg.stage.id})`}
+              className="funnel-polygon"
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelect(seg.stage)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(seg.stage);
+                }
+              }}
             >
-              <div className="funnel-stage-main">
-                <strong>{stage.label}</strong>
-                <span className="funnel-count mono">{stage.count}</span>
-              </div>
-              <div className="funnel-stage-meta">
-                <span>{stage.description}</span>
-                <span className="mono">{stage.pctOfTotal ?? 0}% of total</span>
-              </div>
-            </button>
-          </div>
-        );
-      })}
+              <title>
+                {`${seg.stage.label}: ${seg.stage.count} (${seg.stage.pctOfTotal ?? 0}% of total)`}
+              </title>
+            </polygon>
+            <text x={centerX} y={seg.midY - 6} textAnchor="middle" className="funnel-svg-label">
+              {seg.stage.label}
+            </text>
+            <text x={centerX} y={seg.midY + 14} textAnchor="middle" className="funnel-svg-value">
+              {seg.stage.count}
+              <tspan className="funnel-svg-pct"> · {seg.stage.pctOfTotal ?? 0}%</tspan>
+            </text>
+          </g>
+        ))}
+      </svg>
+
+      <aside className="funnel-legend" aria-label="Funnel stage details">
+        {segments.map((seg) => (
+          <button
+            type="button"
+            key={`legend-${seg.stage.id}`}
+            className="funnel-legend-row"
+            onClick={() => onSelect(seg.stage)}
+            title={seg.stage.description || seg.stage.label}
+          >
+            <span className="funnel-legend-swatch" style={{ background: seg.fill }} />
+            <span className="funnel-legend-copy">
+              <strong>{seg.stage.label}</strong>
+              <span className="muted">{seg.stage.description}</span>
+            </span>
+            <span className="funnel-legend-metrics mono">
+              <span>{seg.stage.count}</span>
+              {seg.index > 0 ? (
+                <span className="muted">
+                  {seg.stage.conversionFromPrev ?? 0}% in · −{seg.drop}
+                </span>
+              ) : (
+                <span className="muted">100% base</span>
+              )}
+            </span>
+          </button>
+        ))}
+      </aside>
     </div>
   );
 }
@@ -351,10 +432,6 @@ export function ExecutiveDashboardPage() {
   const statusRows = listFromPayload<DistRow>(evidence, ["byAgentStatus"]);
   const trends = (dashboard.trends as { series?: Array<{ week: string; count: number }> } | undefined) || {};
   const series = trends.series || [];
-  const changes = useMemo(
-    () => listFromPayload<Record<string, unknown>>(dashboard, ["recentChanges", "changes", "events"]),
-    [dashboard]
-  );
   const insight = valueAt(dashboard, ["insight"], "");
   const dropOffs = (dashboard.dropOffs as Array<Record<string, unknown>> | undefined) || [];
 
@@ -516,29 +593,6 @@ export function ExecutiveDashboardPage() {
           </section>
         </>
       )}
-
-      <section className="panel">
-        <h2>Recent significant changes</h2>
-        {changes.length ? (
-          <div className="timeline">
-            {changes.slice(0, 8).map((change, index) => (
-              <div className="timeline-item" key={String(change.id ?? index)}>
-                <span className="mono muted">
-                  {valueAt(change, ["timestamp", "createdAt", "created_at", "observedAt"], "Recent")}
-                </span>
-                <div>
-                  <strong>{valueAt(change, ["title", "name", "type", "event_type"], "Visibility change")}</strong>
-                  <p className="muted">
-                    {valueAt(change, ["description", "message", "summary"], "No description supplied.")}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="empty-state">No recent changes returned by the executive dashboard endpoint.</div>
-        )}
-      </section>
     </div>
   );
 }
