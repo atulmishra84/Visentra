@@ -36,7 +36,8 @@ export async function migrate(pool) {
           'azure', 'aws', 'gcp',
           'github', 'gitlab', 'entra_identity', 'kubernetes', 'kubernetes_identity',
           'crowdstrike', 'defender', 'intune', 'cortex', 'netskope',
-          'm365_copilot', 'salesforce', 'workday', 'servicenow'
+          'm365_copilot', 'salesforce', 'workday', 'servicenow', 'openai',
+          'jenkins'
         ));
     EXCEPTION WHEN undefined_table THEN
       NULL;

@@ -11,7 +11,8 @@ const PLATFORM_LABELS = {
   m365_copilot: "Microsoft 365 Copilot / Copilot Studio",
   salesforce: "Salesforce Agentforce",
   workday: "Workday Illuminate / AI",
-  servicenow: "ServiceNow Now Assist / Virtual Agent"
+  servicenow: "ServiceNow Now Assist / Virtual Agent",
+  openai: "OpenAI / ChatGPT"
 };
 
 async function azureAppToken(tenantId, clientId, clientSecret, scope) {
@@ -680,18 +681,150 @@ export async function discoverServiceNow(conn) {
   };
 }
 
+/* ---------------- OpenAI / ChatGPT ---------------- */
+
+export async function validateOpenAi({ config, secrets }) {
+  const apiKey = String(secrets.apiKey || "").trim();
+  if (!apiKey) throw new Error("OpenAI apiKey is required");
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    Accept: "application/json"
+  };
+  if (config.organizationId) headers["OpenAI-Organization"] = String(config.organizationId);
+  if (config.projectId) headers["OpenAI-Project"] = String(config.projectId);
+
+  const res = await safeFetch("https://api.openai.com/v1/models", { headers }, ALLOW.openai);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(json.error?.message || `OpenAI API failed (${res.status})`);
+  }
+  const models = Array.isArray(json.data) ? json.data.length : 0;
+  return {
+    ok: true,
+    message: `Authenticated to OpenAI API (models visible: ${models}).`,
+    accessToken: apiKey,
+    headers
+  };
+}
+
+export async function discoverOpenAi(conn) {
+  const result = await validateOpenAi({ config: conn.config, secrets: conn.secrets });
+  const observations = [connectorHealthObservation("openai", conn, result.message)];
+  const headers = {
+    ...result.headers,
+    "OpenAI-Beta": "assistants=v2"
+  };
+
+  // Assistants API — first-class ChatGPT/OpenAI agents
+  const asst = await safeFetch(
+    "https://api.openai.com/v1/assistants?limit=50",
+    { headers },
+    ALLOW.openai
+  );
+  if (asst.ok) {
+    const json = await asst.json().catch(() => ({}));
+    for (const a of json.data || []) {
+      observations.push(
+        platformObservation({
+          provider: "openai",
+          conn,
+          id: a.id,
+          name: a.name || `OpenAI Assistant ${a.id}`,
+          framework: "OpenAI Assistants",
+          model: a.model || "openai-assistant",
+          status: "running",
+          extra: {
+            source: "openai-assistants",
+            tools: (a.tools || []).map((t) => t.type).filter(Boolean),
+            description: a.description || null
+          }
+        })
+      );
+    }
+  }
+
+  // Model catalog — surface GPT / o-series as cloud AI runtimes (candidates)
+  const modelsRes = await safeFetch("https://api.openai.com/v1/models", { headers: result.headers }, ALLOW.openai);
+  if (modelsRes.ok) {
+    const json = await modelsRes.json().catch(() => ({}));
+    const interesting = (json.data || []).filter((m) =>
+      /^(gpt-|o[0-9]|chatgpt|text-embedding)/i.test(m.id || "")
+    );
+    for (const m of interesting.slice(0, 20)) {
+      observations.push({
+        collector_id: "saas_platform",
+        fingerprint: `saas:openai:model:${m.id}`,
+        name: `OpenAI model — ${m.id}`,
+        category: "saas",
+        provider: "openai",
+        deployment_type: "saas",
+        framework: "OpenAI Models",
+        model: m.id,
+        running_status: "unknown",
+        confidence_score: 0.8,
+        metadata: {
+          connectorId: conn.id,
+          connectorName: conn.name,
+          discoveryMode: "openai-api-live",
+          inventoryClass: "platform_agent",
+          evidenceClass: "cloud_ai_runtime",
+          agentStatus: /gpt-|chatgpt|o[0-9]/i.test(m.id) ? "candidate" : "candidate",
+          aiRelevant: true,
+          managedPlatformAgent: false,
+          ownedBy: m.owned_by || null,
+          environment: conn.environment
+        },
+        relationships: [
+          {
+            rel_type: "RUNS_ON",
+            to_type: "SaaSPlatform",
+            to_key: "saas-openai",
+            to_name: "OpenAI / ChatGPT"
+          }
+        ]
+      });
+    }
+  }
+
+  // Canonical ChatGPT / OpenAI org agent when auth works
+  if (observations.length === 1) {
+    observations.push(
+      platformObservation({
+        provider: "openai",
+        conn,
+        id: `org-${conn.config.organizationId || conn.id}`,
+        name: "ChatGPT / OpenAI (organization)",
+        framework: "OpenAI / ChatGPT",
+        model: "chatgpt",
+        status: "running",
+        extra: {
+          source: "openai-inferred",
+          note: "Grant Assistants API access to enumerate custom GPTs / assistants."
+        }
+      })
+    );
+  }
+
+  return {
+    observations,
+    stats: { agents: Math.max(0, observations.length - 1), message: result.message }
+  };
+}
+
 export const SAAS_VALIDATORS = {
   m365_copilot: validateM365Copilot,
   salesforce: validateSalesforce,
   workday: validateWorkday,
-  servicenow: validateServiceNow
+  servicenow: validateServiceNow,
+  openai: validateOpenAi
 };
 
 export const SAAS_DISCOVERERS = {
   m365_copilot: discoverM365Copilot,
   salesforce: discoverSalesforce,
   workday: discoverWorkday,
-  servicenow: discoverServiceNow
+  servicenow: discoverServiceNow,
+  openai: discoverOpenAi
 };
 
 export const SAAS_PROVIDERS = Object.keys(SAAS_VALIDATORS);

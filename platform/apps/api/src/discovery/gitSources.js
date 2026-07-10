@@ -139,13 +139,14 @@ async function githubRepoSignals(base, policy, token, repo) {
     optional: true
   }).catch(() => ({}));
   const workflowMatches = [];
+  const agentMarkers = [];
   const workflows = await jsonFetch(
     `${base}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/.github/workflows`,
     { headers },
     policy,
     { optional: true }
   ).catch(() => null);
-  for (const file of Array.isArray(workflows) ? workflows.slice(0, 8) : []) {
+  for (const file of Array.isArray(workflows) ? workflows.slice(0, 12) : []) {
     if (!/\.(ya?ml)$/i.test(file.name || "")) continue;
     const raw = await textFetch(
       `${base}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/.github/workflows/${encodeURIComponent(file.name)}`,
@@ -155,7 +156,38 @@ async function githubRepoSignals(base, policy, token, repo) {
     ).catch(() => null);
     if (raw && isAiRelevantText(file.name, raw)) workflowMatches.push(file.name);
   }
-  return { languages: languages || {}, workflowMatches };
+
+  // GitHub / Cursor agent instruction markers
+  const markerPaths = [
+    ".github/copilot-instructions.md",
+    ".github/agents",
+    "AGENTS.md",
+    ".cursorrules",
+    ".cursor/rules",
+    "copilot-instructions.md"
+  ];
+  for (const marker of markerPaths) {
+    const raw = await textFetch(
+      `${base}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${marker}`,
+      { headers: { ...headers, Accept: "application/vnd.github.raw" } },
+      policy,
+      { optional: true }
+    ).catch(() => null);
+    if (raw && String(raw).trim()) {
+      agentMarkers.push(marker);
+    } else {
+      // directory listing for .github/agents or .cursor/rules
+      const listing = await jsonFetch(
+        `${base}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${marker}`,
+        { headers },
+        policy,
+        { optional: true }
+      ).catch(() => null);
+      if (Array.isArray(listing) && listing.length) agentMarkers.push(marker);
+    }
+  }
+
+  return { languages: languages || {}, workflowMatches, agentMarkers };
 }
 
 export async function discoverGithub(conn) {
@@ -189,10 +221,14 @@ export async function discoverGithub(conn) {
       repo.description,
       topics.join(" "),
       languageNames.join(" "),
-      signals.workflowMatches.join(" ")
+      signals.workflowMatches.join(" "),
+      (signals.agentMarkers || []).join(" ")
     );
     if (!aiRelevant) continue;
     aiRelevantRepos += 1;
+    const strongAgent =
+      (signals.agentMarkers || []).length > 0 ||
+      signals.workflowMatches.some((w) => /copilot|agent|openai|langchain|crewai|autogen|mcp/i.test(w));
     observations.push(
       repoObservation({
         provider: "github",
@@ -205,7 +241,17 @@ export async function discoverGithub(conn) {
         languages: signals.languages || {},
         topics,
         workflowMatches: signals.workflowMatches,
-        extra: { private: repo.private, defaultBranch: repo.default_branch }
+        extra: {
+          private: repo.private,
+          defaultBranch: repo.default_branch,
+          agentMarkers: signals.agentMarkers || [],
+          evidenceClass: "repo_candidate",
+          agentStatus: "candidate",
+          howIdentified: strongAgent
+            ? `GitHub agent markers/workflows: ${(signals.agentMarkers || []).concat(signals.workflowMatches).slice(0, 5).join(", ")}`
+            : "GitHub repo name/description/topics match AI agent signals",
+          githubAgentSignal: strongAgent ? "strong" : "heuristic"
+        }
       })
     );
   }

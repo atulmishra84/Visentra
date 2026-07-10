@@ -108,9 +108,12 @@ export function classifyAgentEvidence(obs = {}) {
     } else if (
       inventoryClass === "source_repository" ||
       inventoryClass === "identity_application" ||
+      inventoryClass === "ci_ai_job" ||
       category === "repository" ||
+      category === "ci" ||
       collector === "git_sources" ||
-      collector === "identity_entra"
+      collector === "identity_entra" ||
+      collector === "ci_platform"
     ) {
       evidenceClass = "repo_candidate";
     } else if (

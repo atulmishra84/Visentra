@@ -11,7 +11,7 @@ export const AI_TEXT_RE =
 
 /** Process / cmdline signals for IDE agents and local AI runtimes. */
 export const AI_AGENT_PROCESS_RE =
-  /ollama|langgraph|crewai|autogen|vllm|openai|anthropic|claude|cursor-agent|\bcursor\b|copilot|chatgpt|gemini|bedrock|langchain|mcp-server|@modelcontextprotocol|continue\.dev|\baider\b|windsurf|open-interpreter|semantic.?kernel|botframework|power.?virtual|agentforce|npx\s+.*mcp/i;
+  /ollama|langgraph|crewai|autogen|vllm|openai|anthropic|claude|cursor-agent|\bcursor\b|copilot|chatgpt|gemini|bedrock|langchain|mcp-server|@modelcontextprotocol|continue\.dev|\baider\b|windsurf|open-interpreter|semantic.?kernel|botframework|power.?virtual|agentforce|npx\s+.*mcp|jenkins/i;
 
 export function isAiRelevantText(...parts) {
   return AI_TEXT_RE.test(parts.filter(Boolean).join(" "));

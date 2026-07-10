@@ -182,6 +182,26 @@ export const PROVIDER_FIELDS = {
       clientId: "OAuth client ID (optional)",
       clientSecret: "OAuth client secret (optional)"
     }
+  },
+  openai: {
+    category: "saas",
+    config: ["organizationId", "projectId"],
+    secrets: ["apiKey"],
+    labels: {
+      organizationId: "OpenAI organization ID (optional)",
+      projectId: "OpenAI project ID (optional)",
+      apiKey: "OpenAI API key"
+    }
+  },
+  jenkins: {
+    category: "ci",
+    config: ["baseUrl", "username"],
+    secrets: ["apiToken"],
+    labels: {
+      baseUrl: "Jenkins base URL (https://jenkins.example.com)",
+      username: "Jenkins username (for API token auth)",
+      apiToken: "Jenkins API token"
+    }
   }
 };
 
@@ -190,7 +210,8 @@ export const KUBERNETES_PROVIDERS = ["kubernetes"];
 export const GIT_PROVIDERS = ["github", "gitlab"];
 export const IDENTITY_PROVIDERS = ["entra_identity", "kubernetes_identity"];
 export const EDR_PROVIDERS = ["crowdstrike", "defender", "intune", "cortex", "netskope"];
-export const SAAS_PROVIDERS = ["m365_copilot", "salesforce", "workday", "servicenow"];
+export const SAAS_PROVIDERS = ["m365_copilot", "salesforce", "workday", "servicenow", "openai"];
+export const CI_PROVIDERS = ["jenkins"];
 export const ALL_PROVIDERS = [
   ...new Set([
     ...CLOUD_PROVIDERS,
@@ -198,7 +219,8 @@ export const ALL_PROVIDERS = [
     ...GIT_PROVIDERS,
     ...IDENTITY_PROVIDERS,
     ...EDR_PROVIDERS,
-    ...SAAS_PROVIDERS
+    ...SAAS_PROVIDERS,
+    ...CI_PROVIDERS
   ])
 ];
 
@@ -401,6 +423,12 @@ export async function testConnector(pool, tenantId, id) {
       const result = await validator({ config, secrets });
       ok = result.ok;
       message = result.message;
+    } else if (CI_PROVIDERS.includes(row.provider)) {
+      const { CI_VALIDATORS } = await import("../discovery/ciPlatforms.js");
+      const validator = CI_VALIDATORS[row.provider];
+      const result = await validator({ config, secrets });
+      ok = result.ok;
+      message = result.message;
     } else if (row.provider === "aws") {
       const { validateAwsConnector } = await import("../discovery/awsCloud.js");
       const result = await validateAwsConnector({ id: row.id, name: row.name, config, secrets });
@@ -483,4 +511,8 @@ export async function listActiveGitSourceConnectors(pool, tenantId) {
 
 export async function listActiveIdentityConnectors(pool, tenantId) {
   return listActiveConnectorsByProviders(pool, tenantId, ["entra_identity"]);
+}
+
+export async function listActiveCiConnectors(pool, tenantId) {
+  return listActiveConnectorsByProviders(pool, tenantId, CI_PROVIDERS);
 }
