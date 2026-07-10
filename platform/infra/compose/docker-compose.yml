@@ -72,6 +72,7 @@ services:
     build:
       context: ../../apps/api
     environment:
+      NODE_ENV: development
       PORT: "8080"
       POSTGRES_URL: postgres://agentradar:agentradar@postgres:5432/agentradar
       NEO4J_URI: bolt://neo4j:7687
@@ -81,9 +82,11 @@ services:
       NATS_URL: nats://nats:4222
       OPENSEARCH_URL: http://opensearch:9200
       JWT_SECRET: agentradar-dev-secret-change-me
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       BOOTSTRAP_ADMIN_EMAIL: admin@agentradar.local
       BOOTSTRAP_ADMIN_PASSWORD: "AgentRadar!dev"
-      RUN_DISCOVERY_IN_API: "true"
+      DISCOVERY_DEMO_SEED: "true"
+      DISCOVERY_AI_ONLY: "true"
       CORS_ORIGIN: http://localhost:5173
     ports:
       - "8080:8080"
@@ -99,6 +102,7 @@ services:
     build:
       context: ../../apps/discovery
     environment:
+      NODE_ENV: development
       POSTGRES_URL: postgres://agentradar:agentradar@postgres:5432/agentradar
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
@@ -108,12 +112,27 @@ services:
       OPENSEARCH_URL: http://opensearch:9200
       API_INTERNAL_URL: http://api:8080
       DISCOVERY_INTERVAL_MS: "300000"
+      DISCOVERY_DEMO_SEED: "true"
+      BOOTSTRAP_ADMIN_EMAIL: admin@agentradar.local
+      BOOTSTRAP_ADMIN_PASSWORD: "AgentRadar!dev"
       RUN_ON_START: "true"
     depends_on:
       api:
         condition: service_started
       postgres:
         condition: service_healthy
+      neo4j:
+        condition: service_healthy
+
+  relationship:
+    build:
+      context: ../../apps/relationship
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: agentradar
+      RELATIONSHIP_DECAY_INTERVAL_MS: "3600000"
+    depends_on:
       neo4j:
         condition: service_healthy
 

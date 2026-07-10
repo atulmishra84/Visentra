@@ -115,6 +115,28 @@ Rules: never log secrets, redact known patterns, avoid raw prompt/credential ind
 | Export created/downloaded | Actor, export ID, filters summary, format. |
 | API token created/revoked | Actor, token ID, scopes. |
 
+## Threat model (summary)
+
+| Threat | Mitigation |
+|---|---|
+| Cross-tenant data access | `tenant_id` on every row/node; JWT `tid` claim; isolation tests |
+| Stolen connector secrets | Envelope encryption + KMS; never return raw secrets; rotation metadata |
+| SSRF via connector URLs | Allowlists + `safeFetch` in collectors |
+| Privilege escalation | RBAC roles (`platform_admin` / `operator` / `viewer`); write endpoints gated |
+| Token theft | Short JWT TTL; HTTPS only; optional Entra SSO |
+| Inventory poisoning | Confidence scoring, evidence classes, audit of discovery jobs |
+
+## Compliance mapping (visibility track)
+
+| Control theme | How AgentRadar helps (visibility only) |
+|---|---|
+| Asset inventory | Continuous AI agent CMDB |
+| Access review | Owner attribution + ownerless queue |
+| Change evidence | Discovery events + audit_read |
+| Segregation of duties | RBAC on connectors/discovery/export |
+
+Governance/enforcement controls are explicitly out of scope for this track.
+
 ## Implementation checklist
 
 - Implement tenant-scoped auth middleware and permission helpers.

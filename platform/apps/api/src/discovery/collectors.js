@@ -890,6 +890,15 @@ export const collectors = {
       }
       return out;
     }
+  },
+
+  demo: {
+    id: "demo",
+    async scan() {
+      const { demoSeedEnabled, buildDemoObservations } = await import("./demoSeed.js");
+      if (!demoSeedEnabled()) return [];
+      return buildDemoObservations();
+    }
   }
 };
 
@@ -905,6 +914,9 @@ export const DEFAULT_COLLECTORS = [
   "saas_platform",
   "ci_platform"
 ];
+
+/** Collectors used for local compose MVP when DISCOVERY_DEMO_SEED=true */
+export const DEMO_MVP_COLLECTORS = ["demo", ...DEFAULT_COLLECTORS];
 
 /** @deprecated Use DEFAULT_COLLECTORS — kept for import compatibility */
 export const PRODUCTION_COLLECTORS = DEFAULT_COLLECTORS;

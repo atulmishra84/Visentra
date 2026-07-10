@@ -2,10 +2,15 @@ openapi: 3.0.3
 info:
   title: AgentRadar Discovery & Visibility API
   version: 1.0.0
-  description: Enterprise AI Agent Discovery & Visibility Platform API (MVP)
+  description: |
+    Enterprise AI Agent Discovery & Visibility Platform API (MVP).
+    Conventions: tenant-scoped JWT bearer auth, roles platform_admin|operator|viewer.
+    See docs/blueprint/11-apis.md and 24-api-specifications.md.
 servers:
   - url: http://localhost:8080
     description: Local MVP
+  - url: https://api.example.com
+    description: Production
 tags:
   - name: auth
   - name: agents
@@ -14,18 +19,28 @@ tags:
   - name: search
   - name: discovery
   - name: dashboards
+  - name: usage
+  - name: connectors
   - name: export
+  - name: coverage
+  - name: audit
 paths:
   /health:
     get:
-      summary: Health check
+      summary: Liveness
       responses:
         '200':
           description: OK
+  /ready:
+    get:
+      summary: Readiness (postgres + neo4j)
+      responses:
+        '200':
+          description: Ready
   /api/auth/login:
     post:
       tags: [auth]
-      summary: Login
+      summary: Login (local JWT)
       requestBody:
         required: true
         content:
@@ -34,11 +49,18 @@ paths:
               type: object
               required: [email, password]
               properties:
-                email: { type: string }
-                password: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, format: password }
       responses:
         '200':
           description: Authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  user: { $ref: '#/components/schemas/User' }
   /api/auth/me:
     get:
       tags: [auth]
@@ -47,30 +69,37 @@ paths:
       responses:
         '200':
           description: User profile
+  /api/auth/entra/start:
+    get:
+      tags: [auth]
+      summary: Start Entra OIDC login (when configured)
+      responses:
+        '302':
+          description: Redirect to IdP
   /api/agents:
     get:
       tags: [agents]
-      summary: List agents
+      summary: List agents (faceted)
       security: [{ bearerAuth: [] }]
       parameters:
+        - $ref: '#/components/parameters/q'
+        - $ref: '#/components/parameters/owner'
+        - $ref: '#/components/parameters/model'
+        - $ref: '#/components/parameters/framework'
+        - $ref: '#/components/parameters/cloud'
+        - $ref: '#/components/parameters/category'
         - in: query
-          name: q
+          name: ide
           schema: { type: string }
         - in: query
-          name: owner
+          name: evidenceClass
           schema: { type: string }
         - in: query
-          name: model
-          schema: { type: string }
+          name: agentStatus
+          schema: { type: string, enum: [confirmed, candidate] }
         - in: query
-          name: framework
-          schema: { type: string }
-        - in: query
-          name: cloud
-          schema: { type: string }
-        - in: query
-          name: category
-          schema: { type: string }
+          name: shadow
+          schema: { type: string, enum: ['true', 'false'] }
         - in: query
           name: limit
           schema: { type: integer, default: 50 }
@@ -80,23 +109,32 @@ paths:
       responses:
         '200':
           description: Agent list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items: { $ref: '#/components/schemas/Agent' }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Agent' }
+                  total: { type: integer }
   /api/agents/{id}:
     get:
       tags: [agents]
       summary: Agent detail
       security: [{ bearerAuth: [] }]
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/id'
       responses:
         '200':
           description: Agent
   /api/assets:
     get:
       tags: [assets]
-      summary: List assets
+      summary: List typed assets
       security: [{ bearerAuth: [] }]
       parameters:
         - in: query
@@ -115,28 +153,45 @@ paths:
           name: agentId
           schema: { type: string }
         - in: query
+          name: q
+          schema: { type: string }
+        - in: query
           name: depth
           schema: { type: integer, default: 2 }
       responses:
         '200':
           description: Nodes and edges
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GraphPayload' }
+  /api/graph/seeds:
+    get:
+      tags: [graph]
+      summary: Suggested graph seed agents
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Seed list
   /api/graph/stream:
     get:
       tags: [graph]
-      summary: SSE graph deltas
+      summary: SSE graph / inventory deltas
       security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: token
+          schema: { type: string }
+          description: JWT when EventSource cannot set Authorization header
       responses:
         '200':
           description: text/event-stream
   /api/search:
     get:
       tags: [search]
-      summary: Faceted search
+      summary: Faceted search (Postgres MVP; OpenSearch in blueprint)
       security: [{ bearerAuth: [] }]
       parameters:
-        - in: query
-          name: q
-          schema: { type: string }
+        - $ref: '#/components/parameters/q'
       responses:
         '200':
           description: Hits and facets
@@ -164,6 +219,8 @@ paths:
       responses:
         '202':
           description: Job accepted
+        '409':
+          description: Job already running
   /api/discovery/events:
     get:
       tags: [discovery]
@@ -184,9 +241,51 @@ paths:
           schema:
             type: string
             enum: [executive, operations, discovery, models, frameworks, cloud, ide, timeline]
+        - in: query
+          name: hideUnknown
+          schema: { type: string, enum: ['true', 'false'] }
+        - in: query
+          name: confirmedOnly
+          schema: { type: string, enum: ['true', 'false'] }
       responses:
         '200':
           description: Dashboard payload
+  /api/usage/export:
+    get:
+      tags: [usage]
+      summary: Export usage breakdown CSV
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: dimension
+          schema: { type: string, enum: [models, frameworks, cloud, ide, category] }
+      responses:
+        '200':
+          description: CSV body
+  /api/usage/providers:
+    get:
+      tags: [usage]
+      summary: Provider token/cost usage signals
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Provider usage
+  /api/usage/evidence:
+    get:
+      tags: [usage]
+      summary: Evidence class / agent status mix
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Evidence mix
+  /api/usage/trends:
+    get:
+      tags: [usage]
+      summary: Weekly discovery trends
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Trend series
   /api/export/agents:
     get:
       tags: [export]
@@ -199,17 +298,49 @@ paths:
       responses:
         '200':
           description: Export body
-  /api/connectors:
+  /api/coverage:
     get:
-      tags: [connectors]
-      summary: List cloud connectors
+      tags: [coverage]
+      summary: Discovery coverage map
       security: [{ bearerAuth: [] }]
       responses:
         '200':
-          description: Connector list (secrets masked)
+          description: Coverage by source
+  /api/audit:
+    get:
+      tags: [audit]
+      summary: Audit events (admin/operator)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Audit trail
+  /api/shadow-ai:
+    get:
+      tags: [agents]
+      summary: Shadow AI findings
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Findings
+  /api/connectors/schema:
+    get:
+      tags: [connectors]
+      summary: Connector provider field schema
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Provider schemas
+  /api/connectors:
+    get:
+      tags: [connectors]
+      summary: List connectors (secrets masked)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Connector list
     post:
       tags: [connectors]
-      summary: Create cloud connector with encrypted secrets
+      summary: Create connector
       security: [{ bearerAuth: [] }]
       responses:
         '201':
@@ -220,10 +351,7 @@ paths:
       summary: Get connector
       security: [{ bearerAuth: [] }]
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/id'
       responses:
         '200':
           description: Connector
@@ -232,10 +360,7 @@ paths:
       summary: Update connector
       security: [{ bearerAuth: [] }]
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/id'
       responses:
         '200':
           description: Updated
@@ -244,10 +369,7 @@ paths:
       summary: Delete connector
       security: [{ bearerAuth: [] }]
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/id'
       responses:
         '204':
           description: Deleted
@@ -257,10 +379,7 @@ paths:
       summary: Test connector credentials
       security: [{ bearerAuth: [] }]
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/id'
       responses:
         '200':
           description: Test result
@@ -270,16 +389,90 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+  parameters:
+    id:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+    q:
+      in: query
+      name: q
+      schema: { type: string }
+    owner:
+      in: query
+      name: owner
+      schema: { type: string }
+    model:
+      in: query
+      name: model
+      schema: { type: string }
+    framework:
+      in: query
+      name: framework
+      schema: { type: string }
+    cloud:
+      in: query
+      name: cloud
+      schema: { type: string }
+    category:
+      in: query
+      name: category
+      schema: { type: string }
   schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            message: { type: string }
+        requestId: { type: string }
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+        role: { type: string, enum: [platform_admin, operator, viewer] }
+        tenantId: { type: string, format: uuid }
     Agent:
       type: object
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
-        owner: { type: string }
-        framework: { type: string }
-        model: { type: string }
-        provider: { type: string }
+        owner: { type: string, nullable: true }
+        framework: { type: string, nullable: true }
+        model: { type: string, nullable: true }
+        provider: { type: string, nullable: true }
         category: { type: string }
+        cloud_provider: { type: string, nullable: true }
+        ide: { type: string, nullable: true }
         confidence_score: { type: number }
         last_seen: { type: string, format: date-time }
+        metadata: { type: object, additionalProperties: true }
+    GraphNode:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        type: { type: string }
+        name: { type: string }
+    GraphEdge:
+      type: object
+      properties:
+        id: { type: string }
+        source: { type: string }
+        target: { type: string }
+        type: { type: string }
+        label: { type: string }
+    GraphPayload:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items: { $ref: '#/components/schemas/GraphNode' }
+        edges:
+          type: array
+          items: { $ref: '#/components/schemas/GraphEdge' }
+        meta: { type: object }

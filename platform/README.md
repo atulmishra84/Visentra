@@ -60,7 +60,8 @@ docker compose up -d --build
 - Neo4j browser: http://localhost:7474
 
 **Local/dev login:** set `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` (defaults in compose).  
-**Production:** inventory is never seeded — set secrets per [`PRODUCTION.md`](./PRODUCTION.md).
+**Local MVP seed:** compose sets `DISCOVERY_DEMO_SEED=true` so inventory boots with IDE/framework/cloud/MCP/SaaS demo agents.  
+**Production:** never set `DISCOVERY_DEMO_SEED` — inventory comes from connectors/discovery only. See [`PRODUCTION.md`](./PRODUCTION.md).
 
 ### Production-like local stack
 
@@ -84,6 +85,7 @@ JWT_SECRET=dev npm run dev
 
 ## Collectors
 
+- `demo` — local MVP seed only (`DISCOVERY_DEMO_SEED=true`); multi-category sample inventory
 - `ide_filesystem` — Cursor / Claude Desktop / Continue MCP configs
 - `process` — Linux `/proc` heuristics (Ollama, LangGraph, CrewAI, …)
 - `mcp` — MCP servers derived from IDE configs
@@ -92,6 +94,7 @@ JWT_SECRET=dev npm run dev
 - `git_sources` — GitHub / GitLab
 - `identity_entra` — Entra ID enrichment
 - `edr` / `saas_platform` — EDR and SaaS platform connectors
+- `ci_platform` — Jenkins / CI AI job signals
 
 ## Schemas
 

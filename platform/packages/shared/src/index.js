@@ -1,5 +1,6 @@
 /** Shared constants for AgentRadar platform packages */
 export const COLLECTOR_IDS = [
+  "demo",
   "ide_filesystem",
   "process",
   "mcp",
@@ -8,7 +9,8 @@ export const COLLECTOR_IDS = [
   "git_sources",
   "identity_entra",
   "edr",
-  "saas_platform"
+  "saas_platform",
+  "ci_platform"
 ];
 
 export const AGENT_CATEGORIES = [
@@ -21,7 +23,8 @@ export const AGENT_CATEGORIES = [
   "mcp",
   "local_llm",
   "browser",
-  "autonomous"
+  "autonomous",
+  "ci"
 ];
 
 export const REL_TYPES = [
@@ -40,3 +43,13 @@ export const REL_TYPES = [
   "ACCESSES",
   "SOURCED_FROM"
 ];
+
+export const EVIDENCE_CLASSES = [
+  "platform_agent",
+  "cloud_ai_runtime",
+  "ide_agent",
+  "process_agent",
+  "repo_candidate"
+];
+
+export const AGENT_STATUSES = ["confirmed", "candidate"];

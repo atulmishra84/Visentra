@@ -514,4 +514,132 @@ function sumResultField(bucket, field) {
   return results.reduce((s, r) => s + Number(r[field] || 0), 0);
 }
 
+/**
+ * Executive visibility funnel + supporting mixes for leadership dashboards.
+ * Funnel stages narrow from discovered inventory toward owned, managed posture.
+ */
+export async function buildExecutiveInsights(pool, tenantId) {
+  const [counts, evidence, trends, categories, models, frameworks, cloud] = await Promise.all([
+    pool.query(
+      `SELECT
+         COUNT(*)::int AS discovered,
+         COUNT(*) FILTER (WHERE metadata->>'evidenceClass' IS NOT NULL AND metadata->>'evidenceClass' <> '')::int AS classified,
+         COUNT(*) FILTER (WHERE metadata->>'agentStatus' = 'confirmed')::int AS confirmed,
+         COUNT(*) FILTER (WHERE owner IS NOT NULL AND btrim(owner) <> '')::int AS owned,
+         COUNT(*) FILTER (
+           WHERE owner IS NOT NULL AND btrim(owner) <> ''
+             AND COALESCE(metadata->>'shadowAi', 'false') <> 'true'
+             AND risk_indicators::text NOT ILIKE '%shadow%'
+             AND risk_indicators::text NOT ILIKE '%unmanaged%'
+         )::int AS managed,
+         COUNT(*) FILTER (WHERE owner IS NULL OR btrim(owner)='')::int AS ownerless,
+         COUNT(*) FILTER (WHERE confidence_score < 0.55)::int AS low_confidence,
+         COUNT(*) FILTER (WHERE running_status='running')::int AS running,
+         COUNT(DISTINCT owner) FILTER (WHERE owner IS NOT NULL AND btrim(owner) <> '')::int AS unique_owners,
+         COALESCE(AVG(confidence_score),0)::float AS avg_confidence
+       FROM agents WHERE tenant_id=$1`,
+      [tenantId]
+    ),
+    evidenceMix(pool, tenantId),
+    discoveryTrends(pool, tenantId, { weeks: 12 }),
+    usageBreakdown(pool, tenantId, "category", { hideUnknown: true, limit: 12 }),
+    usageBreakdown(pool, tenantId, "models", { hideUnknown: true, limit: 12 }),
+    usageBreakdown(pool, tenantId, "frameworks", { hideUnknown: true, limit: 8 }),
+    usageBreakdown(pool, tenantId, "cloud", { hideUnknown: true, limit: 8 })
+  ]);
+
+  const c = counts.rows[0];
+  const discovered = c.discovered;
+  const classified = c.classified;
+  const confirmed = c.confirmed;
+  const owned = c.owned;
+  const managed = c.managed;
+
+  const funnel = [
+    {
+      id: "discovered",
+      label: "Discovered",
+      description: "All AI agents in inventory",
+      count: discovered,
+      href: "/inventory"
+    },
+    {
+      id: "classified",
+      label: "Classified",
+      description: "Evidence class assigned",
+      count: classified,
+      href: "/inventory"
+    },
+    {
+      id: "confirmed",
+      label: "Confirmed",
+      description: "Strong agent evidence",
+      count: confirmed,
+      href: "/inventory?agentStatus=confirmed"
+    },
+    {
+      id: "owned",
+      label: "Owned",
+      description: "Has an attributed owner",
+      count: owned,
+      href: "/inventory"
+    },
+    {
+      id: "managed",
+      label: "Managed",
+      description: "Owned and not Shadow AI",
+      count: managed,
+      href: "/inventory"
+    }
+  ].map((stage, index, arr) => {
+    const prev = index === 0 ? discovered : arr[index - 1].count;
+    const conversion = prev > 0 ? Number(((stage.count / prev) * 100).toFixed(1)) : 0;
+    const ofTotal = discovered > 0 ? Number(((stage.count / discovered) * 100).toFixed(1)) : 0;
+    return { ...stage, conversionFromPrev: conversion, pctOfTotal: ofTotal };
+  });
+
+  const dropOffs = funnel.slice(1).map((stage, i) => ({
+    from: funnel[i].id,
+    to: stage.id,
+    lost: Math.max(0, funnel[i].count - stage.count),
+    label: `${funnel[i].label} → ${stage.label}`
+  }));
+
+  const insightParts = [];
+  if (!discovered) {
+    insightParts.push("No agents discovered yet. Run discovery to populate executive visibility.");
+  } else {
+    insightParts.push(
+      `${discovered} agents discovered; ${confirmed} confirmed (${funnel[2].pctOfTotal}%); ${managed} managed (${funnel[4].pctOfTotal}%).`
+    );
+    if (c.ownerless > 0) {
+      insightParts.push(`${c.ownerless} still ownerless.`);
+    }
+  }
+
+  return {
+    funnel,
+    dropOffs,
+    evidence,
+    trends,
+    categories: categories.items,
+    models: models.items,
+    frameworks: frameworks.items,
+    cloud: cloud.items,
+    insight: insightParts.join(" "),
+    totalAgents: discovered,
+    classifiedAgents: classified,
+    confirmedAgents: confirmed,
+    ownedAgents: owned,
+    managedAgents: managed,
+    ownerlessAgents: c.ownerless,
+    ownerless: c.ownerless,
+    lowConfidence: c.low_confidence,
+    lowConfidenceAgents: c.low_confidence,
+    runningAgents: c.running,
+    uniqueOwners: c.unique_owners,
+    avgConfidence: Number(Number(c.avg_confidence).toFixed(3))
+  };
+}
+
 export { DIMENSION_COLUMNS, INVENTORY_QUERY_KEY, parseBool };

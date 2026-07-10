@@ -5,5 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js"
+  },
+  "dependencies": {
+    "neo4j-driver": "^5.28.1"
   }
 }

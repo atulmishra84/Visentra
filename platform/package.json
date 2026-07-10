@@ -5,11 +5,14 @@
   "workspaces": [
     "apps/api",
     "apps/discovery",
+    "apps/relationship",
+    "apps/web",
     "packages/shared"
   ],
   "scripts": {
     "dev:api": "npm run dev -w apps/api",
     "dev:discovery": "npm run dev -w apps/discovery",
+    "dev:relationship": "npm run start -w apps/relationship",
     "migrate": "npm run migrate -w apps/api"
   }
 }
