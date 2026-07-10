@@ -1,5 +1,5 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { FormEvent, useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { connectGraphStream } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { getPreferredTheme, toggleTheme, type ThemeMode } from "../lib/theme";
@@ -51,12 +51,38 @@ const sections = [
   }
 ];
 
+function activeSectionHeading(pathname: string): string | null {
+  // Longest matching path wins so /discovery/changes maps to Activity, not Dashboards Discovery.
+  let best: { heading: string; len: number } | null = null;
+  for (const section of sections) {
+    for (const item of section.items) {
+      const matches = pathname === item.to || pathname.startsWith(`${item.to}/`);
+      if (!matches) continue;
+      if (!best || item.to.length > best.len) {
+        best = { heading: section.heading, len: item.to.length };
+      }
+    }
+  }
+  return best?.heading ?? null;
+}
+
 export function Layout() {
   const { user, logout, token } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [search, setSearch] = useState("");
   const [streamStatus, setStreamStatus] = useState<"connecting" | "live" | "error">("connecting");
   const [theme, setTheme] = useState<ThemeMode>(() => getPreferredTheme());
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(sections.map((section) => [section.heading, true]))
+  );
+
+  const currentSection = useMemo(() => activeSectionHeading(location.pathname), [location.pathname]);
+
+  useEffect(() => {
+    if (!currentSection) return;
+    setOpenSections((prev) => (prev[currentSection] ? prev : { ...prev, [currentSection]: true }));
+  }, [currentSection]);
 
   useEffect(() => {
     if (!token) {
@@ -87,6 +113,10 @@ export function Layout() {
     navigate(`/search?q=${encodeURIComponent(search.trim())}`);
   };
 
+  const toggleSection = (heading: string) => {
+    setOpenSections((prev) => ({ ...prev, [heading]: !prev[heading] }));
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -99,16 +129,33 @@ export function Layout() {
         </div>
 
         <nav aria-label="Primary navigation">
-          {sections.map((section) => (
-            <div className="nav-section" key={section.heading}>
-              <div className="nav-heading">{section.heading}</div>
-              {section.items.map((item) => (
-                <NavLink className="nav-link" key={item.to} to={item.to}>
-                  {item.label}
-                </NavLink>
-              ))}
-            </div>
-          ))}
+          {sections.map((section) => {
+            const open = Boolean(openSections[section.heading]);
+            const panelId = `nav-panel-${section.heading.replace(/\s+/g, "-").toLowerCase()}`;
+            const isActiveSection = currentSection === section.heading;
+
+            return (
+              <div className={`nav-section ${open ? "open" : "collapsed"}`} key={section.heading}>
+                <button
+                  type="button"
+                  className={`nav-heading-button ${isActiveSection ? "active-section" : ""}`}
+                  aria-expanded={open}
+                  aria-controls={panelId}
+                  onClick={() => toggleSection(section.heading)}
+                >
+                  <span>{section.heading}</span>
+                  <span className={`nav-chevron ${open ? "open" : ""}`} aria-hidden="true" />
+                </button>
+                <div className="nav-panel" id={panelId} hidden={!open}>
+                  {section.items.map((item) => (
+                    <NavLink className="nav-link" key={item.to} to={item.to} end={item.to === "/discovery"}>
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </nav>
       </aside>
 

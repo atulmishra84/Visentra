@@ -202,7 +202,8 @@ button {
 
 .nav-section {
   display: grid;
-  gap: 6px;
+  gap: 4px;
+  margin-bottom: 4px;
 }
 
 .nav-heading {
@@ -212,6 +213,58 @@ button {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.nav-heading-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  padding: 10px 10px;
+  color: var(--text-subtle);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+  transition: 160ms ease;
+}
+
+.nav-heading-button:hover,
+.nav-heading-button.active-section {
+  border-color: var(--panel-border);
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  color: var(--text-muted);
+}
+
+.nav-chevron {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 160ms ease;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+.nav-chevron.open {
+  transform: rotate(45deg);
+}
+
+.nav-panel {
+  display: grid;
+  gap: 4px;
+  padding: 0 0 6px 4px;
+}
+
+.nav-panel[hidden] {
+  display: none;
 }
 
 .nav-link {
