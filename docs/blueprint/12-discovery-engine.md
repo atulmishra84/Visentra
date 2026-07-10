@@ -37,7 +37,7 @@ flowchart LR
 | Agentless | Remote / API | Hosts, workloads, cloud AI resources | Cloud/K8s metadata, tags, resource IDs. |
 | API | SaaS/internal API poller | Apps, users, API keys, agents | Provider object IDs, owners, timestamps. |
 | Cloud API | AWS/Azure/GCP inventory | Compute, functions, managed AI, IAM, DBs | ARN/resource ID, tags, policies, network metadata. |
-| EDR integration | Pull from CrowdStrike / Defender / Cortex / Intune etc. | Devices, processes, IDE agents, local LLM runtimes | Process cmdline, detected apps, device owner, last seen. |
+| EDR integration | Pull from CrowdStrike / Defender / Cortex / Intune / Netskope etc. | Devices, processes, IDE agents, local LLM runtimes | Process cmdline, detected apps, device owner, last seen. |
 | Runtime | Traces/logs (OTLP, APM) | Agents, tools, model calls | Trace span, tool name, model parameters. |
 | Network | Flow/DNS/SNI (via existing sensors) | External APIs, model hosts, MCP endpoints | Host, IP, port, protocol, correlation IDs. |
 | Log | SIEM / log query | Agents, tools, errors, model usage | Parsed fields, trace IDs, source stream. |

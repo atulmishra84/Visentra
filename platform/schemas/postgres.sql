@@ -191,7 +191,10 @@ CREATE TABLE IF NOT EXISTS connectors (
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name            TEXT NOT NULL,
   provider        TEXT NOT NULL
-                    CHECK (provider IN ('azure', 'aws', 'gcp')),
+                    CHECK (provider IN (
+                      'azure', 'aws', 'gcp',
+                      'crowdstrike', 'defender', 'intune', 'cortex', 'netskope'
+                    )),
   status          TEXT NOT NULL DEFAULT 'active'
                     CHECK (status IN ('active', 'disabled', 'error')),
   environment     TEXT NOT NULL DEFAULT 'production',

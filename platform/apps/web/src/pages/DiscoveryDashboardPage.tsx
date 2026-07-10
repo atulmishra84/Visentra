@@ -4,7 +4,7 @@ import { DataTable, type Column } from "../components/DataTable";
 import { DetailDrawer } from "../components/DetailDrawer";
 import { apiRequest, compactDate, listFromPayload, numberAt, valueAt } from "../lib/api";
 
-const DEFAULT_COLLECTORS = ["cloud_stub", "demo", "ide_filesystem", "process", "mcp"];
+const DEFAULT_COLLECTORS = ["cloud_stub", "edr", "demo", "ide_filesystem", "process", "mcp"];
 
 export function DiscoveryDashboardPage() {
   const [payload, setPayload] = useState<unknown>(null);
@@ -62,10 +62,12 @@ export function DiscoveryDashboardPage() {
         method: "POST",
         body: JSON.stringify({
           collectors: DEFAULT_COLLECTORS,
-          reason: "Manual scan including cloud connectors"
+          reason: "Manual scan including cloud and EDR connectors"
         })
       });
-      setMessage("Discovery started. Cloud connectors (including Azure) are included. Refreshing in a few seconds...");
+      setMessage(
+        "Discovery started. Cloud (Azure) and EDR (CrowdStrike, Defender, Intune, Cortex, Netskope) connectors are included. Refreshing in a few seconds..."
+      );
       setTimeout(() => {
         void loadJobs();
       }, 4000);
@@ -124,7 +126,8 @@ export function DiscoveryDashboardPage() {
           <p className="eyebrow">Discovery</p>
           <h1>Discovery Dashboard</h1>
           <p className="page-description">
-            Run scans against configured connectors. Azure connectors perform a live ARM resource scan.
+            Run scans against configured connectors. Azure uses live ARM; EDR connectors (including Netskope) validate
+            API credentials and surface endpoint visibility sources.
           </p>
         </div>
         <button className="button primary" disabled={running} type="button" onClick={() => void triggerDiscovery()}>
@@ -137,10 +140,10 @@ export function DiscoveryDashboardPage() {
 
       <section className="three-grid">
         <div className="panel">
-          <h2>Cloud connectors</h2>
+          <h2>Connectors</h2>
           {connectors.length === 0 ? (
             <p className="muted">
-              None configured. Add Azure/AWS/GCP under{" "}
+              None configured. Add cloud or EDR (CrowdStrike, Defender, Intune, Cortex, Netskope) under{" "}
               <Link to="/settings/connectors">Settings → Connectors</Link>.
             </p>
           ) : (
@@ -148,7 +151,8 @@ export function DiscoveryDashboardPage() {
               {connectors.map((c) => (
                 <li key={String(c.id)} className="bar-row">
                   <span>
-                    {valueAt(c, ["name"])} ({String(c.provider).toUpperCase()})
+                    {valueAt(c, ["name"])} ({String(c.provider).toUpperCase()}
+                    {c.category ? ` · ${String(c.category)}` : ""})
                   </span>
                   <span className="mono">{valueAt(c, ["status"])}</span>
                 </li>

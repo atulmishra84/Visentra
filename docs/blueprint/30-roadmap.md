@@ -45,7 +45,7 @@ V1 is **agentless-first**, with architecture ready for the full category set:
 - SaaS / MCP / LLM provider APIs.
 - Git / CI/CD / logs / identity.
 - Framework and autonomous agents visible via cloud, repo, and runtime signals.
-- **Endpoint / IDE / local LLM / browser** via **EDR integrations** (CrowdStrike, Defender/Intune, Cortex, etc.) — not via an AgentRadar local client.
+- **Endpoint / IDE / local LLM / browser** via **EDR integrations** (CrowdStrike, Defender/Intune, Cortex, Netskope, etc.) — not via an AgentRadar local client.
 
 ### V1 Success Criteria
 

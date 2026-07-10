@@ -324,10 +324,134 @@ export const collectors = {
       }
       return out;
     }
+  },
+
+  edr: {
+    id: "edr",
+    async scan(ctx) {
+      const out = [];
+      if (!ctx.pool || !ctx.tenantId) return out;
+
+      try {
+        const { listActiveEdrConnectors } = await import("../services/connectors.js");
+        const { EDR_VALIDATORS } = await import("./edrIntegrations.js");
+        const connectors = await listActiveEdrConnectors(ctx.pool, ctx.tenantId);
+
+        for (const conn of connectors) {
+          const validator = EDR_VALIDATORS[conn.provider];
+          if (!validator) continue;
+
+          const label =
+            {
+              crowdstrike: "CrowdStrike",
+              defender: "Microsoft Defender",
+              intune: "Microsoft Intune",
+              cortex: "Cortex XDR",
+              netskope: "Netskope"
+            }[conn.provider] || conn.provider;
+
+          try {
+            const result = await validator({ config: conn.config, secrets: conn.secrets });
+            if (ctx.pool) {
+              await ctx.pool.query(
+                `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
+                 WHERE id=$1 AND tenant_id=$2`,
+                [conn.id, ctx.tenantId]
+              );
+              await ctx.pool.query(
+                `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+                 VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
+                [
+                  ctx.tenantId,
+                  `EDR connector "${conn.name}" (${label}) validated: ${result.message}`,
+                  JSON.stringify({
+                    connectorId: conn.id,
+                    provider: conn.provider,
+                    category: "edr"
+                  })
+                ]
+              );
+            }
+            out.push({
+              collector_id: "edr",
+              fingerprint: `edr-connector:${conn.provider}:${conn.id}`,
+              name: `${label} — ${conn.name}`,
+              category: "endpoint",
+              provider: conn.provider,
+              deployment_type: "endpoint",
+              running_status: "running",
+              confidence_score: 0.75,
+              metadata: {
+                connectorId: conn.id,
+                connectorName: conn.name,
+                discoveryMode: "edr-api-validated",
+                environment: conn.environment,
+                testMessage: result.message
+              },
+              relationships: [
+                {
+                  rel_type: "OBSERVED_BY",
+                  to_type: "EDRPlatform",
+                  to_key: `edr-${conn.provider}`,
+                  to_name: label
+                }
+              ]
+            });
+          } catch (err) {
+            const message = err.message || String(err);
+            console.warn("EDR connector scan failed:", conn.provider, message);
+            if (ctx.pool) {
+              await ctx.pool.query(
+                `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
+                 WHERE id=$1 AND tenant_id=$2`,
+                [conn.id, ctx.tenantId, message]
+              );
+              await ctx.pool.query(
+                `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+                 VALUES ($1,'connector.scan.error','error',$2,$3::jsonb)`,
+                [
+                  ctx.tenantId,
+                  `EDR connector "${conn.name}" (${label}) failed: ${message}`,
+                  JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "edr" })
+                ]
+              );
+            }
+            out.push({
+              collector_id: "edr",
+              fingerprint: `edr-connector-error:${conn.provider}:${conn.id}`,
+              name: `${label} connector error — ${conn.name}`,
+              category: "endpoint",
+              provider: conn.provider,
+              confidence_score: 0.2,
+              running_status: "unknown",
+              risk_indicators: ["connector_auth_failed"],
+              metadata: {
+                connectorId: conn.id,
+                connectorName: conn.name,
+                discoveryMode: "edr-api-error",
+                error: message
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("edr connector scan:", err.message);
+      }
+
+      return out;
+    }
   }
 };
 
-export const DEFAULT_COLLECTORS = ["demo", "ide_filesystem", "process", "mcp", "cloud_stub", "k8s_stub"];
+export const DEFAULT_COLLECTORS = [
+  "demo",
+  "ide_filesystem",
+  "process",
+  "mcp",
+  "cloud_stub",
+  "edr",
+  "k8s_stub"
+];
 
 export async function runCollectors(collectorIds, ctx) {
   const ids = collectorIds?.length ? collectorIds : DEFAULT_COLLECTORS;

@@ -1,12 +1,32 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiRequest, compactDate, listFromPayload, valueAt } from "../lib/api";
 
-type ProviderKey = "azure" | "aws" | "gcp";
+type ProviderKey =
+  | "azure"
+  | "aws"
+  | "gcp"
+  | "crowdstrike"
+  | "defender"
+  | "intune"
+  | "cortex"
+  | "netskope";
 
 type ProviderSchema = {
+  category?: string;
   config: string[];
   secrets: string[];
   labels: Record<string, string>;
+};
+
+const PROVIDER_LABELS: Record<ProviderKey, string> = {
+  azure: "Microsoft Azure",
+  aws: "Amazon Web Services",
+  gcp: "Google Cloud",
+  crowdstrike: "CrowdStrike Falcon",
+  defender: "Microsoft Defender for Endpoint",
+  intune: "Microsoft Intune",
+  cortex: "Palo Alto Cortex XDR",
+  netskope: "Netskope"
 };
 
 const EMPTY_FORM = {
@@ -24,7 +44,13 @@ const EMPTY_FORM = {
   secretAccessKey: "",
   projectId: "",
   clientEmail: "",
-  privateKey: ""
+  privateKey: "",
+  baseUrl: "https://api.crowdstrike.com",
+  fqdn: "",
+  apiKeyId: "",
+  apiKey: "",
+  tenant: "",
+  apiToken: ""
 };
 
 export function ConnectorsPage() {
@@ -38,6 +64,7 @@ export function ConnectorsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const providerSchema = schema[form.provider];
+  const isEdr = providerSchema?.category === "edr" || ["crowdstrike", "defender", "intune", "cortex", "netskope"].includes(form.provider);
 
   const load = async () => {
     setLoading(true);
@@ -92,9 +119,15 @@ export function ConnectorsPage() {
       accessKeyId: config.accessKeyId || "",
       projectId: config.projectId || "",
       clientEmail: config.clientEmail || "",
+      baseUrl: config.baseUrl || "https://api.crowdstrike.com",
+      fqdn: config.fqdn || "",
+      apiKeyId: config.apiKeyId || "",
+      tenant: config.tenant || "",
       clientSecret: "",
       secretAccessKey: "",
-      privateKey: ""
+      privateKey: "",
+      apiKey: "",
+      apiToken: ""
     });
     setMessage("Leave secret fields blank to keep existing secrets.");
   };
@@ -177,21 +210,38 @@ export function ConnectorsPage() {
     }
   };
 
-  const scanNow = async () => {
+  const scanNow = async (mode: "cloud" | "edr" | "all") => {
     setError(null);
     setMessage(null);
+    const collectors =
+      mode === "cloud" ? ["cloud_stub"] : mode === "edr" ? ["edr"] : ["cloud_stub", "edr"];
     try {
       await apiRequest("/api/discovery/jobs", {
         method: "POST",
-        body: JSON.stringify({ collectors: ["cloud_stub"] })
+        body: JSON.stringify({ collectors })
       });
       setMessage(
-        "Cloud discovery started. Open Discovery Dashboard or Inventory in ~10s to see Azure scan results (look for “Azure scan — …” and AI resources)."
+        mode === "edr"
+          ? "EDR discovery started. Open Discovery Dashboard or Inventory in ~10s to see CrowdStrike / Defender / Intune / Cortex / Netskope results."
+          : mode === "cloud"
+            ? "Cloud discovery started. Open Discovery Dashboard or Inventory in ~10s to see Azure scan results."
+            : "Cloud + EDR discovery started. Check Discovery Dashboard or Inventory in ~10s."
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start cloud discovery.");
+      setError(err instanceof Error ? err.message : "Failed to start discovery.");
     }
   };
+
+  const providerOptions = useMemo(() => {
+    const keys = Object.keys(schema).length
+      ? (Object.keys(schema) as ProviderKey[])
+      : (Object.keys(PROVIDER_LABELS) as ProviderKey[]);
+    const cloud = keys.filter((k) => schema[k]?.category === "cloud" || ["azure", "aws", "gcp"].includes(k));
+    const edr = keys.filter(
+      (k) => schema[k]?.category === "edr" || ["crowdstrike", "defender", "intune", "cortex", "netskope"].includes(k)
+    );
+    return { cloud, edr };
+  }, [schema]);
 
   return (
     <div className="page">
@@ -200,13 +250,19 @@ export function ConnectorsPage() {
           <p className="eyebrow">Settings</p>
           <h1>Connectors</h1>
           <p className="page-description">
-            Add cloud and EDR environment credentials (Azure, AWS, GCP, and later CrowdStrike/Defender). Secrets are encrypted and never shown again.
-            After saving Azure, click <strong>Test</strong> then <strong>Scan cloud now</strong> to discover resources. AgentRadar is agentless — endpoint coverage comes from EDR integrations, not a local client.
+            Add cloud and EDR credentials (Azure, AWS, GCP, CrowdStrike, Defender, Intune, Cortex XDR, Netskope).
+            Secrets are encrypted and never shown again. AgentRadar is agentless — endpoint coverage comes from EDR
+            integrations, not a local client. Save → <strong>Test</strong> → scan.
           </p>
         </div>
-        <button className="button primary" type="button" onClick={() => void scanNow()}>
-          Scan cloud now
-        </button>
+        <div className="toolbar" style={{ gap: 8 }}>
+          <button className="button" type="button" onClick={() => void scanNow("cloud")}>
+            Scan cloud now
+          </button>
+          <button className="button primary" type="button" onClick={() => void scanNow("edr")}>
+            Scan EDR now
+          </button>
+        </div>
       </header>
 
       {error ? <div className="error-state">{error}</div> : null}
@@ -214,7 +270,7 @@ export function ConnectorsPage() {
 
       <div className="split-layout">
         <section className="panel">
-          <h2>{editingId ? "Edit connector" : "Add cloud environment"}</h2>
+          <h2>{editingId ? "Edit connector" : isEdr ? "Add EDR integration" : "Add cloud environment"}</h2>
           <form className="connector-form" onSubmit={submit}>
             <label>
               Display name
@@ -223,7 +279,7 @@ export function ConnectorsPage() {
                 required
                 value={form.name}
                 onChange={(e) => onChange("name", e.target.value)}
-                placeholder="Prod Azure subscription"
+                placeholder={isEdr ? "Prod CrowdStrike / Netskope" : "Prod Azure subscription"}
               />
             </label>
 
@@ -236,9 +292,20 @@ export function ConnectorsPage() {
                   disabled={Boolean(editingId)}
                   onChange={(e) => onChange("provider", e.target.value)}
                 >
-                  <option value="azure">Microsoft Azure</option>
-                  <option value="aws">Amazon Web Services</option>
-                  <option value="gcp">Google Cloud</option>
+                  <optgroup label="Cloud">
+                    {providerOptions.cloud.map((key) => (
+                      <option key={key} value={key}>
+                        {PROVIDER_LABELS[key] || key}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="EDR / endpoint">
+                    {providerOptions.edr.map((key) => (
+                      <option key={key} value={key}>
+                        {PROVIDER_LABELS[key] || key}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </label>
               <label>
@@ -312,47 +379,53 @@ export function ConnectorsPage() {
             <div className="loading-state">Loading connectors...</div>
           ) : connectors.length === 0 ? (
             <div className="empty-state">
-              No cloud connectors yet. Add Azure, AWS, or GCP credentials to start environment discovery.
+              No connectors yet. Add cloud (Azure/AWS/GCP) or EDR (CrowdStrike, Defender, Intune, Cortex, Netskope)
+              credentials to start discovery.
             </div>
           ) : (
             <div className="connector-list">
-              {connectors.map((connector) => (
-                <article className="connector-card" key={String(connector.id)}>
-                  <div className="connector-card-head">
-                    <div>
-                      <strong>{valueAt(connector, ["name"])}</strong>
-                      <div className="muted">
-                        {String(connector.provider).toUpperCase()} · {valueAt(connector, ["environment"])}
+              {connectors.map((connector) => {
+                const provider = String(connector.provider || "") as ProviderKey;
+                const category = String(connector.category || (PROVIDER_LABELS[provider] ? "" : "cloud"));
+                return (
+                  <article className="connector-card" key={String(connector.id)}>
+                    <div className="connector-card-head">
+                      <div>
+                        <strong>{valueAt(connector, ["name"])}</strong>
+                        <div className="muted">
+                          {PROVIDER_LABELS[provider] || provider.toUpperCase()}
+                          {category ? ` · ${category}` : ""} · {valueAt(connector, ["environment"])}
+                        </div>
                       </div>
+                      <span className={`status-pill ${connector.status === "active" ? "" : "warn"}`}>
+                        {valueAt(connector, ["status"])}
+                      </span>
                     </div>
-                    <span className={`status-pill ${connector.status === "active" ? "" : "warn"}`}>
-                      {valueAt(connector, ["status"])}
-                    </span>
-                  </div>
-                  <div className="muted mono" style={{ fontSize: 12, marginTop: 8 }}>
-                    Secrets: {(connector.secretFields as string[] | undefined)?.join(", ") || "configured"}
-                    {connector.lastTestedAt
-                      ? ` · Last tested ${compactDate(connector.lastTestedAt)}`
-                      : " · Not tested"}
-                  </div>
-                  {connector.lastError ? (
-                    <div className="error-state" style={{ marginTop: 8 }}>
-                      {String(connector.lastError)}
+                    <div className="muted mono" style={{ fontSize: 12, marginTop: 8 }}>
+                      Secrets: {(connector.secretFields as string[] | undefined)?.join(", ") || "configured"}
+                      {connector.lastTestedAt
+                        ? ` · Last tested ${compactDate(connector.lastTestedAt)}`
+                        : " · Not tested"}
                     </div>
-                  ) : null}
-                  <div className="toolbar" style={{ justifyContent: "flex-start", gap: 8, marginTop: 12 }}>
-                    <button className="button" type="button" onClick={() => startEdit(connector)}>
-                      Edit
-                    </button>
-                    <button className="button" type="button" onClick={() => void test(String(connector.id))}>
-                      Test
-                    </button>
-                    <button className="button ghost" type="button" onClick={() => void remove(String(connector.id))}>
-                      Delete
-                    </button>
-                  </div>
-                </article>
-              ))}
+                    {connector.lastError ? (
+                      <div className="error-state" style={{ marginTop: 8 }}>
+                        {String(connector.lastError)}
+                      </div>
+                    ) : null}
+                    <div className="toolbar" style={{ justifyContent: "flex-start", gap: 8, marginTop: 12 }}>
+                      <button className="button" type="button" onClick={() => startEdit(connector)}>
+                        Edit
+                      </button>
+                      <button className="button" type="button" onClick={() => void test(String(connector.id))}>
+                        Test
+                      </button>
+                      <button className="button ghost" type="button" onClick={() => void remove(String(connector.id))}>
+                        Delete
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
         </section>

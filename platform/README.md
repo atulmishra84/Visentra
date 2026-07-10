@@ -18,7 +18,7 @@ Greenfield implementation of the Discovery & Visibility track. See the engineeri
 **Agentless platform.** No AgentRadar client is required on endpoints.
 
 - **Default:** cloud / K8s / SaaS / git / CI / log / identity connectors (API credentials in Settings → Connectors).
-- **Endpoint / IDE visibility:** integrate with the customer’s **EDR** (CrowdStrike, Defender/Intune, Cortex XDR, etc.) and pull process/device evidence — do not deploy a proprietary local agent.
+- **Endpoint / IDE visibility:** integrate with the customer’s **EDR** (CrowdStrike, Defender/Intune, Cortex XDR, Netskope, etc.) and pull process/device evidence — do not deploy a proprietary local agent.
 
 See [`docs/blueprint/01-product-vision.md`](../docs/blueprint/01-product-vision.md) and [`docs/blueprint/12-discovery-engine.md`](../docs/blueprint/12-discovery-engine.md).
 

@@ -2,6 +2,7 @@ import { encryptJson, decryptJson, maskSecret } from "../utils/crypto.js";
 
 export const PROVIDER_FIELDS = {
   azure: {
+    category: "cloud",
     config: ["tenantId", "subscriptionId", "clientId"],
     secrets: ["clientSecret"],
     labels: {
@@ -12,6 +13,7 @@ export const PROVIDER_FIELDS = {
     }
   },
   aws: {
+    category: "cloud",
     config: ["accountId", "region", "accessKeyId"],
     secrets: ["secretAccessKey"],
     labels: {
@@ -22,6 +24,7 @@ export const PROVIDER_FIELDS = {
     }
   },
   gcp: {
+    category: "cloud",
     config: ["projectId", "clientEmail"],
     secrets: ["privateKey"],
     labels: {
@@ -29,8 +32,62 @@ export const PROVIDER_FIELDS = {
       clientEmail: "Service account email",
       privateKey: "Service account private key"
     }
+  },
+  crowdstrike: {
+    category: "edr",
+    config: ["baseUrl", "clientId"],
+    secrets: ["clientSecret"],
+    labels: {
+      baseUrl: "API base URL (e.g. https://api.crowdstrike.com)",
+      clientId: "API client ID",
+      clientSecret: "API client secret"
+    }
+  },
+  defender: {
+    category: "edr",
+    config: ["tenantId", "clientId"],
+    secrets: ["clientSecret"],
+    labels: {
+      tenantId: "Azure AD Tenant ID",
+      clientId: "Application (client) ID",
+      clientSecret: "Client secret"
+    }
+  },
+  intune: {
+    category: "edr",
+    config: ["tenantId", "clientId"],
+    secrets: ["clientSecret"],
+    labels: {
+      tenantId: "Azure AD Tenant ID",
+      clientId: "Application (client) ID",
+      clientSecret: "Client secret"
+    }
+  },
+  cortex: {
+    category: "edr",
+    config: ["fqdn", "apiKeyId", "region"],
+    secrets: ["apiKey"],
+    labels: {
+      fqdn: "Tenant FQDN prefix (e.g. acme)",
+      apiKeyId: "API Key ID",
+      region: "Region (us, eu, uk, …)",
+      apiKey: "API Key"
+    }
+  },
+  netskope: {
+    category: "edr",
+    config: ["tenant"],
+    secrets: ["apiToken"],
+    labels: {
+      tenant: "Netskope tenant (e.g. acme for acme.goskope.com)",
+      apiToken: "REST API token"
+    }
   }
 };
+
+export const CLOUD_PROVIDERS = ["azure", "aws", "gcp"];
+export const EDR_PROVIDERS = ["crowdstrike", "defender", "intune", "cortex", "netskope"];
+export const ALL_PROVIDERS = [...CLOUD_PROVIDERS, ...EDR_PROVIDERS];
 
 function publicConnector(row) {
   const cfg = row.config || {};
@@ -47,6 +104,7 @@ function publicConnector(row) {
     id: row.id,
     name: row.name,
     provider: row.provider,
+    category: PROVIDER_FIELDS[row.provider]?.category || "cloud",
     status: row.status,
     environment: row.environment,
     config: safeConfig,
@@ -87,7 +145,7 @@ export async function getConnectorSecrets(pool, tenantId, id) {
 export async function createConnector(pool, tenantId, body, actor) {
   const provider = String(body.provider || "").toLowerCase();
   if (!PROVIDER_FIELDS[provider]) {
-    const err = new Error("provider must be azure, aws, or gcp");
+    const err = new Error(`provider must be one of: ${ALL_PROVIDERS.join(", ")}`);
     err.status = 400;
     throw err;
   }
@@ -218,6 +276,12 @@ export async function testConnector(pool, tenantId, id) {
       });
       ok = result.ok;
       message = result.message;
+    } else if (EDR_PROVIDERS.includes(row.provider)) {
+      const { EDR_VALIDATORS } = await import("../discovery/edrIntegrations.js");
+      const validator = EDR_VALIDATORS[row.provider];
+      const result = await validator({ config, secrets });
+      ok = result.ok;
+      message = result.message;
     } else if (row.provider === "aws") {
       ok = Boolean(config.accessKeyId && secrets.secretAccessKey);
       message = ok
@@ -247,9 +311,28 @@ export async function listActiveCloudConnectors(pool, tenantId) {
   const res = await pool.query(
     `SELECT * FROM connectors
      WHERE tenant_id=$1
-       AND provider IN ('azure','aws','gcp')
+       AND provider = ANY($2::text[])
        AND status IN ('active', 'error')`,
-    [tenantId]
+    [tenantId, CLOUD_PROVIDERS]
+  );
+  return res.rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    provider: row.provider,
+    environment: row.environment,
+    status: row.status,
+    config: row.config || {},
+    secrets: decryptJson(row.secrets_enc)
+  }));
+}
+
+export async function listActiveEdrConnectors(pool, tenantId) {
+  const res = await pool.query(
+    `SELECT * FROM connectors
+     WHERE tenant_id=$1
+       AND provider = ANY($2::text[])
+       AND status IN ('active', 'error')`,
+    [tenantId, EDR_PROVIDERS]
   );
   return res.rows.map((row) => ({
     id: row.id,

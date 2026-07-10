@@ -11,6 +11,21 @@ export async function migrate(pool) {
   const sql = fs.readFileSync(schemaPath, "utf8");
   await pool.query(sql);
 
+  // Widen connectors.provider check for EDR integrations (idempotent)
+  await pool.query(`
+    DO $$
+    BEGIN
+      ALTER TABLE connectors DROP CONSTRAINT IF EXISTS connectors_provider_check;
+      ALTER TABLE connectors ADD CONSTRAINT connectors_provider_check
+        CHECK (provider IN (
+          'azure', 'aws', 'gcp',
+          'crowdstrike', 'defender', 'intune', 'cortex', 'netskope'
+        ));
+    EXCEPTION WHEN undefined_table THEN
+      NULL;
+    END $$;
+  `);
+
   const email = process.env.BOOTSTRAP_ADMIN_EMAIL || "admin@agentradar.local";
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || "AgentRadar!dev";
   const hash = await bcrypt.hash(password, 10);
