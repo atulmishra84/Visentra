@@ -1,12 +1,12 @@
 import crypto from "crypto";
 import { safeFetch, ALLOW } from "../utils/http.js";
+import { isAiRelevantText } from "./aiRelevance.js";
 
 const GCP_MAX_RESOURCES = Number(process.env.GCP_DISCOVERY_MAX_RESOURCES || 150);
 const DEFAULT_VERTEX_LOCATIONS = (process.env.GCP_DISCOVERY_LOCATIONS || "us-central1,us-east1,us-west1,europe-west4,asia-east1")
   .split(",")
   .map((v) => v.trim())
   .filter(Boolean);
-const AI_RE = /(^|[-_\s/])(ai|ml|llm|gpt|agent|assistant|copilot|vertex|gemini|palm|openai|anthropic|claude|langchain|llama|ollama|discoveryengine)([-_\s/]|$)/i;
 
 function base64url(input) {
   return Buffer.from(input).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
@@ -68,10 +68,6 @@ async function googleJson(url, token, { optional = false } = {}) {
     throw new Error(json.error?.message || json.message || `GCP API failed (${res.status})`);
   }
   return json;
-}
-
-function isAiRelevantText(...parts) {
-  return AI_RE.test(parts.filter(Boolean).join(" "));
 }
 
 function cloudRelationship(id, name) {

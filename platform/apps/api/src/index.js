@@ -1235,6 +1235,90 @@ async function purgeDemoInventory(pool, neo4jDriver, tenantId) {
   }
 }
 
+/**
+ * Remove non-AI inventory when DISCOVERY_AI_ONLY is enabled (default).
+ * Drops bare cloud resources, bare EDR devices, and Azure rows that fail the
+ * tightened AI-resource classifier.
+ */
+async function purgeNonAiInventory(pool, neo4jDriver, tenantId) {
+  const { DISCOVERY_AI_ONLY, isAzureAiResource } = await import("./discovery/aiRelevance.js");
+  if (!DISCOVERY_AI_ONLY) {
+    console.log("DISCOVERY_AI_ONLY=false — skipping non-AI inventory purge");
+    return;
+  }
+
+  const clearIds = new Set();
+
+  const obvious = await pool.query(
+    `SELECT id FROM agents
+     WHERE tenant_id=$1
+       AND (
+         metadata->>'inventoryClass' = 'cloud_resource'
+         OR metadata->>'inventoryClass' = 'endpoint_device'
+         OR (category = 'cloud'
+             AND metadata->>'inventoryClass' = 'ai_cloud_resource'
+             AND metadata->>'aiRelevant' = 'false')
+         OR (category = 'endpoint'
+             AND metadata->>'aiRelevant' IS DISTINCT FROM 'true'
+             AND metadata->>'inventoryClass' IS DISTINCT FROM 'edr_connector'
+             AND metadata->>'inventoryClass' IS DISTINCT FROM 'endpoint_ai_agent')
+         OR fingerprint LIKE 'edr:%:device:%'
+       )`,
+    [tenantId]
+  );
+  for (const row of obvious.rows) clearIds.add(row.id);
+
+  // Re-evaluate previously ingested Azure "AI" rows against the tightened classifier
+  const azureRows = await pool.query(
+    `SELECT id, name, metadata FROM agents
+     WHERE tenant_id=$1
+       AND 'cloud_azure' = ANY(source_collectors)
+       AND metadata->>'inventoryClass' = 'ai_cloud_resource'
+       AND metadata->>'azureType' IS NOT NULL`,
+    [tenantId]
+  );
+  for (const row of azureRows.rows) {
+    const meta = row.metadata || {};
+    const stillAi = isAzureAiResource({
+      type: meta.azureType,
+      name: String(row.name || "").replace(/\s*\(AI\)\s*$/i, ""),
+      kind: meta.azureKind,
+      tags: meta.tags || {}
+    });
+    if (!stillAi) clearIds.add(row.id);
+  }
+
+  const ids = [...clearIds];
+  if (!ids.length) {
+    console.log("Non-AI inventory purge: nothing to remove");
+    return;
+  }
+
+  await pool.query(`DELETE FROM relationships WHERE tenant_id=$1 AND (from_id = ANY($2::uuid[]) OR to_id = ANY($2::uuid[]))`, [
+    tenantId,
+    ids
+  ]);
+  await pool.query(`DELETE FROM agent_observations WHERE tenant_id=$1 AND agent_id = ANY($2::uuid[])`, [tenantId, ids]);
+  await pool.query(`DELETE FROM agents WHERE tenant_id=$1 AND id = ANY($2::uuid[])`, [tenantId, ids]);
+  console.log(`Purged ${ids.length} non-AI agent(s) (AI-only discovery mode)`);
+
+  if (neo4jDriver) {
+    const session = neo4jDriver.session();
+    try {
+      await session.run(
+        `MATCH (a:Agent {tenantId: $tenantId})
+         WHERE a.id IN $ids
+         DETACH DELETE a`,
+        { tenantId, ids }
+      );
+    } catch (err) {
+      console.warn("Neo4j non-AI purge:", err.message);
+    } finally {
+      await session.close();
+    }
+  }
+}
+
 async function boot() {
   let postgresReady = false;
   for (let i = 0; i < 30; i++) {
@@ -1256,6 +1340,7 @@ async function boot() {
 
   // Purge any leftover demo-seeded inventory (idempotent)
   await purgeDemoInventory(pool, neo4jDriver, tenantId);
+  await purgeNonAiInventory(pool, neo4jDriver, tenantId);
 
   console.log("Boot complete. Inventory starts from connectors/discovery only (no demo seed).");
 

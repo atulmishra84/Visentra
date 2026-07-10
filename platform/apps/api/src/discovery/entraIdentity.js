@@ -1,7 +1,7 @@
 import { safeFetch, ALLOW } from "../utils/http.js";
+import { isAiRelevantText } from "./aiRelevance.js";
 
 const ENTRA_MAX_OBJECTS = Number(process.env.ENTRA_DISCOVERY_MAX_OBJECTS || 150);
-const AI_RE = /(^|[-_\s/.])(ai|ml|llm|gpt|agent|assistant|copilot|bot|openai|anthropic|claude|bedrock|gemini|langchain|studio|power virtual agents)([-_\s/.]|$)/i;
 
 function requireEntraConfig({ config = {}, secrets = {} }) {
   const tenantId = String(config.tenantId || "").trim();
@@ -51,7 +51,7 @@ async function graphJson(path, token, { optional = false } = {}) {
 }
 
 function isAiIdentity(obj) {
-  return AI_RE.test([obj.displayName, obj.appId, ...(obj.tags || [])].filter(Boolean).join(" "));
+  return isAiRelevantText(obj.displayName, obj.appId, ...(obj.tags || []));
 }
 
 function identityObservation({ conn, kind, obj, tenantId }) {

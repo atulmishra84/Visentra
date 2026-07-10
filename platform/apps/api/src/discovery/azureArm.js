@@ -1,35 +1,20 @@
 import { safeFetch, assertAllowedUrl, ALLOW } from "../utils/http.js";
+import {
+  DISCOVERY_AI_ONLY,
+  isAzureAiResource,
+  shouldIngestAiOnly
+} from "./aiRelevance.js";
 
 /**
  * Live Azure Resource Manager discovery using connector service-principal credentials.
- * Ingests subscription inventory (cloud resources), with AI-relevant items flagged.
+ * AI-agents / AI workloads only when DISCOVERY_AI_ONLY is enabled (default).
  */
-
-const AI_TYPE_PATTERNS = [
-  "Microsoft.CognitiveServices/accounts",
-  "Microsoft.MachineLearningServices/workspaces",
-  "Microsoft.App/containerApps",
-  "Microsoft.Web/sites",
-  "Microsoft.Search/searchServices",
-  "Microsoft.BotService/botServices",
-  "Microsoft.HealthcareApis/services",
-  "Microsoft.HealthcareApis/workspaces",
-  "Microsoft.DocumentDB/databaseAccounts",
-  "Microsoft.ContainerService/managedClusters",
-  "Microsoft.Insights/components"
-];
 
 const MAX_RESOURCES = Number(process.env.AZURE_DISCOVERY_MAX_RESOURCES || 500);
 
+/** @deprecated use isAzureAiResource — kept for tests/callers */
 export function isAiRelevant(resource) {
-  const type = resource.type || "";
-  const name = (resource.name || "").toLowerCase();
-  if (AI_TYPE_PATTERNS.some((p) => type === p || type.startsWith(p + "/"))) return true;
-  if (/openai|ai-|ml-|foundry|copilot|llm|gpt|claude|bedrock|agent/i.test(name)) return true;
-  if (/openai|MachineLearning|CognitiveServices|BotService|Search|HealthcareApis/i.test(type)) return true;
-  const kind = String(resource.kind || "").toLowerCase();
-  if (/openai|ai|ml|bot/.test(kind)) return true;
-  return false;
+  return isAzureAiResource(resource);
 }
 
 export async function getAzureAccessToken({ tenantId, clientId, clientSecret }) {
@@ -101,7 +86,6 @@ function resourceToObservation(resource, conn, aiRelevant) {
     owner: tags.owner || tags.Owner || null,
     department: tags.department || tags.Department || null,
     business_unit: tags.businessUnit || tags.bu || null,
-    // Surface resource type in framework column for inventory readability
     framework: shortType,
     model: aiRelevant ? "ai-relevant" : null,
     metadata: {
@@ -130,8 +114,7 @@ function resourceToObservation(resource, conn, aiRelevant) {
 
 /**
  * Discover Azure subscription resources for one connector.
- * Returns full cloud inventory (capped), with AI-relevant resources prioritized and flagged.
- * Always returns at least a connector health observation when auth succeeds.
+ * When DISCOVERY_AI_ONLY (default), only AI-relevant resources are ingested.
  */
 export async function discoverAzureConnector(conn) {
   const tenantId = conn.config.tenantId;
@@ -149,18 +132,22 @@ export async function discoverAzureConnector(conn) {
   const aiResources = [];
   const otherResources = [];
   for (const r of resources) {
-    if (isAiRelevant(r)) aiResources.push(r);
+    if (isAzureAiResource(r)) aiResources.push(r);
     else otherResources.push(r);
   }
 
-  // Prefer AI-relevant, then fill remaining slots with other cloud resources
-  const selected = [...aiResources];
-  for (const r of otherResources) {
-    if (selected.length >= MAX_RESOURCES) break;
-    selected.push(r);
+  let selected = [...aiResources];
+  if (!DISCOVERY_AI_ONLY) {
+    for (const r of otherResources) {
+      if (selected.length >= MAX_RESOURCES) break;
+      selected.push(r);
+    }
   }
+  selected = selected.slice(0, MAX_RESOURCES);
 
-  const observations = selected.map((r) => resourceToObservation(r, conn, isAiRelevant(r)));
+  const observations = selected
+    .filter((r) => shouldIngestAiOnly(isAzureAiResource(r)) || !DISCOVERY_AI_ONLY)
+    .map((r) => resourceToObservation(r, conn, isAzureAiResource(r)));
 
   observations.unshift({
     collector_id: "cloud_azure",
@@ -181,8 +168,10 @@ export async function discoverAzureConnector(conn) {
       subscriptionId,
       totalResourcesScanned: resources.length,
       aiRelevantResources: aiResources.length,
+      nonAiResourcesSkipped: DISCOVERY_AI_ONLY ? otherResources.length : 0,
       cloudResourcesIngested: selected.length,
       inventoryClass: "connector_scan",
+      aiOnly: DISCOVERY_AI_ONLY,
       environment: conn.environment,
       maxResources: MAX_RESOURCES
     },
@@ -201,6 +190,7 @@ export async function discoverAzureConnector(conn) {
     stats: {
       totalResourcesScanned: resources.length,
       aiRelevantResources: aiResources.length,
+      nonAiResourcesSkipped: DISCOVERY_AI_ONLY ? otherResources.length : 0,
       cloudResourcesIngested: selected.length
     }
   };
@@ -215,8 +205,9 @@ export async function validateAzureConnector(conn) {
   const subscriptionId = conn.config.subscriptionId;
   const res = await safeFetch(
     `https://management.azure.com/subscriptions/${subscriptionId}?api-version=2020-01-01`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  , ALLOW.azureArm);
+    { headers: { Authorization: `Bearer ${token}` } },
+    ALLOW.azureArm
+  );
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(json.error?.message || `Subscription check failed (${res.status})`);

@@ -39,6 +39,9 @@ openssl rand -base64 24
 
 ```bash
 NODE_ENV=production
+# Discovery ingests AI agents / AI workloads only (default). Set false to also keep non-AI cloud/EDR inventory.
+DISCOVERY_AI_ONLY=true
+NODE_ENV=production
 DATA_PLANE_MODE=production   # or eval for POC-only
 ```
 

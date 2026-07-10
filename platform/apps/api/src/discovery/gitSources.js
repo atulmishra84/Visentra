@@ -1,7 +1,7 @@
 import { safeFetch, assertAllowedUrl, ALLOW } from "../utils/http.js";
+import { isAiRelevantText } from "./aiRelevance.js";
 
 const GIT_MAX_REPOS = Number(process.env.GIT_DISCOVERY_MAX_REPOS || 100);
-const AI_RE = /(^|[-_\s/.])(ai|ml|llm|gpt|agent|assistant|copilot|langchain|langgraph|crewai|autogen|openai|anthropic|claude|bedrock|gemini|llama|ollama|vllm|rag|vector|embedding)([-_\s/.]|$)/i;
 
 function dynamicPublicPolicy(rawUrl, basePolicy = {}) {
   const parsed = assertAllowedUrl(rawUrl, { allowPrivate: basePolicy.allowPrivate });
@@ -61,10 +61,6 @@ async function pagedFetch(base, path, init, policy, maxPages = 3) {
     if (rows.length < 50) break;
   }
   return out.slice(0, GIT_MAX_REPOS);
-}
-
-function isAiRelevantText(...parts) {
-  return AI_RE.test(parts.filter(Boolean).join(" "));
 }
 
 function repoObservation({ provider, conn, id, name, fullName, webUrl, owner, languages, topics, workflowMatches, extra = {} }) {

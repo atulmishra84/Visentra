@@ -1,7 +1,17 @@
 import crypto from "crypto";
 import { safeFetch, assertAllowedUrl, assertDnsLabel, ALLOW } from "../utils/http.js";
+import {
+  DISCOVERY_AI_ONLY,
+  isAiRelevantText,
+  isAiAgentProcess,
+  shouldIngestAiOnly
+} from "./aiRelevance.js";
 
 const EDR_DEVICE_LIMIT = Number(process.env.EDR_DISCOVERY_MAX_DEVICES || 100);
+
+function deviceLooksAiAgent(parts) {
+  return isAiRelevantText(...parts) || isAiAgentProcess(parts.filter(Boolean).join(" "));
+}
 
 function cortexAuthHeaders(apiKey, apiKeyId) {
   const nonce = crypto.randomBytes(16).toString("hex");
@@ -49,7 +59,9 @@ function endpointObservation({
   owner,
   ip,
   status,
-  extra = {}
+  extra = {},
+  aiRelevant = true,
+  processEvidence = null
 }) {
   const label =
     {
@@ -60,10 +72,11 @@ function endpointObservation({
       netskope: "Netskope"
     }[provider] || provider;
 
+  const display = name || hostname || `${label} device ${id}`;
   return {
     collector_id: "edr",
-    fingerprint: `edr:${provider}:device:${id}`,
-    name: name || hostname || `${label} device ${id}`,
+    fingerprint: `edr:${provider}:ai-agent:${id}`,
+    name: aiRelevant ? `${display} (AI agent host)` : display,
     category: "endpoint",
     provider,
     deployment_type: "endpoint",
@@ -73,15 +86,18 @@ function endpointObservation({
     ip: ip || null,
     device: name || hostname || id,
     running_status: status || "unknown",
-    confidence_score: 0.85,
+    confidence_score: processEvidence ? 0.9 : 0.82,
     framework: label,
+    model: aiRelevant ? "ai-agent-endpoint" : null,
     metadata: {
       connectorId: conn.id,
       connectorName: conn.name,
-      discoveryMode: "edr-device-inventory",
-      inventoryClass: "endpoint_device",
+      discoveryMode: "edr-ai-agent-filter",
+      inventoryClass: aiRelevant ? "endpoint_ai_agent" : "endpoint_device",
+      aiRelevant,
       edrProvider: provider,
       environment: conn.environment,
+      processEvidence: processEvidence || null,
       ...extra
     },
     relationships: [
@@ -93,6 +109,26 @@ function endpointObservation({
       }
     ]
   };
+}
+
+function maybePushAiEndpoint(observations, args) {
+  const blob = [
+    args.name,
+    args.hostname,
+    args.os,
+    args.owner,
+    args.processEvidence,
+    ...(Array.isArray(args.signalParts) ? args.signalParts : [])
+  ];
+  const aiRelevant = deviceLooksAiAgent(blob);
+  if (!shouldIngestAiOnly(aiRelevant)) return false;
+  observations.push(
+    endpointObservation({
+      ...args,
+      aiRelevant: true
+    })
+  );
+  return true;
 }
 
 export async function validateCrowdstrike({ config, secrets }) {
@@ -210,23 +246,97 @@ export async function discoverCrowdstrike(conn) {
   );
   const detailJson = await detailRes.json().catch(() => ({}));
   const devices = Array.isArray(detailJson.resources) ? detailJson.resources : [];
-  for (const d of devices) {
-    observations.push(
-      endpointObservation({
-        provider: "crowdstrike",
-        conn,
-        id: d.device_id,
-        name: d.hostname || d.device_id,
-        hostname: d.hostname,
-        os: [d.platform_name, d.os_version].filter(Boolean).join(" "),
-        owner: d.last_login_user || d.machine_domain || null,
-        ip: d.local_ip || d.external_ip || null,
-        status: d.status || "unknown",
-        extra: { crowdstrikeDeviceId: d.device_id, productType: d.product_type_desc }
-      })
+
+  // Optional: surface hosts with AI-agent process evidence (best-effort; ignore auth gaps)
+  const processHosts = new Map();
+  try {
+    const filter =
+      "cmdline:*ollama*+cmdline:*claude*+cmdline:*copilot*+cmdline:*langchain*+cmdline:*crewai*+cmdline:*autogen*+cmdline:*vllm*+cmdline:*openai*+cmdline:*mcp*";
+    const procRes = await safeFetch(
+      `${base}/processes/queries/processes/v1?limit=50&filter=${encodeURIComponent(filter)}`,
+      {
+        headers: { Authorization: `Bearer ${result.accessToken}`, Accept: "application/json" }
+      },
+      ALLOW.crowdstrike
     );
+    if (procRes.ok) {
+      const procJson = await procRes.json().catch(() => ({}));
+      const procIds = Array.isArray(procJson.resources) ? procJson.resources.slice(0, 50) : [];
+      if (procIds.length) {
+        const ent = await safeFetch(
+          `${base}/processes/entities/processes/GET/v2`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${result.accessToken}`,
+              Accept: "application/json",
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ ids: procIds })
+          },
+          ALLOW.crowdstrike
+        );
+        const entJson = await ent.json().catch(() => ({}));
+        for (const p of entJson.resources || []) {
+          const host = p.device_id || p.aid;
+          if (!host) continue;
+          const evidence = String(p.cmdline || p.file_name || p.name || "ai-process");
+          if (!isAiAgentProcess(evidence) && !isAiRelevantText(evidence)) continue;
+          processHosts.set(host, evidence.slice(0, 300));
+        }
+      }
+    }
+  } catch {
+    /* process API optional */
   }
-  return { observations, stats: { devices: devices.length, message: result.message } };
+
+  let aiAgents = 0;
+  for (const d of devices) {
+    const processEvidence = processHosts.get(d.device_id) || null;
+    const pushed = maybePushAiEndpoint(observations, {
+      provider: "crowdstrike",
+      conn,
+      id: d.device_id,
+      name: d.hostname || d.device_id,
+      hostname: d.hostname,
+      os: [d.platform_name, d.os_version].filter(Boolean).join(" "),
+      owner: d.last_login_user || d.machine_domain || null,
+      ip: d.local_ip || d.external_ip || null,
+      status: d.status || "unknown",
+      processEvidence,
+      signalParts: [d.hostname, d.product_type_desc, d.machine_domain, processEvidence],
+      extra: { crowdstrikeDeviceId: d.device_id, productType: d.product_type_desc }
+    });
+    if (pushed) aiAgents += 1;
+  }
+  // Devices only seen via AI process evidence
+  for (const [deviceId, evidence] of processHosts) {
+    if (devices.some((d) => d.device_id === deviceId)) continue;
+    const pushed = maybePushAiEndpoint(observations, {
+      provider: "crowdstrike",
+      conn,
+      id: deviceId,
+      name: `AI process host ${deviceId}`,
+      hostname: null,
+      os: null,
+      owner: null,
+      ip: null,
+      status: "running",
+      processEvidence: evidence,
+      signalParts: [evidence],
+      extra: { crowdstrikeDeviceId: deviceId, source: "process-query" }
+    });
+    if (pushed) aiAgents += 1;
+  }
+  return {
+    observations,
+    stats: {
+      devices: devices.length,
+      aiAgents,
+      aiOnly: DISCOVERY_AI_ONLY,
+      message: result.message
+    }
+  };
 }
 
 export async function validateDefender({ config, secrets }) {
@@ -309,23 +419,27 @@ export async function discoverDefender(conn) {
   if (!res.ok) return { observations, stats: { devices: 0, message: result.message } };
   const json = await res.json().catch(() => ({}));
   const machines = Array.isArray(json.value) ? json.value : [];
+  let aiAgents = 0;
   for (const m of machines) {
-    observations.push(
-      endpointObservation({
-        provider: "defender",
-        conn,
-        id: m.id,
-        name: m.computerDnsName || m.id,
-        hostname: m.computerDnsName,
-        os: [m.osPlatform, m.version].filter(Boolean).join(" "),
-        owner: m.lastExternalIpAddress ? null : null,
-        ip: m.lastIpAddress || m.lastExternalIpAddress || null,
-        status: m.healthStatus || m.onboardingStatus || "unknown",
-        extra: { defenderMachineId: m.id, riskScore: m.riskScore }
-      })
-    );
+    const pushed = maybePushAiEndpoint(observations, {
+      provider: "defender",
+      conn,
+      id: m.id,
+      name: m.computerDnsName || m.id,
+      hostname: m.computerDnsName,
+      os: [m.osPlatform, m.version].filter(Boolean).join(" "),
+      owner: null,
+      ip: m.lastIpAddress || m.lastExternalIpAddress || null,
+      status: m.healthStatus || m.onboardingStatus || "unknown",
+      signalParts: [m.computerDnsName, m.osPlatform, m.riskScore],
+      extra: { defenderMachineId: m.id, riskScore: m.riskScore }
+    });
+    if (pushed) aiAgents += 1;
   }
-  return { observations, stats: { devices: machines.length, message: result.message } };
+  return {
+    observations,
+    stats: { devices: machines.length, aiAgents, aiOnly: DISCOVERY_AI_ONLY, message: result.message }
+  };
 }
 
 export async function validateIntune({ config, secrets }) {
@@ -399,23 +513,27 @@ export async function discoverIntune(conn) {
   if (!res.ok) return { observations, stats: { devices: 0, message: result.message } };
   const json = await res.json().catch(() => ({}));
   const devices = Array.isArray(json.value) ? json.value : [];
+  let aiAgents = 0;
   for (const d of devices) {
-    observations.push(
-      endpointObservation({
-        provider: "intune",
-        conn,
-        id: d.id,
-        name: d.deviceName || d.id,
-        hostname: d.deviceName,
-        os: [d.operatingSystem, d.osVersion].filter(Boolean).join(" "),
-        owner: d.userPrincipalName || d.emailAddress || null,
-        ip: null,
-        status: d.complianceState || d.managementState || "unknown",
-        extra: { intuneDeviceId: d.id, model: d.model, manufacturer: d.manufacturer }
-      })
-    );
+    const pushed = maybePushAiEndpoint(observations, {
+      provider: "intune",
+      conn,
+      id: d.id,
+      name: d.deviceName || d.id,
+      hostname: d.deviceName,
+      os: [d.operatingSystem, d.osVersion].filter(Boolean).join(" "),
+      owner: d.userPrincipalName || d.emailAddress || null,
+      ip: null,
+      status: d.complianceState || d.managementState || "unknown",
+      signalParts: [d.deviceName, d.model, d.manufacturer, d.userPrincipalName],
+      extra: { intuneDeviceId: d.id, model: d.model, manufacturer: d.manufacturer }
+    });
+    if (pushed) aiAgents += 1;
   }
-  return { observations, stats: { devices: devices.length, message: result.message } };
+  return {
+    observations,
+    stats: { devices: devices.length, aiAgents, aiOnly: DISCOVERY_AI_ONLY, message: result.message }
+  };
 }
 
 export async function validateCortex({ config, secrets }) {
@@ -501,27 +619,33 @@ export async function discoverCortex(conn) {
   }, ALLOW.cortex);
   const json = await res.json().catch(() => ({}));
   const endpoints = json.reply?.endpoints || [];
+  let aiAgents = 0;
   if (Array.isArray(endpoints)) {
     for (const e of endpoints) {
-      observations.push(
-        endpointObservation({
-          provider: "cortex",
-          conn,
-          id: e.endpoint_id || e.agent_id || e.host_name,
-          name: e.host_name || e.endpoint_name || e.endpoint_id,
-          hostname: e.host_name,
-          os: [e.os_type, e.os_version].filter(Boolean).join(" "),
-          owner: e.users?.[0] || null,
-          ip: e.ip || e.ipv6?.[0] || null,
-          status: e.endpoint_status || "unknown",
-          extra: { cortexEndpointId: e.endpoint_id, groupName: e.group_name }
-        })
-      );
+      const pushed = maybePushAiEndpoint(observations, {
+        provider: "cortex",
+        conn,
+        id: e.endpoint_id || e.agent_id || e.host_name,
+        name: e.host_name || e.endpoint_name || e.endpoint_id,
+        hostname: e.host_name,
+        os: [e.os_type, e.os_version].filter(Boolean).join(" "),
+        owner: e.users?.[0] || null,
+        ip: e.ip || e.ipv6?.[0] || null,
+        status: e.endpoint_status || "unknown",
+        signalParts: [e.host_name, e.endpoint_name, e.group_name, ...(e.users || [])],
+        extra: { cortexEndpointId: e.endpoint_id, groupName: e.group_name }
+      });
+      if (pushed) aiAgents += 1;
     }
   }
   return {
     observations,
-    stats: { devices: Array.isArray(endpoints) ? endpoints.length : 0, message: result.message }
+    stats: {
+      devices: Array.isArray(endpoints) ? endpoints.length : 0,
+      aiAgents,
+      aiOnly: DISCOVERY_AI_ONLY,
+      message: result.message
+    }
   };
 }
 
@@ -645,33 +769,42 @@ export async function discoverNetskope(conn) {
     const json = await clientsRes.json().catch(() => ({}));
     const data = json.data || json;
     const clients = Array.isArray(data) ? data : Array.isArray(data?.clients) ? data.clients : [];
+    let aiAgents = 0;
     for (const c of clients.slice(0, EDR_DEVICE_LIMIT)) {
       const id = c.client_id || c.device_id || c.host_info?.hostname || c._id || JSON.stringify(c).slice(0, 40);
-      observations.push(
-        endpointObservation({
-          provider: "netskope",
-          conn,
-          id: String(id),
-          name: c.host_info?.hostname || c.hostname || c.device_name || String(id),
-          hostname: c.host_info?.hostname || c.hostname,
-          os: c.host_info?.os || c.os || null,
-          owner: c.username || c.userkey || null,
-          ip: c.last_event?.ip_address || c.ip_address || null,
-          status: c.client_status || c.status || "unknown",
-          extra: { netskopeClientId: id }
-        })
-      );
+      const pushed = maybePushAiEndpoint(observations, {
+        provider: "netskope",
+        conn,
+        id: String(id),
+        name: c.host_info?.hostname || c.hostname || c.device_name || String(id),
+        hostname: c.host_info?.hostname || c.hostname,
+        os: c.host_info?.os || c.os || null,
+        owner: c.username || c.userkey || null,
+        ip: c.last_event?.ip_address || c.ip_address || null,
+        status: c.client_status || c.status || "unknown",
+        signalParts: [
+          c.host_info?.hostname,
+          c.hostname,
+          c.device_name,
+          c.username,
+          c.host_info?.os
+        ],
+        extra: { netskopeClientId: id }
+      });
+      if (pushed) aiAgents += 1;
     }
     return {
       observations,
       stats: {
-        devices: Math.max(0, observations.length - 1),
+        devices: clients.length,
+        aiAgents,
+        aiOnly: DISCOVERY_AI_ONLY,
         message: result.message
       }
     };
   }
 
-  return { observations, stats: { devices: 0, message: result.message } };
+  return { observations, stats: { devices: 0, aiAgents: 0, aiOnly: DISCOVERY_AI_ONLY, message: result.message } };
 }
 
 export const EDR_VALIDATORS = {

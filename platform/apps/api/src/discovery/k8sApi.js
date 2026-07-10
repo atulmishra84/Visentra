@@ -1,7 +1,7 @@
 import { safeFetch, assertAllowedUrl, ALLOW } from "../utils/http.js";
+import { isAiRelevantText } from "./aiRelevance.js";
 
 const K8S_MAX_WORKLOADS = Number(process.env.K8S_DISCOVERY_MAX_WORKLOADS || 150);
-const AI_RE = /(^|[-_\s/:])(ai|ml|llm|gpt|agent|assistant|copilot|langchain|langgraph|crewai|autogen|openai|anthropic|claude|bedrock|gemini|llama|ollama|vllm|vector|embedding)([-_\s/:]|$)/i;
 
 function requireK8sConfig({ config = {}, secrets = {} }) {
   const apiServer = String(config.apiServer || "").trim().replace(/\/+$/, "");
@@ -83,7 +83,7 @@ function workloadSignals(workload, kind) {
 }
 
 function isAiWorkload(workload, kind) {
-  return AI_RE.test(workloadSignals(workload, kind).text);
+  return isAiRelevantText(workloadSignals(workload, kind).text);
 }
 
 function workloadStatus(workload, kind) {

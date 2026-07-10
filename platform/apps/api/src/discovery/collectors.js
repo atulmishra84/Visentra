@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { DISCOVERY_AI_ONLY, isAiAgentProcess, isAiRelevantText } from "./aiRelevance.js";
 
 function readJsonSafe(filePath) {
   try {
@@ -9,6 +10,13 @@ function readJsonSafe(filePath) {
   } catch {
     return null;
   }
+}
+
+function continueHasAiConfig(json) {
+  if (!json || typeof json !== "object") return false;
+  if (json.models || json.modelRoles || json.tabAutocompleteModel) return true;
+  if (Array.isArray(json.models) && json.models.length) return true;
+  return isAiRelevantText(JSON.stringify(json).slice(0, 2000));
 }
 
 /** @typedef {{ id: string, scan: (ctx: object) => Promise<object[]> }} Collector */
@@ -36,21 +44,29 @@ export const collectors = {
               ? "Continue.dev"
               : "IDE";
         const servers = json.mcpServers || json.mcp?.servers || {};
+        const mcpNames = Object.keys(servers);
+        const hasAiEvidence =
+          mcpNames.length > 0 ||
+          (ide === "Continue.dev" && continueHasAiConfig(json)) ||
+          ide === "Claude Desktop";
+        if (DISCOVERY_AI_ONLY && !hasAiEvidence) continue;
+
         out.push({
           collector_id: "ide_filesystem",
           fingerprint: `ide-config:${ide}:${os.hostname()}`,
-          name: `${ide} AI Config — ${os.hostname()}`,
+          name: `${ide} AI agent — ${os.hostname()}`,
           category: "ide",
           owner: ctx.ownerHint || process.env.USER || "local-user",
           hostname: os.hostname(),
           operating_system: `${os.type()} ${os.release()}`,
           ide,
           deployment_type: "ide",
-          mcp_connections: Object.keys(servers),
-          tools: Object.keys(servers),
+          mcp_connections: mcpNames,
+          tools: mcpNames,
           running_status: "unknown",
-          confidence_score: 0.8,
+          confidence_score: mcpNames.length ? 0.88 : 0.8,
           filesystem_access: true,
+          model: "ide-ai-agent",
           relationships: [
             {
               rel_type: "RUNS_IN",
@@ -58,14 +74,19 @@ export const collectors = {
               to_key: ide.toLowerCase().replace(/\s+/g, "-"),
               to_name: ide
             },
-            ...Object.keys(servers).map((name) => ({
+            ...mcpNames.map((name) => ({
               rel_type: "CONNECTS_MCP",
               to_type: "MCPServer",
               to_key: `mcp-${name}`,
               to_name: name
             }))
           ],
-          metadata: { config_path: file }
+          metadata: {
+            config_path: file,
+            aiRelevant: true,
+            inventoryClass: "ide_ai_agent",
+            mcpServerCount: mcpNames.length
+          }
         });
       }
       return out;
@@ -88,13 +109,22 @@ export const collectors = {
             continue;
           }
           const lower = cmdline.toLowerCase();
+          if (!isAiAgentProcess(lower) && !isAiRelevantText(lower)) continue;
+
           let hit = null;
           if (lower.includes("ollama")) hit = { name: "Ollama", category: "local_llm", provider: "ollama", model: "ollama" };
           else if (lower.includes("langgraph")) hit = { name: "LangGraph process", category: "framework", framework: "LangGraph" };
           else if (lower.includes("crewai")) hit = { name: "CrewAI process", category: "framework", framework: "CrewAI" };
           else if (lower.includes("autogen")) hit = { name: "AutoGen process", category: "framework", framework: "AutoGen" };
           else if (lower.includes("vllm")) hit = { name: "vLLM server", category: "local_llm", provider: "vllm" };
-          if (!hit) continue;
+          else if (lower.includes("claude")) hit = { name: "Claude agent process", category: "ide", provider: "anthropic", ide: "Claude" };
+          else if (lower.includes("cursor")) hit = { name: "Cursor agent process", category: "ide", provider: "cursor", ide: "Cursor" };
+          else if (lower.includes("copilot")) hit = { name: "Copilot agent process", category: "ide", provider: "github-copilot", ide: "Copilot" };
+          else if (lower.includes("mcp") || lower.includes("modelcontextprotocol")) {
+            hit = { name: "MCP server process", category: "mcp", provider: "mcp", model: "mcp" };
+          } else {
+            hit = { name: "AI agent process", category: "local", provider: "process", model: "ai-process" };
+          }
           out.push({
             collector_id: "process",
             fingerprint: `proc:${hit.name}:${pid}`,
@@ -102,8 +132,13 @@ export const collectors = {
             hostname: os.hostname(),
             deployment_type: "local",
             running_status: "running",
-            confidence_score: 0.65,
-            metadata: { pid, cmdline: cmdline.slice(0, 500) },
+            confidence_score: 0.7,
+            metadata: {
+              pid,
+              cmdline: cmdline.slice(0, 500),
+              aiRelevant: true,
+              inventoryClass: "process_ai_agent"
+            },
             relationships: [
               { rel_type: "RUNS_ON", to_type: "Device", to_key: os.hostname(), to_name: os.hostname() }
             ]
@@ -136,6 +171,8 @@ export const collectors = {
             mcp_connections: [name],
             running_status: "unknown",
             confidence_score: 0.78,
+            model: "mcp",
+            metadata: { aiRelevant: true, inventoryClass: "mcp_server" },
             relationships: [
               {
                 rel_type: "CONNECTS_MCP",
@@ -183,10 +220,11 @@ export const collectors = {
                      VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
                     [
                       ctx.tenantId,
-                      `${label} connector "${conn.name}" scanned ${stats.totalResourcesScanned || 0} resources — ingested ${stats.cloudResourcesIngested || 0} cloud assets (${stats.aiRelevantResources || 0} AI-relevant)`,
+                      `${label} connector "${conn.name}" scanned ${stats.totalResourcesScanned || 0} resources — ingested ${stats.cloudResourcesIngested || 0} AI assets (${stats.aiRelevantResources || 0} AI-relevant${stats.nonAiResourcesSkipped != null ? `, skipped ${stats.nonAiResourcesSkipped} non-AI` : ""})`,
                       JSON.stringify({
                         connectorId: conn.id,
                         provider: conn.provider,
+                        aiOnly: DISCOVERY_AI_ONLY,
                         ...stats
                       })
                     ]
@@ -501,7 +539,7 @@ export const collectors = {
                  VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
                 [
                   ctx.tenantId,
-                  `EDR connector "${conn.name}" (${label}) discovered ${stats.devices || 0} endpoints — ${stats.message || "ok"}`,
+                  `EDR connector "${conn.name}" (${label}) scanned ${stats.devices || 0} endpoints — ingested ${stats.aiAgents || 0} AI agent hosts — ${stats.message || "ok"}`,
                   JSON.stringify({
                     connectorId: conn.id,
                     provider: conn.provider,

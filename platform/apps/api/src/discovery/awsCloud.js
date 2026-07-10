@@ -1,8 +1,8 @@
 import crypto from "crypto";
 import { safeFetch, assertDnsLabel, ALLOW } from "../utils/http.js";
+import { isAiRelevantText } from "./aiRelevance.js";
 
 const AWS_MAX_RESOURCES = Number(process.env.AWS_DISCOVERY_MAX_RESOURCES || 150);
-const AI_RE = /(^|[-_\s/])(ai|ml|llm|gpt|agent|assistant|copilot|bedrock|openai|anthropic|claude|langchain|llama|ollama)([-_\s/]|$)/i;
 
 function requireAwsConfig({ config = {}, secrets = {} }) {
   const region = assertDnsLabel(config.region || "us-east-1", "region");
@@ -137,10 +137,6 @@ async function awsXml(request) {
   const text = await res.text();
   if (!res.ok) throw new Error(xmlValue(text, "Message") || `AWS API failed (${res.status})`);
   return text;
-}
-
-function isAiRelevantText(...parts) {
-  return AI_RE.test(parts.filter(Boolean).join(" "));
 }
 
 function cloudRelationship(id, name) {

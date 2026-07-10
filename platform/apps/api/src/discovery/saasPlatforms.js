@@ -1,4 +1,5 @@
 import { safeFetch, assertAllowedUrl, assertDnsLabel, ALLOW } from "../utils/http.js";
+import { isAiRelevantText } from "./aiRelevance.js";
 
 /**
  * SaaS / platform agent discovery adapters.
@@ -62,6 +63,7 @@ function platformObservation({
       connectorName: conn.name,
       discoveryMode: "saas-platform-api",
       inventoryClass: "platform_agent",
+      aiRelevant: true,
       platform: provider,
       platformLabel: label,
       managedPlatformAgent: true,
@@ -159,7 +161,8 @@ export async function discoverM365Copilot(conn) {
   if (sp.ok) {
     const json = await sp.json().catch(() => ({}));
     const apps = (json.value || []).filter((a) =>
-      /copilot|power virtual agents|bot framework|openai|ai builder|studio/i.test(a.displayName || "")
+      isAiRelevantText(a.displayName, ...(a.tags || [])) ||
+      /copilot|power virtual agents|bot framework|openai|ai builder|copilot studio/i.test(a.displayName || "")
     );
     for (const app of apps) {
       observations.push(
@@ -185,7 +188,7 @@ export async function discoverM365Copilot(conn) {
   if (teamsApps.ok) {
     const json = await teamsApps.json().catch(() => ({}));
     for (const app of json.value || []) {
-      if (!/copilot|ai|agent|gpt|assistant/i.test(app.displayName || "")) continue;
+      if (!isAiRelevantText(app.displayName) && !/copilot|gpt|assistant|openai|agentforce|power virtual/i.test(app.displayName || "")) continue;
       observations.push(
         platformObservation({
           provider: "m365_copilot",
@@ -505,7 +508,7 @@ export async function discoverWorkday(conn) {
     const rows = json.data || json.integrationSystems || [];
     for (const row of rows) {
       const name = row.descriptor || row.name || row.id;
-      if (!/ai|agent|illuminate|copilot|assistant|ml|genai/i.test(String(name))) continue;
+      if (!isAiRelevantText(String(name)) && !/illuminate|copilot|assistant|genai|agentforce/i.test(String(name))) continue;
       observations.push(
         platformObservation({
           provider: "workday",
@@ -633,7 +636,7 @@ export async function discoverServiceNow(conn) {
     const json = await res.json().catch(() => ({}));
     for (const row of json.result || []) {
       const name = row[spec.labelField] || row.sys_id;
-      if (spec.table === "sys_hub_flow" && !/ai|assist|agent|genai|virtual|copilot/i.test(String(name))) {
+      if (spec.table === "sys_hub_flow" && !isAiRelevantText(String(name)) && !/assist|genai|virtual|copilot|now assist/i.test(String(name))) {
         continue;
       }
       observations.push(
