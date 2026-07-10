@@ -478,7 +478,6 @@ export async function computeDiscoveryChanges(pool, tenantId, { sinceHours = 168
      FROM agents a
      WHERE a.tenant_id=$1
        AND a.last_seen < NOW() - ($2::int * INTERVAL '1 hour')
-       AND a.first_discovered < NOW() - ($2::int * INTERVAL '1 hour')
        ${agentClause}
      ORDER BY a.last_seen ASC
      LIMIT ${Math.min(limit, 200)}`,
