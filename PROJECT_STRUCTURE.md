@@ -44,16 +44,19 @@ agentRadar/
 
 | Module | Primary files |
 |---|---|
-| 1 Discovery | `src/services/discovery.js`, `/api/agents`, `/api/discovery/*` |
+| Production UI | `index.html` (from `deploy/frontend/agentRadarLaunch.html`) |
+| 1 Discovery | `src/services/discovery.js`, `/api/agents`, `/api/autodiscovery/*` |
 | 2 PHI | `src/services/phi.js`, `/api/phi/*` |
 | 3 Risk | `src/services/risk.js`, `/api/risk/register` |
 | 4 RBAC | `src/middleware/auth.js`, `/api/users` |
 | 5 MFA | `src/services/mfa.js`, `/api/mfa/*` |
-| 6 Audit | `src/services/audit.js`, `/api/audit/*` |
+| 6 Audit | `src/services/audit.js`, `/api/audit/*`, `/api/activity` |
 | 7 SIEM | `src/services/siem.js` (called from audit) |
-| 8 Multi-tenant | `src/middleware/tenant.js`, `/api/tenants`, `tenant_id` columns |
+| 8 Multi-tenant | `src/middleware/tenant.js`, `/api/tenants` |
 | 9 BYOC security | `nginx.conf`, helmet, cookies, CSRF, rate limit, crypto |
-| 10 Reports | `src/services/reports.js`, `/api/reports/compliance` |
+| 10 Reports | `src/services/reports.js`, `/api/reports/compliance`, `/api/export` |
+| Governance | `src/routes/governance.js` — policies, approvals, playbooks |
+| Integrations | `src/routes/integrations.js`, endpoint/proxy scanners |
 
 ## Roles
 
