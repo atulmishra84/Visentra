@@ -252,6 +252,11 @@ function agentFilters(query, startIdx = 2) {
   } else if (query.hasInstructions === "false" || query.hasInstructions === false) {
     clauses.push(`AND COALESCE(metadata->>'hasInstructions','false') <> 'true'`);
   }
+  if (query.ownershipStatus === "owned") {
+    clauses.push(`AND owner IS NOT NULL AND btrim(owner) <> ''`);
+  } else if (query.ownershipStatus === "ownerless") {
+    clauses.push(`AND (owner IS NULL OR btrim(owner)='')`);
+  }
   return { clauses: clauses.join(" "), params, nextIdx: i };
 }
 
@@ -686,7 +691,32 @@ app.get("/api/agents", auth, async (req, res) => {
     `SELECT COUNT(*)::int AS total FROM agents WHERE tenant_id=$1 ${clauses}`,
     [req.tenantId, ...params]
   );
-  res.json({ agents: result.rows, items: result.rows, total: count.rows[0].total, limit, offset });
+  const agents = result.rows.map((row) => {
+    const depth = summarizeAgentDepth(row);
+    const meta = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+    return {
+      ...row,
+      metadata: {
+        ...meta,
+        agentConfig: meta.agentConfig || depth.agentConfig,
+        agentAccess: meta.agentAccess || depth.agentAccess,
+        ownership: meta.ownership || depth.ownership,
+        howIdentified: meta.howIdentified || depth.howIdentified,
+        evidenceClass: meta.evidenceClass || depth.evidenceClass,
+        agentStatus: meta.agentStatus || depth.agentStatus,
+        accessGrantCount: meta.accessGrantCount ?? depth.agentAccess.grantCount,
+        accessSensitivity: meta.accessSensitivity || depth.agentAccess.sensitivity,
+        ownershipStatus: meta.ownershipStatus || depth.ownership.ownershipStatus,
+        configToolCount: meta.configToolCount ?? depth.agentConfig.tools.length,
+        hasInstructions: meta.hasInstructions ?? depth.agentConfig.instructionsPresent,
+        overPermissioned: meta.overPermissioned ?? depth.agentAccess.overPermissioned,
+        authMode: meta.authMode || depth.agentConfig.authMode,
+        channels: meta.channels || depth.agentConfig.channels
+      },
+      ...depth
+    };
+  });
+  res.json({ agents, items: agents, total: count.rows[0].total, limit, offset });
 });
 
 app.get("/api/agents/:id", auth, async (req, res) => {
@@ -730,6 +760,7 @@ app.get("/api/agents/:id", auth, async (req, res) => {
     observations: observations.rows,
     agentConfig: depth.agentConfig,
     agentAccess: depth.agentAccess,
+    ownership: depth.ownership,
     blastRadius: blast
   });
 });
@@ -1120,7 +1151,31 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
         confidence_score: Math.min(1, b.score / 100),
         last_seen: null
       }));
-    const mergedQueue = [...driftQueue, ...blastQueue, ...queue].slice(0, 80);
+    const disappearedQueue = (changes.disappeared || []).slice(0, 15).map((d) => ({
+      id: d.id || d.agentId,
+      name: d.name,
+      owner: d.owner,
+      category: d.category,
+      queue: "disappeared",
+      type: "disappeared",
+      title: d.name,
+      summary: d.summary || "Not re-observed in window",
+      confidence_score: 0.6,
+      last_seen: d.lastSeen
+    }));
+    const ownerQueue = (changes.ownerChanges || []).slice(0, 15).map((d) => ({
+      id: d.id || d.agentId,
+      name: d.name,
+      owner: d.owner,
+      category: d.category,
+      queue: "owner_changed",
+      type: "owner_changed",
+      title: d.name,
+      summary: d.summary || "Owner changed",
+      confidence_score: 0.75,
+      last_seen: d.changedAt
+    }));
+    const mergedQueue = [...driftQueue, ...blastQueue, ...disappearedQueue, ...ownerQueue, ...queue].slice(0, 100);
     return res.json({
       dashboard: {
         ...base,
@@ -1130,6 +1185,8 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
         changedRelationships: changes.changedRelationships || 0,
         configDrift: (changes.configDrift || []).length,
         highBlastRadius: blastQueue.length,
+        disappearedAgents: (changes.disappeared || []).length,
+        ownerChanges: (changes.ownerChanges || []).length,
         discoveryChanges: changes,
         blastRadius: blast,
         collectorHealth: COLLECTOR_IDS.map((id) => {
@@ -1550,10 +1607,12 @@ async function boot() {
   await migrateConnectorEncryption(pool);
   await initNeo4jConstraints();
 
-  // Demo seed is for local compose MVP only. Production never seeds.
+  // Demo seed: local compose or explicit DISCOVERY_DEMO_SEED=true on eval Azure.
   const { demoSeedEnabled } = await import("./discovery/demoSeed.js");
-  if (demoSeedEnabled() && !IS_PROD) {
-    console.log("DISCOVERY_DEMO_SEED=true — loading demo inventory for local MVP");
+  if (demoSeedEnabled()) {
+    console.log(
+      `DISCOVERY_DEMO_SEED=true — loading demo inventory (${IS_PROD ? "production eval" : "local MVP"})`
+    );
     const { DEMO_MVP_COLLECTORS } = await import("./discovery/collectors.js");
     setImmediate(async () => {
       try {

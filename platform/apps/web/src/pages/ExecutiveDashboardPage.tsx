@@ -349,6 +349,12 @@ export function ExecutiveDashboardPage() {
           trend="Secrets / admin / identity"
           tone="warn"
         />
+        <KpiCard
+          label="Identity-attributed"
+          value={metric(dashboard, ["identityAttributedAgents", "identityAttributed"], 0)}
+          trend="Owner + identity signal"
+          tone="good"
+        />
       </section>
 
       <p className="muted" style={{ marginBottom: 16 }}>

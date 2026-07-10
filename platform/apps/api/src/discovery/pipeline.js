@@ -121,9 +121,9 @@ export async function ingestObservations(pool, neo4j, tenantId, jobId, observati
              confidence_score, category, metadata, source_collectors, updated_at
            ) VALUES (
              $1,$2,$3,$4,$5,$6,$7::inet,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
-             $23,$24,$25,$26,NOW(),$27,$28,$29,$30,$31,$32::jsonb,$33::jsonb,$34::jsonb,$35,$36,
-             $37::jsonb,$38,$39::jsonb,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49::jsonb,$50,$51,
-             $52::jsonb,ARRAY[$53]::text[],NOW()
+             $23,$24,$25,$26,COALESCE($27::timestamptz, NOW()),$28,$29,$30,$31,$32,$33::jsonb,$34::jsonb,$35::jsonb,$36,$37,
+             $38::jsonb,$39,$40::jsonb,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50::jsonb,$51,$52,
+             $53::jsonb,ARRAY[$54]::text[],NOW()
            )
            ON CONFLICT (tenant_id, fingerprint) DO UPDATE SET
              name = EXCLUDED.name,
@@ -138,7 +138,10 @@ export async function ingestObservations(pool, neo4j, tenantId, jobId, observati
              cloud_provider = COALESCE(EXCLUDED.cloud_provider, agents.cloud_provider),
              region = COALESCE(EXCLUDED.region, agents.region),
              category = COALESCE(EXCLUDED.category, agents.category),
-             last_seen = NOW(),
+             last_seen = CASE
+               WHEN EXCLUDED.metadata->>'demoSeed' = 'true' AND EXCLUDED.last_seen IS NOT NULL THEN EXCLUDED.last_seen
+               ELSE NOW()
+             END,
              running_status = EXCLUDED.running_status,
              tools = EXCLUDED.tools,
              mcp_connections = EXCLUDED.mcp_connections,
@@ -175,6 +178,7 @@ export async function ingestObservations(pool, neo4j, tenantId, jobId, observati
             obs.ide || null,
             obs.creation_time || null,
             obs.last_modified || null,
+            obs.last_seen || null,
             obs.running_status || "unknown",
             obs.memory_usage_mb ?? null,
             obs.cpu_usage_pct ?? null,

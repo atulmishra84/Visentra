@@ -46,6 +46,11 @@ export function AgentDetailPage() {
     (agent.agentAccess as Record<string, unknown> | undefined) ||
     (meta.agentAccess as Record<string, unknown> | undefined) ||
     {};
+  const ownership =
+    (payload?.ownership as Record<string, unknown> | undefined) ||
+    (agent.ownership as Record<string, unknown> | undefined) ||
+    (meta.ownership as Record<string, unknown> | undefined) ||
+    {};
   const blast =
     (payload?.blastRadius as Record<string, unknown> | undefined) ||
     (agent.blastRadius as Record<string, unknown> | undefined) ||
@@ -56,7 +61,10 @@ export function AgentDetailPage() {
   const mcpServers = listOf(agentConfig.mcpServers);
   const knowledge = listOf(agentConfig.knowledgeSources);
   const triggers = listOf(agentConfig.triggers);
+  const channels = listOf(agentConfig.channels);
   const paths = (blast?.paths as Record<string, unknown>[] | undefined) || [];
+  const ownsRels = relationships.filter((rel) => /owns|uses_identity/i.test(valueAt(rel, ["rel_type", "type"])));
+  const ownershipStatus = valueAt(ownership, ["ownershipStatus"], valueAt(agent, ["owner"]) ? "owned" : "ownerless");
 
   if (loading) {
     return (
@@ -95,7 +103,12 @@ export function AgentDetailPage() {
       </header>
 
       <section className="card-grid">
-        <KpiCard label="Owner" value={valueAt(agent, ["owner", "team"])} />
+        <KpiCard label="Owner" value={valueAt(ownership, ["owner"], valueAt(agent, ["owner", "team"]))} />
+        <KpiCard
+          label="Ownership"
+          value={ownershipStatus}
+          tone={ownershipStatus === "owned" ? "good" : "warn"}
+        />
         <KpiCard label="Evidence" value={String(meta.evidenceClass || "—").replace(/_/g, " ")} />
         <KpiCard label="Status" value={String(meta.agentStatus || "—")} tone={meta.agentStatus === "confirmed" ? "good" : "warn"} />
         <KpiCard
@@ -133,7 +146,7 @@ export function AgentDetailPage() {
       <section className="split-grid">
         <div className="panel">
           <h2>Configuration</h2>
-          <p className="muted">Discovered tools, MCP, knowledge, triggers, and instruction presence.</p>
+          <p className="muted">Discovered tools, MCP, knowledge, channels, auth, and instruction presence.</p>
           <div className="chart-list">
             <div className="bar-row">
               <span>Instructions</span>
@@ -148,6 +161,16 @@ export function AgentDetailPage() {
             <div className="bar-row">
               <span>Models</span>
               <span>{listOf(agentConfig.models).join(", ") || valueAt(agent, ["model"]) || "—"}</span>
+              <span />
+            </div>
+            <div className="bar-row">
+              <span>Auth mode</span>
+              <span>{valueAt(agentConfig, ["authMode"], valueAt(meta, ["authMode"]) || "—")}</span>
+              <span />
+            </div>
+            <div className="bar-row">
+              <span>Platform</span>
+              <span>{valueAt(agentConfig, ["platform"], valueAt(meta, ["platformLabel", "platform"]) || "—")}</span>
               <span />
             </div>
             <div className="bar-row">
@@ -183,6 +206,15 @@ export function AgentDetailPage() {
               ))}
             </div>
           ) : null}
+          {channels.length ? (
+            <div className="chip-row">
+              {channels.map((t) => (
+                <span className="badge" key={`ch-${t}`}>
+                  channel:{t}
+                </span>
+              ))}
+            </div>
+          ) : null}
           {triggers.length ? (
             <div className="chip-row">
               {triggers.map((t) => (
@@ -194,6 +226,70 @@ export function AgentDetailPage() {
           ) : null}
         </div>
 
+        <div className="panel">
+          <h2>Identity & ownership</h2>
+          <p className="muted">
+            Status: <strong>{ownershipStatus}</strong>
+            {valueAt(ownership, ["identityProvider"])
+              ? ` · identity provider ${valueAt(ownership, ["identityProvider"])}`
+              : ""}
+          </p>
+          <div className="chart-list">
+            <div className="bar-row">
+              <span>Owner</span>
+              <span>{valueAt(ownership, ["owner"], valueAt(agent, ["owner"])) || "—"}</span>
+              <span />
+            </div>
+            <div className="bar-row">
+              <span>Identity used</span>
+              <span>
+                {valueAt(ownership, ["identityUsed"], valueAt(agent, ["identity_used"])) || "—"}
+              </span>
+              <span />
+            </div>
+            <div className="bar-row">
+              <span>Team / dept</span>
+              <span>
+                {valueAt(ownership, ["team", "department"], valueAt(agent, ["department", "business_unit"]) || "—")}
+              </span>
+              <span />
+            </div>
+            <div className="bar-row">
+              <span>Object / app</span>
+              <span className="mono">
+                {valueAt(ownership, ["objectId", "appId"], "—")}
+              </span>
+              <span />
+            </div>
+          </div>
+          <div className="chip-row">
+            {listOf(ownership.identities).length ? (
+              listOf(ownership.identities).map((idValue) => (
+                <span className="badge" key={idValue}>
+                  {idValue}
+                </span>
+              ))
+            ) : (
+              <span className="muted">No linked identities discovered.</span>
+            )}
+          </div>
+          {ownsRels.length ? (
+            <div className="chart-list" style={{ marginTop: 12 }}>
+              {ownsRels.slice(0, 6).map((rel, index) => (
+                <div className="bar-row" key={`own-${index}`}>
+                  <span>{valueAt(rel, ["rel_type", "type"])}</span>
+                  <span>
+                    {valueAt(rel, ["asset_type"])} · {valueAt(rel, ["to_name", "name"])}
+                  </span>
+                  <span />
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="split-grid" style={{ marginTop: 16 }}>
         <div className="panel">
           <h2>Access & permissions</h2>
           <p className="muted">
@@ -214,7 +310,11 @@ export function AgentDetailPage() {
           <div className="chart-list" style={{ marginTop: 12 }}>
             <div className="bar-row">
               <span>Identities</span>
-              <span>{listOf(agentAccess.identities).join(", ") || valueAt(agent, ["identity_used", "owner"]) || "—"}</span>
+              <span>
+                {listOf(agentAccess.identities).join(", ") ||
+                  valueAt(agent, ["identity_used", "owner"]) ||
+                  "—"}
+              </span>
               <span />
             </div>
             <div className="bar-row">
@@ -229,9 +329,7 @@ export function AgentDetailPage() {
             </div>
           </div>
         </div>
-      </section>
 
-      <section className="split-grid" style={{ marginTop: 16 }}>
         <div className="panel">
           <h2>Blast radius</h2>
           {blast ? (

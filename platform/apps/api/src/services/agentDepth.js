@@ -94,6 +94,15 @@ export function buildAgentConfig(obs = {}) {
     meta.discoveryMode ||
     null;
 
+  const channels = uniq([
+    ...asList(existing.channels),
+    ...asList(meta.channels),
+    ...asList(extraChannels(meta))
+  ]);
+  const authMode =
+    existing.authMode || meta.authMode || meta.authenticationMode || meta.authType || null;
+  const platform = existing.platform || meta.platform || meta.platformLabel || obs.provider || null;
+
   return {
     tools,
     mcpServers,
@@ -102,12 +111,67 @@ export function buildAgentConfig(obs = {}) {
     memoryStores,
     vectorStores,
     models,
+    channels,
+    authMode,
+    platform,
     instructionsPresent,
     instructionsHash,
     instructionSource,
     howConfigured,
     framework: obs.framework || existing.framework || null,
     version: obs.version || existing.version || meta.version || null
+  };
+}
+
+function extraChannels(meta) {
+  if (!meta || typeof meta !== "object") return [];
+  if (Array.isArray(meta.channel)) return meta.channel;
+  return [];
+}
+
+/**
+ * Normalize ownership / identity attribution for discovery visibility.
+ */
+export function buildOwnership(obs = {}) {
+  const meta = obs.metadata && typeof obs.metadata === "object" ? obs.metadata : {};
+  const existing = meta.ownership && typeof meta.ownership === "object" ? meta.ownership : {};
+  const owner = obs.owner || existing.owner || meta.owner || null;
+  const identityUsed = obs.identity_used || existing.identityUsed || meta.identityUsed || null;
+  const identities = uniq([
+    identityUsed,
+    owner,
+    ...(asList(existing.identities) || []),
+    ...(asList(meta.identities) || []),
+    ...(asList(meta.owners) || [])
+  ]);
+  const team =
+    obs.department ||
+    obs.business_unit ||
+    existing.team ||
+    meta.team ||
+    meta.department ||
+    meta.businessUnit ||
+    null;
+  const identityProvider =
+    existing.identityProvider ||
+    meta.identityProvider ||
+    (meta.tenantId ? "entra" : null) ||
+    (String(obs.provider || "").includes("entra") ? "entra" : null);
+  const ownershipStatus = owner && String(owner).trim() ? "owned" : "ownerless";
+
+  return {
+    owner: owner ? String(owner) : null,
+    previousOwner: existing.previousOwner || meta.previousOwner || null,
+    identities,
+    identityUsed: identityUsed ? String(identityUsed) : null,
+    team: team ? String(team) : null,
+    department: obs.department || meta.department || null,
+    businessUnit: obs.business_unit || meta.businessUnit || null,
+    identityProvider,
+    ownershipStatus,
+    objectId: meta.objectId || existing.objectId || null,
+    appId: meta.appId || existing.appId || null,
+    tenantId: meta.tenantId || existing.tenantId || null
   };
 }
 
@@ -207,6 +271,7 @@ export function buildAgentAccess(obs = {}) {
 export function enrichObservationWithDepth(obs) {
   const agentConfig = buildAgentConfig(obs);
   const agentAccess = buildAgentAccess(obs);
+  const ownership = buildOwnership(obs);
   const howIdentified =
     (obs.metadata && obs.metadata.howIdentified) ||
     agentConfig.howConfigured ||
@@ -218,13 +283,18 @@ export function enrichObservationWithDepth(obs) {
       ...(obs.metadata || {}),
       agentConfig,
       agentAccess,
+      ownership,
       howIdentified,
       accessGrantCount: agentAccess.grantCount,
       accessSensitivity: agentAccess.sensitivity,
       configToolCount: agentConfig.tools.length,
       configMcpCount: agentConfig.mcpServers.length,
       hasInstructions: agentConfig.instructionsPresent,
-      overPermissioned: agentAccess.overPermissioned
+      overPermissioned: agentAccess.overPermissioned,
+      ownershipStatus: ownership.ownershipStatus,
+      identityCount: ownership.identities.length,
+      authMode: agentConfig.authMode,
+      channels: agentConfig.channels
     }
   };
 }
@@ -236,9 +306,11 @@ export function summarizeAgentDepth(agent) {
   const meta = agent.metadata && typeof agent.metadata === "object" ? agent.metadata : {};
   const agentConfig = meta.agentConfig || buildAgentConfig({ ...agent, metadata: meta });
   const agentAccess = meta.agentAccess || buildAgentAccess({ ...agent, metadata: meta });
+  const ownership = meta.ownership || buildOwnership({ ...agent, metadata: meta });
   return {
     agentConfig,
     agentAccess,
+    ownership,
     howIdentified: meta.howIdentified || null,
     evidenceClass: meta.evidenceClass || null,
     agentStatus: meta.agentStatus || null,
@@ -386,10 +458,29 @@ export async function computeDiscoveryChanges(pool, tenantId, { sinceHours = 168
             a.metadata->>'configToolCount' AS config_tool_count
      FROM agents a
      WHERE a.tenant_id=$1
-       AND a.updated_at >= NOW() - ($2::int * INTERVAL '1 hour')
+       AND (
+         a.updated_at >= NOW() - ($2::int * INTERVAL '1 hour')
+         OR a.last_seen >= NOW() - ($2::int * INTERVAL '1 hour')
+       )
        AND a.first_discovered < NOW() - ($2::int * INTERVAL '1 hour')
        ${agentClause}
-     ORDER BY a.updated_at DESC
+     ORDER BY COALESCE(a.updated_at, a.last_seen) DESC
+     LIMIT ${Math.min(limit, 200)}`,
+    params
+  );
+
+  // Disappeared / stale: previously known agents not re-observed in the window
+  const disappeared = await pool.query(
+    `SELECT a.id, a.name, a.category, a.owner, a.last_seen, a.first_discovered, a.framework, a.model,
+            a.metadata->>'evidenceClass' AS evidence_class,
+            a.metadata->>'agentStatus' AS agent_status,
+            a.metadata->>'howIdentified' AS how_identified
+     FROM agents a
+     WHERE a.tenant_id=$1
+       AND a.last_seen < NOW() - ($2::int * INTERVAL '1 hour')
+       AND a.first_discovered < NOW() - ($2::int * INTERVAL '1 hour')
+       ${agentClause}
+     ORDER BY a.last_seen ASC
      LIMIT ${Math.min(limit, 200)}`,
     params
   );
@@ -424,21 +515,39 @@ export async function computeDiscoveryChanges(pool, tenantId, { sinceHours = 168
   );
 
   const configDrift = [];
+  const ownerChanges = [];
   for (const row of observationPairs.rows) {
     const cur = summarizeFromPayload(row.current_payload);
     const prev = summarizeFromPayload(row.previous_payload);
     const changes = diffDepth(prev, cur);
-    if (!changes.length) continue;
-    configDrift.push({
-      agentId: row.id,
-      name: row.name,
-      category: row.category,
-      owner: row.owner,
-      changedAt: row.current_at,
-      previousAt: row.previous_at,
-      changes,
-      href: `/agents/${row.id}`
-    });
+    if (changes.length) {
+      configDrift.push({
+        agentId: row.id,
+        name: row.name,
+        category: row.category,
+        owner: row.owner,
+        changedAt: row.current_at,
+        previousAt: row.previous_at,
+        changes,
+        href: `/agents/${row.id}`
+      });
+    }
+    const prevOwner = (prev.ownership?.owner || "").trim();
+    const curOwner = (cur.ownership?.owner || row.owner || "").trim();
+    if (prevOwner !== curOwner && (prevOwner || curOwner)) {
+      ownerChanges.push({
+        agentId: row.id,
+        id: row.id,
+        name: row.name,
+        category: row.category,
+        owner: curOwner || null,
+        previousOwner: prevOwner || null,
+        changedAt: row.current_at,
+        changeType: "owner_changed",
+        summary: `${prevOwner || "(none)"} → ${curOwner || "(none)"}`,
+        href: `/agents/${row.id}`
+      });
+    }
   }
 
   // Relationship edge churn in window
@@ -479,11 +588,31 @@ export async function computeDiscoveryChanges(pool, tenantId, { sinceHours = 168
       changeType: "updated",
       href: `/agents/${r.id}`
     })),
+    disappeared: disappeared.rows.map((r) => ({
+      id: r.id,
+      agentId: r.id,
+      name: r.name,
+      category: r.category,
+      owner: r.owner,
+      framework: r.framework,
+      model: r.model,
+      lastSeen: r.last_seen,
+      firstDiscovered: r.first_discovered,
+      evidenceClass: r.evidence_class,
+      agentStatus: r.agent_status,
+      howIdentified: r.how_identified,
+      changeType: "disappeared",
+      summary: "Not re-observed in the selected window",
+      href: `/agents/${r.id}`
+    })),
+    ownerChanges,
     configDrift,
     changedRelationships: edgeChanges.rows[0]?.c || 0,
     summary: {
       newAgents: newlyDiscovered.rows.length,
       updatedAgents: recentlyUpdated.rows.length,
+      disappearedAgents: disappeared.rows.length,
+      ownerChanges: ownerChanges.length,
       configDrift: configDrift.length,
       changedRelationships: edgeChanges.rows[0]?.c || 0
     },
@@ -495,7 +624,8 @@ function summarizeFromPayload(payload) {
   const obs = payload && typeof payload === "object" ? payload : {};
   return {
     config: buildAgentConfig(obs),
-    access: buildAgentAccess(obs)
+    access: buildAgentAccess(obs),
+    ownership: buildOwnership(obs)
   };
 }
 
@@ -511,10 +641,19 @@ function diffDepth(prev, cur) {
   for (const t of curMcp) if (!prevMcp.has(t)) changes.push({ field: "mcpServers", op: "added", value: t });
   for (const t of prevMcp) if (!curMcp.has(t)) changes.push({ field: "mcpServers", op: "removed", value: t });
 
+  const prevChannels = new Set(prev.config.channels || []);
+  const curChannels = new Set(cur.config.channels || []);
+  for (const t of curChannels) if (!prevChannels.has(t)) changes.push({ field: "channels", op: "added", value: t });
+  for (const t of prevChannels) if (!curChannels.has(t)) changes.push({ field: "channels", op: "removed", value: t });
+
   const prevGranted = new Set(prev.access.granted || []);
   const curGranted = new Set(cur.access.granted || []);
   for (const t of curGranted) if (!prevGranted.has(t)) changes.push({ field: "access", op: "granted", value: t });
   for (const t of prevGranted) if (!curGranted.has(t)) changes.push({ field: "access", op: "revoked", value: t });
+
+  if ((prev.config.authMode || null) !== (cur.config.authMode || null) && (prev.config.authMode || cur.config.authMode)) {
+    changes.push({ field: "authMode", op: "changed", value: String(cur.config.authMode || "") });
+  }
 
   if (Boolean(prev.config.instructionsPresent) !== Boolean(cur.config.instructionsPresent)) {
     changes.push({
@@ -530,6 +669,12 @@ function diffDepth(prev, cur) {
   ) {
     changes.push({ field: "instructionsHash", op: "changed", value: cur.config.instructionsHash });
   }
+
+  const prevIds = new Set(prev.access.identities || prev.ownership?.identities || []);
+  const curIds = new Set(cur.access.identities || cur.ownership?.identities || []);
+  for (const t of curIds) if (!prevIds.has(t)) changes.push({ field: "identities", op: "added", value: t });
+  for (const t of prevIds) if (!curIds.has(t)) changes.push({ field: "identities", op: "removed", value: t });
+
   return changes;
 }
 
