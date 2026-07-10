@@ -64,10 +64,12 @@ export function Layout() {
 
     const stream = connectGraphStream(
       (event) => {
+        const type = event.type;
+        if (!type || type === "message" || type === "connected" || type === "error") return;
         window.dispatchEvent(
           new CustomEvent("agentradar:graph-event", {
             detail: {
-              type: event.type,
+              type,
               data: event.data
             }
           })

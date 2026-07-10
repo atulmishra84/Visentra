@@ -661,12 +661,18 @@ tbody tr:hover {
 .graph-shell {
   position: relative;
   height: min(72vh, 760px);
+  min-height: 420px;
   overflow: hidden;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-lg);
   background:
     radial-gradient(circle at 50% 0%, var(--glow-brand), transparent 34rem),
     var(--graph-bg);
+}
+
+.graph-shell .react-flow {
+  width: 100%;
+  height: 100%;
 }
 
 .graph-meta {
@@ -681,6 +687,43 @@ tbody tr:hover {
   color: var(--text-muted);
   font-size: 12px;
   pointer-events: none;
+}
+
+.topology-node {
+  min-width: 150px;
+  max-width: 210px;
+  padding: 10px 12px;
+  border: 1px solid;
+  border-radius: 14px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.topology-node-kind {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.topology-node-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.topology-node-sub {
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.topology-handle {
+  width: 8px !important;
+  height: 8px !important;
+  border: 2px solid var(--brand) !important;
+  background: var(--graph-node-bg) !important;
 }
 
 .react-flow__node {

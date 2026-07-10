@@ -302,6 +302,39 @@ async function graphFromSql(tenantId, { agentId, depth = 2, limit = 60 } = {}) {
       model: a.model,
       provider: a.provider || a.cloud_provider
     });
+
+    // Attribute edges so Topology Map is useful even when SQL relationships are sparse
+    const attrs = [
+      ["Model", a.model, "INVOKES_MODEL"],
+      ["Framework", a.framework, "USES_FRAMEWORK"],
+      ["Cloud", a.cloud_provider || (a.provider === "azure" || a.provider === "aws" || a.provider === "gcp" ? a.provider : null), "DEPLOYED_IN"],
+      ["IDE", a.ide, "RUNS_IN"],
+      ["Provider", a.provider && a.provider !== a.cloud_provider ? a.provider : null, "PROVIDED_BY"]
+    ];
+    for (const [type, value, rel] of attrs) {
+      if (!value) continue;
+      const key = `${String(type).toLowerCase()}:${String(value).toLowerCase()}`;
+      if (!nodes.has(key) && nodes.size < maxNodes * 2) {
+        nodes.set(key, {
+          id: key,
+          type,
+          label: String(value),
+          name: String(value),
+          category: String(type).toLowerCase()
+        });
+      }
+      if (nodes.has(key)) {
+        edges.push({
+          id: `${a.id}:${rel}:${key}`,
+          source: a.id,
+          target: key,
+          from: a.id,
+          to: key,
+          type: rel,
+          label: rel
+        });
+      }
+    }
   }
 
   const agentIds = agents.rows.map((a) => a.id);
@@ -358,15 +391,28 @@ async function graphFromSql(tenantId, { agentId, depth = 2, limit = 60 } = {}) {
     }
   }
 
+  // Deduplicate edges by source|target|type
+  const seen = new Set();
+  const uniqueEdges = [];
+  for (const edge of edges) {
+    const key = `${edge.source}|${edge.target}|${edge.type}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueEdges.push(edge);
+  }
+
   return {
     nodes: [...nodes.values()],
-    edges,
+    edges: uniqueEdges,
     meta: {
       seed: agentId || null,
       matched: agents.rows.length,
       nodeCount: nodes.size,
-      edgeCount: edges.length,
-      depth: hopDepth
+      edgeCount: uniqueEdges.length,
+      depth: hopDepth,
+      message: seedMode
+        ? `Neighborhood for ${agents.rows.length} seed agent(s)`
+        : `Overview of ${agents.rows.length} connected agents`
     }
   };
 }
