@@ -167,18 +167,33 @@ export async function validateNetskope({ config, secrets }) {
   if (!tenant || !token) throw new Error("Netskope requires tenant (e.g. acme) and apiToken");
 
   const base = `https://${tenant}.goskope.com`;
-  // Prefer v2 token header; fall back to v1 token query used by many tenants
-  const v2 = await fetch(`${base}/api/v2/services/npa/publishers`, {
-    headers: { "Netskope-Api-Token": token, Accept: "application/json" }
-  });
+  let v2;
+  try {
+    // Prefer v2 token header; fall back to v1 token query used by many tenants
+    v2 = await fetch(`${base}/api/v2/services/npa/publishers`, {
+      headers: { "Netskope-Api-Token": token, Accept: "application/json" }
+    });
+  } catch (err) {
+    throw new Error(
+      `Netskope unreachable at ${tenant}.goskope.com (${err.message}). Check tenant name and network egress.`
+    );
+  }
   if (v2.ok) {
     return { ok: true, message: `Netskope authenticated to ${tenant}.goskope.com (API v2).` };
   }
 
-  const v1 = await fetch(`${base}/api/v1/clients?token=${encodeURIComponent(token)}&limit=1`, {
-    headers: { Accept: "application/json" }
-  });
-  const v1Json = await v1.json().catch(() => ({}));
+  let v1;
+  let v1Json = {};
+  try {
+    v1 = await fetch(`${base}/api/v1/clients?token=${encodeURIComponent(token)}&limit=1`, {
+      headers: { Accept: "application/json" }
+    });
+    v1Json = await v1.json().catch(() => ({}));
+  } catch (err) {
+    throw new Error(
+      `Netskope API v2 returned ${v2.status}; v1 unreachable (${err.message}). Check tenant and API token.`
+    );
+  }
   if (!v1.ok) {
     const msg =
       v1Json.errors?.[0] ||
