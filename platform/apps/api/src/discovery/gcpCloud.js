@@ -105,6 +105,13 @@ function gcpObservation({ conn, id, name, gcpType, service, region = "global", a
       gcpService: service,
       aiRelevant,
       inventoryClass: aiRelevant ? "ai_cloud_resource" : "cloud_resource",
+      evidenceClass: aiRelevant ? "cloud_ai_runtime" : null,
+      agentStatus: aiRelevant
+        ? /vertex|gemini|endpoint|model/i.test(String(gcpType || service || ""))
+          ? "confirmed"
+          : "candidate"
+        : null,
+      managedCloudAgent: /vertex|gemini/i.test(String(gcpType || service || "")),
       environment: conn.environment,
       ...extra
     },

@@ -64,6 +64,15 @@ export const ALLOW = {
   },
   servicenow: {
     allowHostSuffixes: [".service-now.com"]
+  },
+  openai: {
+    allowHosts: ["api.openai.com"],
+    allowHostSuffixes: [".openai.com"]
+  },
+  jenkins: {
+    // Self-hosted Jenkins uses dynamic allowHosts via assertAllowedUrl + allowPrivate
+    allowPrivate: true,
+    allowHostSuffixes: [".jenkins.io"]
   }
 };
 

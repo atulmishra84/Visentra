@@ -94,6 +94,8 @@ function endpointObservation({
       connectorName: conn.name,
       discoveryMode: "edr-ai-agent-filter",
       inventoryClass: aiRelevant ? "endpoint_ai_agent" : "endpoint_device",
+      evidenceClass: aiRelevant ? "process_agent" : null,
+      agentStatus: aiRelevant ? (processEvidence ? "confirmed" : "candidate") : null,
       aiRelevant,
       edrProvider: provider,
       environment: conn.environment,

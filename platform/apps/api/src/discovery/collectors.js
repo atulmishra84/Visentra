@@ -19,6 +19,62 @@ function continueHasAiConfig(json) {
   return isAiRelevantText(JSON.stringify(json).slice(0, 2000));
 }
 
+function listCursorEvidence(home) {
+  const hits = [];
+  const cursorRoots = [
+    path.join(home, ".cursor"),
+    path.join(home, "Library", "Application Support", "Cursor"),
+    path.join(home, ".config", "Cursor")
+  ];
+  for (const root of cursorRoots) {
+    if (!fs.existsSync(root)) continue;
+    const mcpPath = path.join(root, "mcp.json");
+    const mcpJson = readJsonSafe(mcpPath);
+    if (mcpJson) {
+      const servers = mcpJson.mcpServers || mcpJson.mcp?.servers || {};
+      hits.push({
+        kind: "mcp",
+        path: mcpPath,
+        mcpNames: Object.keys(servers),
+        label: "Cursor MCP"
+      });
+    }
+    // Agent rules / instructions commonly used by Cursor agents
+    for (const rel of ["rules", "agents", "prompts"]) {
+      const dir = path.join(root, rel);
+      try {
+        if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) continue;
+        const files = fs.readdirSync(dir).slice(0, 20);
+        if (files.length) {
+          hits.push({
+            kind: "rules",
+            path: dir,
+            mcpNames: [],
+            label: `Cursor ${rel}`,
+            files
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    for (const fileName of ["argv.json", "ide_state.json"]) {
+      const p = path.join(root, fileName);
+      if (fs.existsSync(p)) {
+        hits.push({ kind: "config", path: p, mcpNames: [], label: `Cursor ${fileName}` });
+      }
+    }
+  }
+  // Project-local markers in cwd (when discovery runs near a repo)
+  for (const marker of [".cursorrules", "AGENTS.md", ".cursor/rules", ".github/copilot-instructions.md"]) {
+    const p = path.resolve(process.cwd(), marker);
+    if (fs.existsSync(p)) {
+      hits.push({ kind: "project", path: p, mcpNames: [], label: `Cursor/GitHub agent marker ${marker}` });
+    }
+  }
+  return hits;
+}
+
 /** @typedef {{ id: string, scan: (ctx: object) => Promise<object[]> }} Collector */
 
 export const collectors = {
@@ -33,16 +89,75 @@ export const collectors = {
         path.join(home, ".continue", "config.json")
       ];
       const out = [];
+      const seen = new Set();
+
+      // Strengthened Cursor discovery — MCP, rules, agent markers
+      for (const hit of listCursorEvidence(home)) {
+        const fingerprint = `ide-cursor:${hit.kind}:${hit.path}:${os.hostname()}`;
+        if (seen.has(fingerprint)) continue;
+        seen.add(fingerprint);
+        const mcpNames = hit.mcpNames || [];
+        const confirmed = mcpNames.length > 0 || hit.kind === "rules" || hit.kind === "project";
+        out.push({
+          collector_id: "ide_filesystem",
+          fingerprint,
+          name: `${hit.label} — ${os.hostname()}`,
+          category: "ide",
+          owner: ctx.ownerHint || process.env.USER || "local-user",
+          hostname: os.hostname(),
+          operating_system: `${os.type()} ${os.release()}`,
+          ide: "Cursor",
+          provider: "cursor",
+          deployment_type: "ide",
+          mcp_connections: mcpNames,
+          tools: mcpNames.length ? mcpNames : hit.files || [],
+          running_status: "unknown",
+          confidence_score: confirmed ? 0.9 : 0.75,
+          filesystem_access: true,
+          model: "cursor-agent",
+          relationships: [
+            {
+              rel_type: "RUNS_IN",
+              to_type: "IDE",
+              to_key: "cursor",
+              to_name: "Cursor"
+            },
+            ...mcpNames.map((name) => ({
+              rel_type: "CONNECTS_MCP",
+              to_type: "MCPServer",
+              to_key: `mcp-${name}`,
+              to_name: name
+            }))
+          ],
+          metadata: {
+            config_path: hit.path,
+            aiRelevant: true,
+            inventoryClass: "ide_ai_agent",
+            evidenceClass: "ide_agent",
+            agentStatus: confirmed ? "confirmed" : "candidate",
+            mcpServerCount: mcpNames.length,
+            cursorEvidenceKind: hit.kind,
+            howIdentified:
+              hit.kind === "mcp"
+                ? "Cursor MCP config (mcp.json)"
+                : hit.kind === "rules"
+                  ? "Cursor agent rules/prompts directory"
+                  : hit.kind === "project"
+                    ? "Project agent marker (.cursorrules / AGENTS.md / copilot-instructions)"
+                    : "Cursor IDE config present"
+          }
+        });
+      }
+
       for (const file of candidates) {
+        if (file.includes(".cursor") && file.endsWith("mcp.json")) continue; // already covered
         const json = readJsonSafe(file);
         if (!json) continue;
-        const ide = file.includes("cursor")
-          ? "Cursor"
-          : file.includes("Claude")
-            ? "Claude Desktop"
-            : file.includes("continue")
-              ? "Continue.dev"
-              : "IDE";
+        const ide = file.includes("Claude")
+          ? "Claude Desktop"
+          : file.includes("continue")
+            ? "Continue.dev"
+            : "IDE";
         const servers = json.mcpServers || json.mcp?.servers || {};
         const mcpNames = Object.keys(servers);
         const hasAiEvidence =
@@ -50,10 +165,13 @@ export const collectors = {
           (ide === "Continue.dev" && continueHasAiConfig(json)) ||
           ide === "Claude Desktop";
         if (DISCOVERY_AI_ONLY && !hasAiEvidence) continue;
+        const fingerprint = `ide-config:${ide}:${os.hostname()}`;
+        if (seen.has(fingerprint)) continue;
+        seen.add(fingerprint);
 
         out.push({
           collector_id: "ide_filesystem",
-          fingerprint: `ide-config:${ide}:${os.hostname()}`,
+          fingerprint,
           name: `${ide} AI agent — ${os.hostname()}`,
           category: "ide",
           owner: ctx.ownerHint || process.env.USER || "local-user",
@@ -85,7 +203,10 @@ export const collectors = {
             config_path: file,
             aiRelevant: true,
             inventoryClass: "ide_ai_agent",
-            mcpServerCount: mcpNames.length
+            evidenceClass: "ide_agent",
+            agentStatus: mcpNames.length ? "confirmed" : "candidate",
+            mcpServerCount: mcpNames.length,
+            howIdentified: `${ide} config with ${mcpNames.length} MCP server(s)`
           }
         });
       }
@@ -118,9 +239,15 @@ export const collectors = {
           else if (lower.includes("autogen")) hit = { name: "AutoGen process", category: "framework", framework: "AutoGen" };
           else if (lower.includes("vllm")) hit = { name: "vLLM server", category: "local_llm", provider: "vllm" };
           else if (lower.includes("claude")) hit = { name: "Claude agent process", category: "ide", provider: "anthropic", ide: "Claude" };
-          else if (lower.includes("cursor")) hit = { name: "Cursor agent process", category: "ide", provider: "cursor", ide: "Cursor" };
-          else if (lower.includes("copilot")) hit = { name: "Copilot agent process", category: "ide", provider: "github-copilot", ide: "Copilot" };
-          else if (lower.includes("mcp") || lower.includes("modelcontextprotocol")) {
+          else if (lower.includes("cursor-agent") || lower.includes("cursor ")) {
+            hit = { name: "Cursor agent process", category: "ide", provider: "cursor", ide: "Cursor" };
+          } else if (lower.includes("cursor")) hit = { name: "Cursor agent process", category: "ide", provider: "cursor", ide: "Cursor" };
+          else if (lower.includes("chatgpt") || lower.includes("openai")) {
+            hit = { name: "ChatGPT / OpenAI process", category: "ide", provider: "openai", ide: "ChatGPT" };
+          } else if (lower.includes("copilot")) hit = { name: "Copilot agent process", category: "ide", provider: "github-copilot", ide: "Copilot" };
+          else if (lower.includes("jenkins") && isAiRelevantText(lower)) {
+            hit = { name: "Jenkins AI-related process", category: "ci", provider: "jenkins", framework: "Jenkins" };
+          } else if (lower.includes("mcp") || lower.includes("modelcontextprotocol")) {
             hit = { name: "MCP server process", category: "mcp", provider: "mcp", model: "mcp" };
           } else {
             hit = { name: "AI agent process", category: "local", provider: "process", model: "ai-process" };
@@ -137,7 +264,10 @@ export const collectors = {
               pid,
               cmdline: cmdline.slice(0, 500),
               aiRelevant: true,
-              inventoryClass: "process_ai_agent"
+              inventoryClass: "process_ai_agent",
+              evidenceClass: "process_agent",
+              agentStatus: "confirmed",
+              processEvidence: cmdline.slice(0, 300)
             },
             relationships: [
               { rel_type: "RUNS_ON", to_type: "Device", to_key: os.hostname(), to_name: os.hostname() }
@@ -172,7 +302,12 @@ export const collectors = {
             running_status: "unknown",
             confidence_score: 0.78,
             model: "mcp",
-            metadata: { aiRelevant: true, inventoryClass: "mcp_server" },
+            metadata: {
+              aiRelevant: true,
+              inventoryClass: "mcp_server",
+              evidenceClass: "ide_agent",
+              agentStatus: "confirmed"
+            },
             relationships: [
               {
                 rel_type: "CONNECTS_MCP",
@@ -612,7 +747,8 @@ export const collectors = {
               m365_copilot: "Microsoft 365 Copilot",
               salesforce: "Salesforce Agentforce",
               workday: "Workday",
-              servicenow: "ServiceNow"
+              servicenow: "ServiceNow",
+              openai: "OpenAI / ChatGPT"
             }[conn.provider] || conn.provider;
 
           try {
@@ -683,6 +819,77 @@ export const collectors = {
 
       return out;
     }
+  },
+
+  ci_platform: {
+    id: "ci_platform",
+    async scan(ctx) {
+      const out = [];
+      if (!ctx.pool || !ctx.tenantId) return out;
+      try {
+        const { listActiveCiConnectors } = await import("../services/connectors.js");
+        const { discoverCiConnector } = await import("./ciPlatforms.js");
+        const connectors = await listActiveCiConnectors(ctx.pool, ctx.tenantId);
+        for (const conn of connectors) {
+          const label = conn.provider === "jenkins" ? "Jenkins" : conn.provider;
+          try {
+            const { observations, stats } = await discoverCiConnector(conn);
+            out.push(...observations);
+            await ctx.pool.query(
+              `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId]
+            );
+            await ctx.pool.query(
+              `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+               VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
+              [
+                ctx.tenantId,
+                `${label} connector "${conn.name}" scanned ${stats.jobsScanned || 0} jobs — ingested ${stats.jobsIngested || 0} AI jobs`,
+                JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "ci", ...stats })
+              ]
+            );
+          } catch (err) {
+            const message = err.message || String(err);
+            console.warn("CI connector scan failed:", message);
+            await ctx.pool.query(
+              `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId, message]
+            );
+            await ctx.pool.query(
+              `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+               VALUES ($1,'connector.scan.error','error',$2,$3::jsonb)`,
+              [
+                ctx.tenantId,
+                `${label} connector "${conn.name}" failed: ${message}`,
+                JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "ci" })
+              ]
+            );
+            out.push({
+              collector_id: "ci_platform",
+              fingerprint: `ci-connector-error:${conn.provider}:${conn.id}`,
+              name: `${label} connector error — ${conn.name}`,
+              category: "ci",
+              provider: conn.provider,
+              confidence_score: 0.2,
+              running_status: "unknown",
+              risk_indicators: ["connector_auth_failed"],
+              metadata: {
+                connectorId: conn.id,
+                connectorName: conn.name,
+                discoveryMode: "ci-platform-error",
+                inventoryClass: "source_connector",
+                error: message
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("ci platform scan:", err.message);
+      }
+      return out;
+    }
   }
 };
 
@@ -695,7 +902,8 @@ export const DEFAULT_COLLECTORS = [
   "git_sources",
   "identity_entra",
   "edr",
-  "saas_platform"
+  "saas_platform",
+  "ci_platform"
 ];
 
 /** @deprecated Use DEFAULT_COLLECTORS — kept for import compatibility */

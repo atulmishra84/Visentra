@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { runCollectors, DEFAULT_COLLECTORS } from "./collectors.js";
 import { applyShadowAiToObservation } from "../services/shadowAi.js";
+import { enrichObservationWithEvidence } from "./agentEvidence.js";
 
 function asArray(v) {
   if (!v) return [];
@@ -65,12 +66,44 @@ async function projectNeo4j(neo4j, tenantId, agent, assetIdsByKey, relationships
   }
 }
 
+/** Connector health/scan rows — not AI agents; keep out of inventory. */
+const CONNECTOR_META_CLASSES = new Set([
+  "connector_scan",
+  "edr_connector",
+  "saas_connector",
+  "kubernetes_connector",
+  "source_connector",
+  "identity_connector"
+]);
+
+export function isConnectorMetaObservation(obs) {
+  const meta = obs?.metadata || {};
+  const inventoryClass = String(meta.inventoryClass || "");
+  if (CONNECTOR_META_CLASSES.has(inventoryClass)) return true;
+  const fingerprint = String(obs?.fingerprint || "");
+  if (/-connector-scan:/.test(fingerprint)) return true;
+  if (/-connector-error:/.test(fingerprint)) return true;
+  if (/^edr-connector:/.test(fingerprint)) return true;
+  if (/^saas-connector:/.test(fingerprint)) return true;
+  if (/^saas:.*:connector:/.test(fingerprint)) return true;
+  // Names like "Azure scan — <connector name>" / "Azure connector error — …"
+  const name = String(obs?.name || "");
+  if (/\b(scan|connector error)\s+[—-]\s+/i.test(name) && meta.connectorId) return true;
+  return false;
+}
+
 export async function ingestObservations(pool, neo4j, tenantId, jobId, observations, emitEvent) {
   let agentsFound = 0;
   const client = await pool.connect();
   try {
     for (const rawObs of observations) {
-      const obs = applyShadowAiToObservation(rawObs);
+      if (isConnectorMetaObservation(rawObs)) {
+        // Scan/health evidence stays in discovery_events from collectors — do not invent fake agents.
+        continue;
+      }
+      const evidenced = enrichObservationWithEvidence(rawObs);
+      if (evidenced.__skipIngest) continue;
+      const obs = applyShadowAiToObservation(evidenced);
       await client.query("BEGIN");
       try {
         const fingerprint = obs.fingerprint || `anon:${randomUUID()}`;

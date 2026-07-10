@@ -13,7 +13,11 @@ type ProviderKey =
   | "m365_copilot"
   | "salesforce"
   | "workday"
-  | "servicenow";
+  | "servicenow"
+  | "openai"
+  | "github"
+  | "gitlab"
+  | "jenkins";
 
 type ProviderSchema = {
   category?: string;
@@ -34,7 +38,11 @@ const PROVIDER_LABELS: Record<ProviderKey, string> = {
   m365_copilot: "Microsoft 365 Copilot / Copilot Studio",
   salesforce: "Salesforce Agentforce",
   workday: "Workday Illuminate / AI",
-  servicenow: "ServiceNow Now Assist / Virtual Agent"
+  servicenow: "ServiceNow Now Assist / Virtual Agent",
+  openai: "OpenAI / ChatGPT",
+  github: "GitHub (repos / Actions / Copilot markers)",
+  gitlab: "GitLab",
+  jenkins: "Jenkins CI"
 };
 
 const EMPTY_FORM = {
@@ -66,7 +74,13 @@ const EMPTY_FORM = {
   instanceUrl: "",
   apiVersion: "v59.0",
   refreshToken: "",
-  instance: ""
+  instance: "",
+  organizationId: "",
+  orgOrUser: "",
+  apiBase: "https://api.github.com",
+  host: "gitlab.com",
+  projectGroup: "",
+  token: ""
 };
 
 export function ConnectorsPage() {
@@ -84,9 +98,13 @@ export function ConnectorsPage() {
     providerSchema?.category ||
     (["crowdstrike", "defender", "intune", "cortex", "netskope"].includes(form.provider)
       ? "edr"
-      : ["m365_copilot", "salesforce", "workday", "servicenow"].includes(form.provider)
+      : ["m365_copilot", "salesforce", "workday", "servicenow", "openai"].includes(form.provider)
         ? "saas"
-        : "cloud");
+        : ["github", "gitlab"].includes(form.provider)
+          ? "source"
+          : form.provider === "jenkins"
+            ? "ci"
+            : "cloud");
 
   const load = async () => {
     setLoading(true);
@@ -150,6 +168,11 @@ export function ConnectorsPage() {
       instanceUrl: config.instanceUrl || "",
       apiVersion: config.apiVersion || "v59.0",
       instance: config.instance || "",
+      organizationId: config.organizationId || "",
+      orgOrUser: config.orgOrUser || "",
+      apiBase: config.apiBase || "https://api.github.com",
+      host: config.host || "gitlab.com",
+      projectGroup: config.projectGroup || "",
       clientSecret: "",
       secretAccessKey: "",
       privateKey: "",
@@ -157,7 +180,8 @@ export function ConnectorsPage() {
       apiToken: "",
       password: "",
       securityToken: "",
-      refreshToken: ""
+      refreshToken: "",
+      token: ""
     });
     setMessage("Leave secret fields blank to keep existing secrets.");
   };
@@ -240,7 +264,7 @@ export function ConnectorsPage() {
     }
   };
 
-  const scanNow = async (mode: "cloud" | "edr" | "saas" | "all") => {
+  const scanNow = async (mode: "cloud" | "edr" | "saas" | "source" | "ci" | "all") => {
     setError(null);
     setMessage(null);
     const collectors =
@@ -250,7 +274,11 @@ export function ConnectorsPage() {
           ? ["edr"]
           : mode === "saas"
             ? ["saas_platform"]
-            : ["cloud_stub", "edr", "saas_platform"];
+            : mode === "source"
+              ? ["git_sources"]
+              : mode === "ci"
+                ? ["ci_platform"]
+                : ["cloud_stub", "edr", "saas_platform", "git_sources", "ci_platform", "ide_filesystem", "process"];
     try {
       await apiRequest("/api/discovery/jobs", {
         method: "POST",
@@ -258,12 +286,16 @@ export function ConnectorsPage() {
       });
       setMessage(
         mode === "saas"
-          ? "SaaS platform discovery started (Copilot, Salesforce, Workday, ServiceNow). Check Inventory in ~10s."
+          ? "SaaS discovery started (Copilot, Salesforce, Workday, ServiceNow, OpenAI/ChatGPT)."
           : mode === "edr"
             ? "EDR discovery started."
             : mode === "cloud"
               ? "Cloud discovery started."
-              : "Cloud + EDR + SaaS discovery started."
+              : mode === "source"
+                ? "GitHub/GitLab discovery started (AI repos, Actions, Copilot markers)."
+                : mode === "ci"
+                  ? "Jenkins CI discovery started."
+                  : "Full discovery started (cloud, EDR, SaaS, Git, CI, IDE)."
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start discovery.");
@@ -283,8 +315,12 @@ export function ConnectorsPage() {
       saas: keys.filter(
         (k) =>
           schema[k]?.category === "saas" ||
-          ["m365_copilot", "salesforce", "workday", "servicenow"].includes(k)
-      )
+          ["m365_copilot", "salesforce", "workday", "servicenow", "openai"].includes(k)
+      ),
+      source: keys.filter(
+        (k) => schema[k]?.category === "source" || ["github", "gitlab"].includes(k)
+      ),
+      ci: keys.filter((k) => schema[k]?.category === "ci" || k === "jenkins")
     };
   }, [schema]);
 
@@ -294,7 +330,11 @@ export function ConnectorsPage() {
       ? "Add EDR integration"
       : category === "saas"
         ? "Add SaaS / platform agents"
-        : "Add cloud environment";
+        : category === "source"
+          ? "Add Git / source connector"
+          : category === "ci"
+            ? "Add CI / Jenkins connector"
+            : "Add cloud environment";
 
   return (
     <div className="page">
@@ -303,8 +343,8 @@ export function ConnectorsPage() {
           <p className="eyebrow">Settings</p>
           <h1>Connectors</h1>
           <p className="page-description">
-            Connect cloud, EDR, and SaaS platforms to discover agents — including Microsoft Copilot, Salesforce
-            Agentforce, Workday Illuminate, and ServiceNow Now Assist. Secrets are encrypted. Save →{" "}
+            Connect cloud, EDR, SaaS, GitHub, and Jenkins to discover AI agents — Cursor/Claude IDE agents, ChatGPT /
+            OpenAI assistants, GitHub Copilot markers, and Jenkins AI jobs. Secrets are encrypted. Save →{" "}
             <strong>Test</strong> → scan.
           </p>
         </div>
@@ -315,8 +355,17 @@ export function ConnectorsPage() {
           <button className="button" type="button" onClick={() => void scanNow("edr")}>
             Scan EDR
           </button>
-          <button className="button primary" type="button" onClick={() => void scanNow("saas")}>
-            Scan SaaS platforms
+          <button className="button" type="button" onClick={() => void scanNow("saas")}>
+            Scan SaaS
+          </button>
+          <button className="button" type="button" onClick={() => void scanNow("source")}>
+            Scan GitHub
+          </button>
+          <button className="button" type="button" onClick={() => void scanNow("ci")}>
+            Scan Jenkins
+          </button>
+          <button className="button primary" type="button" onClick={() => void scanNow("all")}>
+            Scan all
           </button>
         </div>
       </header>
@@ -363,6 +412,20 @@ export function ConnectorsPage() {
                   </optgroup>
                   <optgroup label="SaaS / platform agents">
                     {providerOptions.saas.map((key) => (
+                      <option key={key} value={key}>
+                        {PROVIDER_LABELS[key] || key}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Git / source">
+                    {providerOptions.source.map((key) => (
+                      <option key={key} value={key}>
+                        {PROVIDER_LABELS[key] || key}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="CI / build">
+                    {providerOptions.ci.map((key) => (
                       <option key={key} value={key}>
                         {PROVIDER_LABELS[key] || key}
                       </option>

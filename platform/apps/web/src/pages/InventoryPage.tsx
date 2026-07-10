@@ -25,6 +25,21 @@ function uniqueOptions(rows: Agent[], key: string): string[] {
   return [...values].sort((left, right) => left.localeCompare(right));
 }
 
+function metaAt(agent: Agent, key: string, fallback = ""): string {
+  const meta = (agent.metadata || {}) as Record<string, unknown>;
+  const value = meta[key];
+  return value == null ? fallback : String(value);
+}
+
+function uniqueMetaOptions(rows: Agent[], key: string): string[] {
+  const values = new Set<string>();
+  rows.forEach((row) => {
+    const value = metaAt(row, key);
+    if (value) values.add(value);
+  });
+  return [...values].sort((left, right) => left.localeCompare(right));
+}
+
 function categoryBadge(category: string) {
   const c = category.toLowerCase();
   if (c === "cloud") return "cloud";
@@ -35,16 +50,63 @@ function categoryBadge(category: string) {
   return c || "unknown";
 }
 
+function facetsFromSearchParams(params: URLSearchParams): Facets {
+  const keys: Array<keyof Facets> = [
+    "q",
+    "owner",
+    "model",
+    "framework",
+    "cloud",
+    "ide",
+    "category",
+    "department",
+    "evidenceClass",
+    "agentStatus"
+  ];
+  const next: Facets = {};
+  for (const key of keys) {
+    const value = params.get(key);
+    if (value) next[key] = value;
+  }
+  return next;
+}
+
 export function InventoryPage({ title }: { title: string }) {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [facets, setFacets] = useState<Facets>({});
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [facets, setFacets] = useState<Facets>(() => facetsFromSearchParams(searchParams));
   const [payload, setPayload] = useState<unknown>(null);
   const [selected, setSelected] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<"csv" | "json" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const shadowOnly = searchParams.get("shadow") === "true";
+
+  useEffect(() => {
+    const fromUrl = facetsFromSearchParams(searchParams);
+    setFacets((prev) => {
+      const keys = new Set([...Object.keys(prev), ...Object.keys(fromUrl)] as Array<keyof Facets>);
+      for (const key of keys) {
+        if ((prev[key] || "") !== (fromUrl[key] || "")) return fromUrl;
+      }
+      return prev;
+    });
+  }, [searchParams]);
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (shadowOnly) next.set("shadow", "true");
+    (Object.entries(facets) as Array<[keyof Facets, string | undefined]>).forEach(([key, value]) => {
+      if (value) next.set(key, value);
+    });
+    const current = searchParams.toString();
+    const upcoming = next.toString();
+    if (current !== upcoming) {
+      setSearchParams(next, { replace: true });
+    }
+    // Only push facet changes into the URL; shadow is read from searchParams.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: avoid loops on searchParams identity
+  }, [facets, shadowOnly, setSearchParams]);
 
   useEffect(() => {
     let mounted = true;
@@ -86,8 +148,11 @@ export function InventoryPage({ title }: { title: string }) {
       model: uniqueOptions(agents, "model"),
       framework: uniqueOptions(agents, "framework"),
       cloud: uniqueOptions(agents, "cloud"),
+      ide: uniqueOptions(agents, "ide"),
       category: uniqueOptions(agents, "category"),
-      department: uniqueOptions(agents, "department")
+      department: uniqueOptions(agents, "department"),
+      evidenceClass: uniqueMetaOptions(agents, "evidenceClass"),
+      agentStatus: uniqueMetaOptions(agents, "agentStatus")
     }),
     [agents]
   );
@@ -105,7 +170,11 @@ export function InventoryPage({ title }: { title: string }) {
   };
 
   const setCategoryQuick = (category?: string) => {
-    setFacets((prev) => ({ ...prev, category: category || undefined }));
+    setFacets((prev) => ({ ...prev, category: category || undefined, agentStatus: undefined }));
+  };
+
+  const setStatusQuick = (agentStatus?: string) => {
+    setFacets((prev) => ({ ...prev, agentStatus: agentStatus || undefined }));
   };
 
   const columns: Array<Column<Agent>> = [
@@ -114,6 +183,24 @@ export function InventoryPage({ title }: { title: string }) {
       header: "Name",
       render: (agent) => <strong>{valueAt(agent, ["name", "displayName", "id"], "Unnamed asset")}</strong>,
       sortValue: (agent) => valueAt(agent, ["name", "displayName", "id"])
+    },
+    {
+      key: "evidence",
+      header: "Evidence",
+      render: (agent) => {
+        const evidence = metaAt(agent, "evidenceClass", "—");
+        return <span className="badge">{evidence.replace(/_/g, " ")}</span>;
+      },
+      sortValue: (agent) => metaAt(agent, "evidenceClass")
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (agent) => {
+        const status = metaAt(agent, "agentStatus", "—");
+        return <span className={`status-pill ${status === "confirmed" ? "ok" : ""}`}>{status}</span>;
+      },
+      sortValue: (agent) => metaAt(agent, "agentStatus")
     },
     {
       key: "category",
@@ -172,7 +259,7 @@ export function InventoryPage({ title }: { title: string }) {
           <p className="page-description">
             {shadowOnly
               ? "Filtered to Shadow AI candidates (ownerless / unmanaged / unsanctioned AI signals)."
-              : "Unified inventory from discovery: AI agents, cloud resources, and EDR endpoints. Filter by category to focus."}
+              : "AI agent inventory classified by evidence (platform, cloud runtime, IDE, process, repo) and confirmed vs candidate status."}
           </p>
         </div>
         <div className="toolbar">
@@ -186,8 +273,22 @@ export function InventoryPage({ title }: { title: string }) {
       </header>
 
       <div className="toolbar" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <button className={`button ${!facets.category ? "primary" : "ghost"}`} type="button" onClick={() => setCategoryQuick()}>
+        <button className={`button ${!facets.category && !facets.agentStatus ? "primary" : "ghost"}`} type="button" onClick={() => setFacets({})}>
           All
+        </button>
+        <button
+          className={`button ${facets.agentStatus === "confirmed" ? "primary" : "ghost"}`}
+          type="button"
+          onClick={() => setStatusQuick("confirmed")}
+        >
+          Confirmed
+        </button>
+        <button
+          className={`button ${facets.agentStatus === "candidate" ? "primary" : "ghost"}`}
+          type="button"
+          onClick={() => setStatusQuick("candidate")}
+        >
+          Candidates
         </button>
         <button
           className={`button ${facets.category === "cloud" ? "primary" : "ghost"}`}
