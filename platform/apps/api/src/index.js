@@ -1255,12 +1255,18 @@ async function purgeNonAiInventory(pool, neo4jDriver, tenantId) {
        AND (
          metadata->>'inventoryClass' = 'cloud_resource'
          OR metadata->>'inventoryClass' = 'endpoint_device'
+         OR metadata->>'inventoryClass' = 'connector_scan'
+         OR metadata->>'inventoryClass' IN (
+           'edr_connector','saas_connector','kubernetes_connector','source_connector','identity_connector'
+         )
+         OR fingerprint LIKE '%-connector-scan:%'
+         OR fingerprint LIKE '%-connector-error:%'
+         OR fingerprint LIKE 'edr-connector:%'
          OR (category = 'cloud'
              AND metadata->>'inventoryClass' = 'ai_cloud_resource'
              AND metadata->>'aiRelevant' = 'false')
          OR (category = 'endpoint'
              AND metadata->>'aiRelevant' IS DISTINCT FROM 'true'
-             AND metadata->>'inventoryClass' IS DISTINCT FROM 'edr_connector'
              AND metadata->>'inventoryClass' IS DISTINCT FROM 'endpoint_ai_agent')
          OR fingerprint LIKE 'edr:%:device:%'
        )`,
