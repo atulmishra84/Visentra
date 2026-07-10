@@ -1,11 +1,14 @@
 /** Shared constants for AgentRadar platform packages */
 export const COLLECTOR_IDS = [
-  "demo",
   "ide_filesystem",
   "process",
   "mcp",
   "cloud_stub",
-  "k8s_stub"
+  "k8s_api",
+  "git_sources",
+  "identity_entra",
+  "edr",
+  "saas_platform"
 ];
 
 export const AGENT_CATEGORIES = [

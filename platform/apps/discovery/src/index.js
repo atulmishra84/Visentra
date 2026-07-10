@@ -8,8 +8,18 @@ const EMAIL = process.env.BOOTSTRAP_ADMIN_EMAIL || "admin@agentradar.local";
 const PASSWORD = process.env.BOOTSTRAP_ADMIN_PASSWORD;
 const IS_PROD = process.env.NODE_ENV === "production";
 
-const PROD_COLLECTORS = ["cloud_stub", "edr", "saas_platform", "ide_filesystem", "process", "mcp"];
-const DEV_COLLECTORS = ["cloud_stub", "edr", "saas_platform", "ide_filesystem", "process", "mcp", "k8s_stub"];
+const PROD_COLLECTORS = [
+  "cloud_stub",
+  "edr",
+  "saas_platform",
+  "k8s_api",
+  "git_sources",
+  "identity_entra",
+  "ide_filesystem",
+  "process",
+  "mcp"
+];
+const DEV_COLLECTORS = PROD_COLLECTORS;
 
 async function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));

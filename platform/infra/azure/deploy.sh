@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy AgentRadar Discovery MVP to Azure Container Apps (production-oriented)
+# Deploy AgentRadar Discovery to Azure Container Apps (production-oriented)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -10,26 +10,57 @@ LOCATION="${LOCATION:-westus2}"
 PREFIX="${PREFIX:-agentradar}"
 RG="${RG:-rg-${PREFIX}-discovery}"
 ADMIN_EMAIL="${BOOTSTRAP_ADMIN_EMAIL:-admin@agentradar.local}"
+DATA_PLANE_MODE="${DATA_PLANE_MODE:-production}" # production | eval
 
-if [[ -z "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]]; then
-  ADMIN_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-16)Aa1!"
-  echo "==> Generated BOOTSTRAP_ADMIN_PASSWORD (save securely — shown once at end)"
-else
+# Optional Entra ID SSO (OIDC)
+ENTRA_TENANT_ID="${ENTRA_TENANT_ID:-}"
+ENTRA_CLIENT_ID="${ENTRA_CLIENT_ID:-}"
+ENTRA_CLIENT_SECRET="${ENTRA_CLIENT_SECRET:-}"
+
+# Detect upgrade of an existing AgentRadar RG (do not auto-rotate secrets).
+EXISTING_DEPLOY=false
+if az group show --name "${RG}" >/dev/null 2>&1; then
+  if az containerapp list -g "$RG" --query "[?contains(name, 'api-')].name" -o tsv 2>/dev/null | grep -q .; then
+    EXISTING_DEPLOY=true
+  fi
+fi
+
+if [[ "$EXISTING_DEPLOY" == "true" ]]; then
+  echo "==> Existing AgentRadar deployment detected in '$RG' (upgrade mode)"
+  echo "    JWT_SECRET, ENCRYPTION_KEY, POSTGRES_PASSWORD, and BOOTSTRAP_ADMIN_PASSWORD"
+  echo "    must be supplied explicitly so connectors and login stay intact."
+  missing=()
+  [[ -z "${JWT_SECRET:-}" ]] && missing+=("JWT_SECRET")
+  [[ -z "${ENCRYPTION_KEY:-}" ]] && missing+=("ENCRYPTION_KEY")
+  [[ -z "${POSTGRES_PASSWORD:-}" ]] && missing+=("POSTGRES_PASSWORD")
+  [[ -z "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]] && missing+=("BOOTSTRAP_ADMIN_PASSWORD")
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "ERROR: Upgrade requires: ${missing[*]}" >&2
+    echo "  Export the same values used on the original install, then re-run." >&2
+    exit 1
+  fi
   ADMIN_PASSWORD="$BOOTSTRAP_ADMIN_PASSWORD"
+else
+  if [[ -z "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]]; then
+    ADMIN_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-16)Aa1!"
+    echo "==> Generated BOOTSTRAP_ADMIN_PASSWORD (save securely — shown once at end)"
+  else
+    ADMIN_PASSWORD="$BOOTSTRAP_ADMIN_PASSWORD"
+  fi
 fi
 
 JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
-# Dedicated connector encryption key (required in production). Boot migrates any
-# secrets still encrypted with the legacy JWT-derived key onto this value.
 ENCRYPTION_KEY="${ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
+if [[ ! "$ENCRYPTION_KEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  echo "ERROR: ENCRYPTION_KEY must be a 64-char hex string (openssl rand -hex 32)" >&2
+  exit 1
+fi
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)Aa1}"
-SEED_ON_START="${SEED_ON_START:-false}"
-ALLOW_DEMO_SEED="${ALLOW_DEMO_SEED:-false}"
 
-echo "==> Resource group: $RG ($LOCATION)"
+echo "==> Resource group: $RG ($LOCATION) dataPlane=$DATA_PLANE_MODE mode=$([[ "$EXISTING_DEPLOY" == "true" ]] && echo upgrade || echo fresh)"
 az group create --name "$RG" --location "$LOCATION" -o none
 
-echo "==> Deploying infra (ACR, Postgres, CAE, Redis, Neo4j)..."
+echo "==> Deploying infra (ACR, data plane, CAE, Redis, Neo4j)..."
 DEPLOY_OUT=$(az deployment group create \
   --resource-group "$RG" \
   --template-file "$AZURE_DIR/main.bicep" \
@@ -39,17 +70,57 @@ DEPLOY_OUT=$(az deployment group create \
     jwtSecret="$JWT_SECRET" \
     bootstrapAdminPassword="$ADMIN_PASSWORD" \
     bootstrapAdminEmail="$ADMIN_EMAIL" \
+    dataPlaneMode="$DATA_PLANE_MODE" \
   --query properties.outputs -o json)
 
 ACR_NAME=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["acrName"]["value"])')
 ACR_LOGIN=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["acrLoginServer"]["value"])')
+PG_HOST=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["postgresHost"]["value"])')
+PG_USER=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["postgresUser"]["value"])')
+PG_DB=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["postgresDbName"]["value"])')
 PG_APP=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["postgresAppName"]["value"])')
 CAE=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["containerAppsEnvName"]["value"])')
 NAME=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["namePrefix"]["value"])')
 NEO4J_PASSWORD=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["neo4jPassword"]["value"])')
+KV_NAME=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("keyVaultName",{}).get("value",""))')
+KV_URI=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("keyVaultUri",{}).get("value",""))')
+DP_MODE=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["dataPlaneMode"]["value"])')
 
-echo "==> ACR: $ACR_LOGIN"
+# URL-encode password for connection string
+PG_PASS_ENC=$(python3 -c 'import urllib.parse,os; print(urllib.parse.quote(os.environ["P"], safe=""))' P="$POSTGRES_PASSWORD")
+if [[ "$DP_MODE" == "production" ]]; then
+  # Flexible Server requires SSL
+  POSTGRES_URL="postgres://${PG_USER}:${PG_PASS_ENC}@${PG_HOST}:5432/${PG_DB}?sslmode=require"
+else
+  POSTGRES_URL="postgres://${PG_USER}:${PG_PASS_ENC}@${PG_HOST}:5432/${PG_DB}"
+fi
+
+echo "==> ACR: $ACR_LOGIN  Postgres host: $PG_HOST ($DP_MODE)"
 az acr login --name "$ACR_NAME"
+
+# Persist secrets to Key Vault when production data plane is enabled
+if [[ -n "$KV_NAME" ]]; then
+  echo "==> Writing secrets to Key Vault: $KV_NAME"
+  # Grant current user Secrets Officer if needed
+  ME_OID=$(az ad signed-in-user show --query id -o tsv 2>/dev/null || true)
+  if [[ -n "$ME_OID" ]]; then
+    az role assignment create \
+      --role "Key Vault Secrets Officer" \
+      --assignee-object-id "$ME_OID" \
+      --assignee-principal-type User \
+      --scope "$(az keyvault show -n "$KV_NAME" --query id -o tsv)" \
+      -o none 2>/dev/null || true
+    sleep 8
+  fi
+  az keyvault secret set --vault-name "$KV_NAME" --name jwt-secret --value "$JWT_SECRET" -o none
+  az keyvault secret set --vault-name "$KV_NAME" --name encryption-key --value "$ENCRYPTION_KEY" -o none
+  az keyvault secret set --vault-name "$KV_NAME" --name postgres-url --value "$POSTGRES_URL" -o none
+  az keyvault secret set --vault-name "$KV_NAME" --name bootstrap-password --value "$ADMIN_PASSWORD" -o none
+  az keyvault secret set --vault-name "$KV_NAME" --name neo4j-password --value "$NEO4J_PASSWORD" -o none
+  if [[ -n "$ENTRA_CLIENT_SECRET" ]]; then
+    az keyvault secret set --vault-name "$KV_NAME" --name entra-client-secret --value "$ENTRA_CLIENT_SECRET" -o none
+  fi
+fi
 
 export DOCKER_HOST="${DOCKER_HOST:-tcp://127.0.0.1:2375}"
 TAG="${IMAGE_TAG:-$(date +%Y%m%d%H%M%S)}"
@@ -65,12 +136,17 @@ docker push "$API_IMAGE"
 docker push "$WEB_IMAGE"
 docker push "$DISCOVERY_IMAGE"
 
-# Container Apps TCP ingress: connect via app name on target port
-POSTGRES_URL="postgres://agentradar:${POSTGRES_PASSWORD}@${PG_APP}:5432/agentradar"
-
 echo "==> Creating/updating API container app..."
 ACR_USER=$(az acr credential show -n "$ACR_NAME" --query username -o tsv)
 ACR_PASS=$(az acr credential show -n "$ACR_NAME" --query passwords[0].value -o tsv)
+
+ENTRA_ENV=()
+if [[ -n "$ENTRA_TENANT_ID" && -n "$ENTRA_CLIENT_ID" ]]; then
+  ENTRA_ENV+=(
+    "ENTRA_TENANT_ID=$ENTRA_TENANT_ID"
+    "ENTRA_CLIENT_ID=$ENTRA_CLIENT_ID"
+  )
+fi
 
 az containerapp create \
   --name "api-$NAME" \
@@ -90,9 +166,11 @@ az containerapp create \
     postgres-url="$POSTGRES_URL" \
     bootstrap-password="$ADMIN_PASSWORD" \
     neo4j-password="$NEO4J_PASSWORD" \
+    ${ENTRA_CLIENT_SECRET:+entra-client-secret="$ENTRA_CLIENT_SECRET"} \
   --env-vars \
     PORT=8080 \
     NODE_ENV=production \
+    DATA_PLANE_MODE="$DP_MODE" \
     POSTGRES_URL=secretref:postgres-url \
     NEO4J_URI="bolt://neo4j-$NAME:7687" \
     NEO4J_USER=neo4j \
@@ -103,8 +181,10 @@ az containerapp create \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
     BOOTSTRAP_ADMIN_PASSWORD=secretref:bootstrap-password \
     CORS_ORIGIN="https://placeholder.local" \
-    SEED_ON_START="$SEED_ON_START" \
-    ALLOW_DEMO_SEED="$ALLOW_DEMO_SEED" \
+    ${ENTRA_TENANT_ID:+ENTRA_TENANT_ID="$ENTRA_TENANT_ID"} \
+    ${ENTRA_CLIENT_ID:+ENTRA_CLIENT_ID="$ENTRA_CLIENT_ID"} \
+    ${ENTRA_CLIENT_SECRET:+ENTRA_CLIENT_SECRET=secretref:entra-client-secret} \
+    ${KV_URI:+KEY_VAULT_URI="$KV_URI"} \
   -o none 2>/dev/null || \
 az containerapp update \
   --name "api-$NAME" \
@@ -113,6 +193,7 @@ az containerapp update \
   --set-env-vars \
     PORT=8080 \
     NODE_ENV=production \
+    DATA_PLANE_MODE="$DP_MODE" \
     POSTGRES_URL=secretref:postgres-url \
     NEO4J_URI="bolt://neo4j-$NAME:7687" \
     NEO4J_USER=neo4j \
@@ -122,11 +203,11 @@ az containerapp update \
     ENCRYPTION_KEY=secretref:encryption-key \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
     BOOTSTRAP_ADMIN_PASSWORD=secretref:bootstrap-password \
-    SEED_ON_START="$SEED_ON_START" \
-    ALLOW_DEMO_SEED="$ALLOW_DEMO_SEED" \
+    ${ENTRA_TENANT_ID:+ENTRA_TENANT_ID="$ENTRA_TENANT_ID"} \
+    ${ENTRA_CLIENT_ID:+ENTRA_CLIENT_ID="$ENTRA_CLIENT_ID"} \
+    ${KV_URI:+KEY_VAULT_URI="$KV_URI"} \
   -o none
 
-# Ensure secrets exist on update path
 az containerapp secret set \
   --name "api-$NAME" \
   --resource-group "$RG" \
@@ -136,6 +217,7 @@ az containerapp secret set \
     postgres-url="$POSTGRES_URL" \
     bootstrap-password="$ADMIN_PASSWORD" \
     neo4j-password="$NEO4J_PASSWORD" \
+    ${ENTRA_CLIENT_SECRET:+entra-client-secret="$ENTRA_CLIENT_SECRET"} \
   -o none || true
 
 echo "==> Creating/updating Web container app (public)..."
@@ -195,14 +277,14 @@ az containerapp update \
 WEB_FQDN=$(az containerapp show -n "web-$NAME" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv)
 API_FQDN=$(az containerapp show -n "api-$NAME" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv 2>/dev/null || true)
 
-# Lock CORS to the public web origin now that FQDN is known
 az containerapp update \
   --name "api-$NAME" \
   --resource-group "$RG" \
-  --set-env-vars "CORS_ORIGIN=https://$WEB_FQDN" \
+  --set-env-vars \
+    "CORS_ORIGIN=https://$WEB_FQDN" \
+    ${ENTRA_TENANT_ID:+"ENTRA_REDIRECT_URI=https://$WEB_FQDN/login"} \
   -o none
 
-# Keep API internal; web proxies via API_UPSTREAM
 if [[ -z "${API_FQDN:-}" || "$API_FQDN" == "null" ]]; then
   API_FQDN="(internal) http://api-$NAME"
 fi
@@ -218,17 +300,26 @@ WEB_URL=https://$WEB_FQDN
 API_URL=$API_FQDN
 ADMIN_EMAIL=$ADMIN_EMAIL
 POSTGRES_APP=$PG_APP
+POSTGRES_HOST=$PG_HOST
 NAME_PREFIX=$NAME
-SEED_ON_START=$SEED_ON_START
+DATA_PLANE_MODE=$DP_MODE
+KEY_VAULT_NAME=$KV_NAME
+ENCRYPTION_KEY_SET=true
 EOF
 
 echo ""
 echo "============================================"
 echo " AgentRadar Discovery deployed to Azure"
+echo " Data plane : $DP_MODE"
 echo " Web:  https://$WEB_FQDN"
 echo " API:  http://api-$NAME (internal; proxied via web /api)"
 echo " Login: $ADMIN_EMAIL"
 echo " Admin password: $ADMIN_PASSWORD"
-echo " (Password is NOT written to .last-deploy.env — store in a secret manager)"
-echo " SEED_ON_START=$SEED_ON_START"
+if [[ -n "$KV_NAME" ]]; then
+  echo " Key Vault: $KV_NAME ($KV_URI)"
+fi
+if [[ -n "$ENTRA_TENANT_ID" ]]; then
+  echo " Entra SSO: enabled (tenant $ENTRA_TENANT_ID)"
+fi
+echo " (Password is NOT written to .last-deploy.env — store in Key Vault / secret manager)"
 echo "============================================"

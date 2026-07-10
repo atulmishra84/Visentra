@@ -34,8 +34,7 @@ export BOOTSTRAP_ADMIN_EMAIL=admin@yourcompany.com
 export BOOTSTRAP_ADMIN_PASSWORD='…strong password…'
 export JWT_SECRET="$(openssl rand -hex 32)"
 export ENCRYPTION_KEY="$(openssl rand -hex 32)"
-export SEED_ON_START=false
-export ALLOW_DEMO_SEED=false
+export DATA_PLANE_MODE=production
 
 ./deploy.sh
 ```
@@ -49,10 +48,9 @@ export ALLOW_DEMO_SEED=false
 | `BOOTSTRAP_ADMIN_PASSWORD` | **Required** (no hardcoded default) |
 | `JWT_SECRET` | Auto-generated if unset |
 | `ENCRYPTION_KEY` | Auto-generated if unset (64-char hex) |
-| `SEED_ON_START` | Default `false` |
-| `ALLOW_DEMO_SEED` | Default `false` |
+| `DATA_PLANE_MODE` | `production` (Flexible Server + Key Vault) or `eval` |
 
-Deploy sets `NODE_ENV=production`, injects `ENCRYPTION_KEY`, and locks `CORS_ORIGIN` to the web FQDN.
+Deploy sets `NODE_ENV=production`, injects `ENCRYPTION_KEY`, and locks `CORS_ORIGIN` to the web FQDN. Inventory is never demo-seeded.
 
 ## Customer one-click package
 

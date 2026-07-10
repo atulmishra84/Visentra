@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS users (
   role            TEXT NOT NULL DEFAULT 'viewer'
                     CHECK (role IN ('platform_admin', 'operator', 'viewer')),
   password_hash   TEXT NOT NULL,
+  auth_provider   TEXT NOT NULL DEFAULT 'local'
+                    CHECK (auth_provider IN ('local', 'entra')),
   last_login      TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -193,6 +195,7 @@ CREATE TABLE IF NOT EXISTS connectors (
   provider        TEXT NOT NULL
                     CHECK (provider IN (
                       'azure', 'aws', 'gcp',
+                      'github', 'gitlab', 'entra_identity', 'kubernetes', 'kubernetes_identity',
                       'crowdstrike', 'defender', 'intune', 'cortex', 'netskope',
                       'm365_copilot', 'salesforce', 'workday', 'servicenow'
                     )),
@@ -210,4 +213,20 @@ CREATE TABLE IF NOT EXISTS connectors (
   UNIQUE (tenant_id, name)
 );
 CREATE INDEX IF NOT EXISTS idx_connectors_tenant ON connectors(tenant_id, provider);
+
+-- Append-only audit trail (Stage 1 production)
+CREATE TABLE IF NOT EXISTS audit_events (
+  id              BIGSERIAL PRIMARY KEY,
+  tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  actor_id        UUID,
+  actor_email     TEXT,
+  action          TEXT NOT NULL,
+  resource_type   TEXT,
+  resource_id     TEXT,
+  details         JSONB NOT NULL DEFAULT '{}',
+  ip              TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_events(tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_events(tenant_id, action);
 

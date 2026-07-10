@@ -37,12 +37,16 @@ const sections = [
     items: [
       { to: "/timeline", label: "Agent Timeline" },
       { to: "/discovery/events", label: "Discovery Events" },
+      { to: "/coverage", label: "Coverage Map" },
       { to: "/search", label: "Global Search" }
     ]
   },
   {
     heading: "Settings",
-    items: [{ to: "/settings/connectors", label: "Connectors" }]
+    items: [
+      { to: "/settings/connectors", label: "Connectors" },
+      { to: "/settings/audit", label: "Audit Log" }
+    ]
   }
 ];
 
@@ -60,10 +64,12 @@ export function Layout() {
 
     const stream = connectGraphStream(
       (event) => {
+        const type = event.type;
+        if (!type || type === "message" || type === "connected" || type === "error") return;
         window.dispatchEvent(
           new CustomEvent("agentradar:graph-event", {
             detail: {
-              type: event.type,
+              type,
               data: event.data
             }
           })

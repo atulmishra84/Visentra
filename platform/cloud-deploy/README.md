@@ -8,6 +8,13 @@
 
 One-click install of **AgentRadar Discovery & Visibility** into **your Azure subscription** (customer cloud / BYOC).
 
+## Data plane modes
+
+| `DATA_PLANE_MODE` | What you get |
+|---|---|
+| **`production`** (default) | Azure Database for PostgreSQL Flexible Server (7-day backups), Key Vault secrets, Neo4j on Azure Files |
+| **`eval`** | Containerized Postgres/Neo4j (POC only — data can be lost on reschedule) |
+
 ## What you get
 
 | Component | Azure resource |
@@ -15,7 +22,10 @@ One-click install of **AgentRadar Discovery & Visibility** into **your Azure sub
 | Web UI | Container App (public HTTPS) |
 | API | Container App (internal, proxied via web `/api`) |
 | Discovery worker | Container App |
-| Postgres + Redis + Neo4j | Container Apps (MVP data plane) |
+| Postgres | Flexible Server (production) or Container App (eval) |
+| Neo4j | Container App (+ Azure Files volume in production) |
+| Redis | Container App |
+| Secrets | Key Vault (production) |
 | Image registry | Azure Container Registry |
 
 Images are built **inside your Azure ACR** (`az acr build`) — **no local Docker daemon required**.
@@ -31,6 +41,7 @@ Images are built **inside your Azure ACR** (`az acr build`) — **no local Docke
 ```bash
 cd platform/cloud-deploy
 chmod +x install.sh teardown.sh
+export DATA_PLANE_MODE=production   # default
 ./install.sh
 ```
 
@@ -38,8 +49,20 @@ Follow the prompts (region, resource group, admin email/password). When it finis
 
 - Public **Web URL**
 - Admin email + password (password shown once)
+- Key Vault name (production mode)
 
-Then open the URL → sign in → **Settings → Connectors** → add cloud/EDR/SaaS → **Test** → **Scan**.
+Then open the URL → sign in → **Settings → Connectors** → add cloud/EDR/SaaS/Git/K8s → **Test** → **Scan** → open **Coverage Map**.
+
+### Entra ID SSO (optional)
+
+Register a single-tenant app in Entra ID with redirect URI `https://<web-fqdn>/login`, then:
+
+```bash
+export ENTRA_TENANT_ID=…
+export ENTRA_CLIENT_ID=…
+export ENTRA_CLIENT_SECRET=…
+./install.sh --yes
+```
 
 ### Non-interactive (CI / scripted)
 
@@ -49,26 +72,6 @@ cp parameters.example.env parameters.env
 set -a && source parameters.env && set +a
 ./install.sh --yes
 ```
-
-### Azure Cloud Shell
-
-Upload or clone this repo, then:
-
-```bash
-cd platform/cloud-deploy
-./install.sh
-```
-
-Cloud Shell already has `az` authenticated to your tenant.
-
-## After deploy
-
-1. Sign in with the printed admin credentials  
-2. Change the admin password in your IdP / rotate bootstrap secret when ready  
-3. Connect Azure ARM, EDR (CrowdStrike, Defender, Intune, Cortex, Netskope), and SaaS platforms (Copilot, Salesforce, Workday, ServiceNow)  
-4. Use Inventory, Shadow AI, and Relationship Explorer  
-
-Production checklist: [`../PRODUCTION.md`](../PRODUCTION.md)
 
 ## Upgrade / redeploy
 
@@ -88,23 +91,14 @@ export JWT_SECRET='…' ENCRYPTION_KEY='…' POSTGRES_PASSWORD='…' BOOTSTRAP_A
 ./teardown.sh --rg rg-agentradar
 ```
 
-## Operator path (local Docker)
-
-If you already have Docker and prefer the internal operator script:
-
-```bash
-cd platform/infra/azure
-export BOOTSTRAP_ADMIN_PASSWORD='…'
-./deploy.sh
-```
-
 ## Security notes
 
+- Prefer `DATA_PLANE_MODE=production` for any durable inventory.
 - **Eval data plane:** containerized Postgres/Neo4j are not durable — plan Flexible Server + backups before production traffic.
 - `ENCRYPTION_KEY` and `JWT_SECRET` are generated per **fresh** install unless you supply them; upgrades require the originals.
 - Admin password is **not** written to `out/last-deploy.env`
-- Demo seed is **off** by default (`SEED_ON_START=false`)
-- Store secrets in Azure Key Vault / your secret manager — not git.
+- Inventory is never demo-seeded — it starts empty until connectors/discovery run.
+- Store secrets in Azure Key Vault — production installs write them there automatically.
 
 ## Support layout
 
@@ -113,6 +107,5 @@ platform/cloud-deploy/
   install.sh              # one-click installer
   teardown.sh             # delete resource group
   parameters.example.env  # non-interactive template
-  README.md               # this file
-  out/                    # generated metadata (gitignored)
+  README.md
 ```

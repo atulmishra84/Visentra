@@ -661,12 +661,18 @@ tbody tr:hover {
 .graph-shell {
   position: relative;
   height: min(72vh, 760px);
+  min-height: 420px;
   overflow: hidden;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-lg);
   background:
     radial-gradient(circle at 50% 0%, var(--glow-brand), transparent 34rem),
     var(--graph-bg);
+}
+
+.graph-shell .react-flow {
+  width: 100%;
+  height: 100%;
 }
 
 .graph-meta {
@@ -681,6 +687,43 @@ tbody tr:hover {
   color: var(--text-muted);
   font-size: 12px;
   pointer-events: none;
+}
+
+.topology-node {
+  min-width: 150px;
+  max-width: 210px;
+  padding: 10px 12px;
+  border: 1px solid;
+  border-radius: 14px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.topology-node-kind {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.topology-node-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.topology-node-sub {
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.topology-handle {
+  width: 8px !important;
+  height: 8px !important;
+  border: 2px solid var(--brand) !important;
+  background: var(--graph-node-bg) !important;
 }
 
 .react-flow__node {
@@ -871,4 +914,44 @@ tbody tr:hover {
   top: 20px;
   right: 20px;
   z-index: 2;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--panel-border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.status-pill.status-covered {
+  color: var(--good, #1f9d6c);
+  border-color: rgba(31, 157, 108, 0.35);
+  background: rgba(31, 157, 108, 0.1);
+}
+
+.status-pill.status-configured,
+.status-pill.status-available {
+  color: var(--brand);
+  border-color: color-mix(in srgb, var(--brand) 35%, transparent);
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+.status-pill.status-blind,
+.status-pill.status-idle,
+.status-pill.status-disabled {
+  color: var(--text-muted);
+}
+
+.status-pill.status-error,
+.status-pill.status-degraded {
+  color: var(--bad, #d64545);
+  border-color: rgba(214, 69, 69, 0.35);
+  background: rgba(214, 69, 69, 0.1);
 }

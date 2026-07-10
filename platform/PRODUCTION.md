@@ -1,6 +1,21 @@
-# Production readiness checklist — AgentRadar Discovery MVP
+# Production readiness checklist — AgentRadar Discovery
 
 AgentRadar is **agentless discovery & visibility**. This checklist is the minimum bar before a customer-facing production deploy.
+
+## Stage 1 — Production Discovery (required)
+
+| Capability | Status in platform |
+|---|---|
+| Azure Database for PostgreSQL Flexible Server | `DATA_PLANE_MODE=production` in Bicep / install |
+| Durable Neo4j (Azure Files volume) | Enabled in production data plane |
+| Azure Key Vault for secrets | Created + secrets written on production install |
+| Upgrade-safe secrets | `install.sh` + `deploy.sh` refuse auto-rotate on existing API app |
+| Entra ID SSO (OIDC) | Optional via `ENTRA_TENANT_ID` / `ENTRA_CLIENT_ID` / `ENTRA_CLIENT_SECRET` |
+| Live AWS / GCP discovery | Connectors + collectors |
+| Live Kubernetes API collector | `k8s_api` + `kubernetes` connector |
+| GitHub / GitLab + Entra identity | Connectors + collectors |
+| Audit log | `/api/audit` + Settings → Audit Log |
+| Coverage map | `/api/coverage` + Coverage Map UI |
 
 ## 1. Secrets (required)
 
@@ -24,13 +39,19 @@ openssl rand -base64 24
 
 ```bash
 NODE_ENV=production
-SEED_ON_START=false
-ALLOW_DEMO_SEED=false
+DATA_PLANE_MODE=production   # or eval for POC-only
+# Discovery ingests AI agents / AI workloads only (default). Set false to also keep non-AI cloud/EDR inventory.
+DISCOVERY_AI_ONLY=true
 ```
 
-- Demo collector is blocked in production unless `ALLOW_DEMO_SEED=true`.
-- Default collectors exclude `demo` and `k8s_stub`.
-- Admin password is **not** overwritten on API restart (insert-only bootstrap).
+Optional Entra SSO:
+
+```bash
+export ENTRA_TENANT_ID=…
+export ENTRA_CLIENT_ID=…
+export ENTRA_CLIENT_SECRET=…
+# Redirect URI registered in Entra app: https://<web-fqdn>/login
+```
 
 ## 3. Azure deploy
 
@@ -42,6 +63,7 @@ ALLOW_DEMO_SEED=false
 
 ```bash
 cd platform/cloud-deploy
+export DATA_PLANE_MODE=production   # default
 ./install.sh
 ```
 
@@ -57,15 +79,21 @@ export BOOTSTRAP_ADMIN_EMAIL=admin@yourcompany.com
 export BOOTSTRAP_ADMIN_PASSWORD='…'
 export JWT_SECRET="$(openssl rand -hex 32)"
 export ENCRYPTION_KEY="$(openssl rand -hex 32)"
-export SEED_ON_START=false
+export DATA_PLANE_MODE=production
 ./deploy.sh
 ```
 
 `deploy.sh` will:
-- Refuse a hardcoded default admin password
+- Refuse to auto-rotate secrets when an API app already exists in the RG
+- Deploy Flexible Server + Key Vault + durable Neo4j when `DATA_PLANE_MODE=production`
 - Inject `ENCRYPTION_KEY` + `NODE_ENV=production`
 - Lock `CORS_ORIGIN` to the deployed web FQDN
 - Print the admin password once (not written to `.last-deploy.env`)
+
+### Eval / POC data plane
+
+Set `DATA_PLANE_MODE=eval` to keep containerized Postgres/Neo4j (no Flexible Server).
+Use only for demos — inventory can be lost on reschedule.
 
 ## 4. Local production-like compose
 
@@ -78,33 +106,14 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ## 5. Post-deploy verification
 
 1. `GET /health` → `status: ok`, `env: production`
-2. `GET /ready` → `status: ready` (Postgres + Neo4j)
-3. Login with bootstrap admin (empty inventory is expected)
-4. Settings → Connectors → add Azure / EDR / SaaS → Test → Scan
-5. Confirm Inventory / Shadow AI / Relationship Explorer populate from real connectors
-6. Confirm login page has **no** prefilled credentials
+2. `GET /ready` → postgres + neo4j ready
+3. Login (local admin and/or Entra SSO)
+4. Settings → Connectors → add cloud/EDR/SaaS/Git/K8s → Test
+5. Start discovery → Coverage Map shows configured/covered sources
+6. Settings → Audit Log shows connector and job actions
 
-## 6. Security posture (MVP)
+## 6. Still later (Stage 2 Visibility / Governance)
 
-| Control | Status |
-|---------|--------|
-| Required secrets at boot | Yes |
-| Wildcard CORS blocked | Yes |
-| Login rate limit | Yes (10/min/IP in prod) |
-| Security headers (API + nginx) | Yes |
-| Demo seed off by default | Yes |
-| JWT in query string | SSE `/stream` + `/events` only in production |
-| Connector secret encryption (AES-GCM) | Yes (`ENCRYPTION_KEY` required; legacy JWT key auto-migrated) |
-| Persistent managed DB / Key Vault | Recommended next (see Should-fix) |
-
-## 7. Operational notes
-
-- **First-time `ENCRYPTION_KEY`**: set a new key and redeploy — API boot re-encrypts connectors still on the legacy JWT-derived key.
-- **Rotating `ENCRYPTION_KEY` again** after migration requires decrypt with the old key (not automated) — re-save connectors or restore the previous key.
-- Discovery worker authenticates as the bootstrap admin; prefer a dedicated operator account later.
-- Azure Container Apps Postgres/Neo4j in this MVP are containerized — plan Flexible Server + backups for durable production data.
-- Store admin password and keys in Azure Key Vault / your secret manager — not git.
-
-## 8. Rollback
-
-Redeploy previous image tags from ACR and restore prior Container App secret values. Inventory lives in Postgres; graph enrichment in Neo4j.
+- Agent timelines & relationship history streams
+- SIEM / CMDB outbound feeds
+- Policy, approve/deny, remediation (explicitly out of Discovery scope)

@@ -6,7 +6,7 @@ import crypto from "crypto";
 import pg from "pg";
 import neo4j from "neo4j-driver";
 import { migrate } from "./migrate.js";
-import { claimDiscoveryJob, executeDiscoveryJob, runDiscoveryJob } from "./discovery/pipeline.js";
+import { claimDiscoveryJob, executeDiscoveryJob } from "./discovery/pipeline.js";
 import {
   DEFAULT_COLLECTORS,
   PRODUCTION_COLLECTORS,
@@ -22,6 +22,16 @@ import {
   testConnector
 } from "./services/connectors.js";
 import { classifyShadowAi, summarizeShadowFindings } from "./services/shadowAi.js";
+import { writeAudit, listAuditEvents } from "./services/audit.js";
+import { buildCoverageMap } from "./services/coverage.js";
+import {
+  entraEnabled,
+  buildAuthorizeUrl,
+  exchangeCodeForTokens,
+  decodeIdToken,
+  mapEntraRole,
+  newOidcState
+} from "./auth/entra.js";
 import { migrateConnectorEncryption } from "./utils/crypto.js";
 import { publicErrorMessage } from "./utils/http.js";
 import {
@@ -29,7 +39,6 @@ import {
   assertProductionConfig,
   resolveJwtSecret,
   resolveCorsOrigin,
-  allowDemoSeed,
   sanitizeCollectors,
   createRateLimiter
 } from "./config.js";
@@ -293,6 +302,39 @@ async function graphFromSql(tenantId, { agentId, depth = 2, limit = 60 } = {}) {
       model: a.model,
       provider: a.provider || a.cloud_provider
     });
+
+    // Attribute edges so Topology Map is useful even when SQL relationships are sparse
+    const attrs = [
+      ["Model", a.model, "INVOKES_MODEL"],
+      ["Framework", a.framework, "USES_FRAMEWORK"],
+      ["Cloud", a.cloud_provider || (a.provider === "azure" || a.provider === "aws" || a.provider === "gcp" ? a.provider : null), "DEPLOYED_IN"],
+      ["IDE", a.ide, "RUNS_IN"],
+      ["Provider", a.provider && a.provider !== a.cloud_provider ? a.provider : null, "PROVIDED_BY"]
+    ];
+    for (const [type, value, rel] of attrs) {
+      if (!value) continue;
+      const key = `${String(type).toLowerCase()}:${String(value).toLowerCase()}`;
+      if (!nodes.has(key) && nodes.size < maxNodes * 2) {
+        nodes.set(key, {
+          id: key,
+          type,
+          label: String(value),
+          name: String(value),
+          category: String(type).toLowerCase()
+        });
+      }
+      if (nodes.has(key)) {
+        edges.push({
+          id: `${a.id}:${rel}:${key}`,
+          source: a.id,
+          target: key,
+          from: a.id,
+          to: key,
+          type: rel,
+          label: rel
+        });
+      }
+    }
   }
 
   const agentIds = agents.rows.map((a) => a.id);
@@ -349,15 +391,28 @@ async function graphFromSql(tenantId, { agentId, depth = 2, limit = 60 } = {}) {
     }
   }
 
+  // Deduplicate edges by source|target|type
+  const seen = new Set();
+  const uniqueEdges = [];
+  for (const edge of edges) {
+    const key = `${edge.source}|${edge.target}|${edge.type}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueEdges.push(edge);
+  }
+
   return {
     nodes: [...nodes.values()],
-    edges,
+    edges: uniqueEdges,
     meta: {
       seed: agentId || null,
       matched: agents.rows.length,
       nodeCount: nodes.size,
-      edgeCount: edges.length,
-      depth: hopDepth
+      edgeCount: uniqueEdges.length,
+      depth: hopDepth,
+      message: seedMode
+        ? `Neighborhood for ${agents.rows.length} seed agent(s)`
+        : `Overview of ${agents.rows.length} connected agents`
     }
   };
 }
@@ -429,6 +484,15 @@ app.post("/api/auth/login", loginRateLimit, async (req, res) => {
     return res.status(401).json({ error: { message: "Invalid credentials" } });
   }
   await pool.query(`UPDATE users SET last_login=NOW() WHERE id=$1`, [user.id]);
+  await writeAudit(pool, {
+    tenantId: user.tenant_id,
+    actorId: user.id,
+    actorEmail: user.email,
+    action: "auth.login",
+    resourceType: "user",
+    resourceId: user.id,
+    ip: req.ip
+  });
   const token = signToken(user);
   res.json({
     token,
@@ -439,9 +503,99 @@ app.post("/api/auth/login", loginRateLimit, async (req, res) => {
       role: user.role,
       roles: [user.role],
       tenant: user.tenant_slug,
-      tenantId: user.tenant_id
+      tenantId: user.tenant_id,
+      authProvider: user.auth_provider || "local"
     }
   });
+});
+
+app.get("/api/auth/sso/status", (_req, res) => {
+  res.json({
+    entraEnabled: entraEnabled(),
+    providers: entraEnabled() ? ["entra"] : []
+  });
+});
+
+app.get("/api/auth/sso/entra/start", loginRateLimit, (req, res) => {
+  if (!entraEnabled()) {
+    return res.status(404).json({ error: { message: "Entra SSO is not configured" } });
+  }
+  try {
+    const state = newOidcState();
+    const nonce = newOidcState();
+    // Short-lived cookies for OIDC CSRF/nonce (SameSite=Lax for top-level redirect)
+    res.cookie?.("ar_oidc_state", state, { httpOnly: true, sameSite: "lax", maxAge: 600_000, secure: IS_PROD });
+    // Express may not have cookie-parser — also return state for SPA to echo back
+    const url = buildAuthorizeUrl({ state, nonce });
+    res.json({ authorizeUrl: url, state, nonce });
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Unable to start Entra SSO") } });
+  }
+});
+
+app.post("/api/auth/sso/entra/callback", loginRateLimit, async (req, res) => {
+  if (!entraEnabled()) {
+    return res.status(404).json({ error: { message: "Entra SSO is not configured" } });
+  }
+  const { code, state } = req.body || {};
+  if (!code) return res.status(400).json({ error: { message: "code is required" } });
+  try {
+    const tokens = await exchangeCodeForTokens(code);
+    const claims = decodeIdToken(tokens.id_token);
+    if (state && claims.nonce && req.body?.nonce && claims.nonce !== req.body.nonce) {
+      return res.status(401).json({ error: { message: "Invalid OIDC nonce" } });
+    }
+    const email = claims.preferred_username || claims.email || claims.upn;
+    if (!email) return res.status(401).json({ error: { message: "Entra token missing email claim" } });
+    const name = claims.name || email;
+    const role = mapEntraRole(claims);
+
+    // Bind SSO users to the bootstrap tenant (single-tenant BYOC)
+    const tenant = await pool.query(`SELECT id, slug FROM tenants ORDER BY created_at ASC LIMIT 1`);
+    const tenantId = tenant.rows[0]?.id;
+    if (!tenantId) return res.status(500).json({ error: { message: "No tenant provisioned" } });
+
+    const unusable = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
+    const upsert = await pool.query(
+      `INSERT INTO users (tenant_id, email, name, role, password_hash, auth_provider)
+       VALUES ($1,$2,$3,$4,$5,'entra')
+       ON CONFLICT (tenant_id, email) DO UPDATE SET
+         name = EXCLUDED.name,
+         auth_provider = 'entra',
+         last_login = NOW(),
+         updated_at = NOW()
+       RETURNING *`,
+      [tenantId, String(email).toLowerCase(), name, role, unusable]
+    );
+    const user = upsert.rows[0];
+    user.tenant_slug = tenant.rows[0].slug;
+    await writeAudit(pool, {
+      tenantId,
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "auth.sso.entra",
+      resourceType: "user",
+      resourceId: user.id,
+      details: { oid: claims.oid || null },
+      ip: req.ip
+    });
+    const token = signToken(user);
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        roles: [user.role],
+        tenant: user.tenant_slug,
+        tenantId: user.tenant_id,
+        authProvider: "entra"
+      }
+    });
+  } catch (err) {
+    res.status(401).json({ error: { message: publicErrorMessage(err, "Entra SSO failed") } });
+  }
 });
 
 app.get("/api/auth/me", auth, async (req, res) => {
@@ -656,6 +810,16 @@ app.post("/api/discovery/jobs", auth, requireRole("platform_admin", "operator"),
     jobId: job.id,
     collectors: job.collector_ids || collectors
   });
+  writeAudit(pool, {
+    tenantId: req.tenantId,
+    actorId: req.user.sub,
+    actorEmail: req.user.email,
+    action: "discovery.job.start",
+    resourceType: "discovery_job",
+    resourceId: job.id,
+    details: { collectors: job.collector_ids || collectors },
+    ip: req.ip
+  }).catch(() => {});
   executeDiscoveryJob(pool, neo4jDriver, job, {
     tenantId: req.tenantId,
     triggeredBy: req.user.email,
@@ -816,7 +980,15 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
         queue,
         items: queue,
         newDiscoveries: queue.length,
-        collectorHealth: COLLECTOR_IDS.map((id) => ({ name: id, status: "ready" })),
+        collectorHealth: COLLECTOR_IDS.map((id) => {
+          const last = jobs.rows.find((j) => (j.collector_ids || []).includes(id));
+          return {
+            name: id,
+            status: last?.status === "error" ? "error" : last ? "ready" : "idle",
+            lastJobAt: last?.finished_at || last?.started_at || null,
+            lastJobStatus: last?.status || null
+          };
+        }),
         openJobs: jobs.rows.filter((j) => j.status === "running").length
       }
     });
@@ -840,6 +1012,24 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
     });
   }
   return res.status(404).json({ error: { message: `Unknown dashboard ${name}` } });
+});
+
+app.get("/api/coverage", auth, async (req, res) => {
+  try {
+    const map = await buildCoverageMap(pool, req.tenantId, ALL_COLLECTOR_IDS);
+    res.json(map);
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Coverage map failed") } });
+  }
+});
+
+app.get("/api/audit", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  try {
+    const events = await listAuditEvents(pool, req.tenantId, { limit: req.query.limit });
+    res.json({ events, items: events });
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Audit query failed") } });
+  }
 });
 
 app.get("/api/export/agents", auth, async (req, res) => {
@@ -899,6 +1089,16 @@ app.post("/api/connectors", auth, requireRole("platform_admin", "operator"), asy
         JSON.stringify({ connectorId: connector.id, provider: connector.provider })
       ]
     );
+    await writeAudit(pool, {
+      tenantId: req.tenantId,
+      actorId: req.user.sub,
+      actorEmail: req.user.email,
+      action: "connector.create",
+      resourceType: "connector",
+      resourceId: connector.id,
+      details: { provider: connector.provider, name: connector.name },
+      ip: req.ip
+    });
     res.status(201).json({ connector });
   } catch (err) {
     res.status(err.status || 500).json({
@@ -917,6 +1117,16 @@ app.put("/api/connectors/:id", auth, requireRole("platform_admin", "operator"), 
   try {
     const connector = await updateConnector(pool, req.tenantId, req.params.id, req.body || {});
     if (!connector) return res.status(404).json({ error: { message: "Connector not found" } });
+    await writeAudit(pool, {
+      tenantId: req.tenantId,
+      actorId: req.user.sub,
+      actorEmail: req.user.email,
+      action: "connector.update",
+      resourceType: "connector",
+      resourceId: connector.id,
+      details: { provider: connector.provider, name: connector.name },
+      ip: req.ip
+    });
     res.json({ connector });
   } catch (err) {
     res.status(err.status || 500).json({
@@ -926,16 +1136,188 @@ app.put("/api/connectors/:id", auth, requireRole("platform_admin", "operator"), 
 });
 
 app.delete("/api/connectors/:id", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  const existing = await getConnector(pool, req.tenantId, req.params.id);
   const ok = await deleteConnector(pool, req.tenantId, req.params.id);
   if (!ok) return res.status(404).json({ error: { message: "Connector not found" } });
+  await writeAudit(pool, {
+    tenantId: req.tenantId,
+    actorId: req.user.sub,
+    actorEmail: req.user.email,
+    action: "connector.delete",
+    resourceType: "connector",
+    resourceId: req.params.id,
+    details: { name: existing?.name, provider: existing?.provider },
+    ip: req.ip
+  });
   res.status(204).end();
 });
 
 app.post("/api/connectors/:id/test", auth, requireRole("platform_admin", "operator"), async (req, res) => {
   const result = await testConnector(pool, req.tenantId, req.params.id);
   if (!result) return res.status(404).json({ error: { message: "Connector not found" } });
+  await writeAudit(pool, {
+    tenantId: req.tenantId,
+    actorId: req.user.sub,
+    actorEmail: req.user.email,
+    action: "connector.test",
+    resourceType: "connector",
+    resourceId: req.params.id,
+    details: { ok: result.ok, message: result.message },
+    ip: req.ip
+  });
   res.json(result);
 });
+
+/**
+ * Remove demo-seeded inventory and related graph nodes (idempotent).
+ * Keeps connector-discovered / live collector data.
+ */
+async function purgeDemoInventory(pool, neo4jDriver, tenantId) {
+  const demoAgents = await pool.query(
+    `SELECT id FROM agents
+     WHERE tenant_id=$1
+       AND (
+         'demo' = ANY(source_collectors)
+         OR 'k8s_stub' = ANY(source_collectors)
+         OR fingerprint LIKE 'cloud-stub:vertex:demo%'
+         OR fingerprint LIKE 'saas:%:tenant-demo%'
+         OR fingerprint LIKE 'k8s-manifest:%'
+         OR metadata->>'discoveryMode' = 'credentialed-connector-pending-live-adapter'
+       )`,
+    [tenantId]
+  );
+  const ids = demoAgents.rows.map((r) => r.id);
+  if (ids.length) {
+    await pool.query(`DELETE FROM relationships WHERE tenant_id=$1 AND (from_id = ANY($2::uuid[]) OR to_id = ANY($2::uuid[]))`, [
+      tenantId,
+      ids
+    ]);
+    await pool.query(`DELETE FROM agent_observations WHERE tenant_id=$1 AND agent_id = ANY($2::uuid[])`, [tenantId, ids]);
+    await pool.query(`DELETE FROM agents WHERE tenant_id=$1 AND id = ANY($2::uuid[])`, [tenantId, ids]);
+    console.log(`Purged ${ids.length} demo/stub agent(s) from inventory`);
+  }
+
+  await pool.query(
+    `DELETE FROM agent_observations
+     WHERE tenant_id=$1 AND (collector_id IN ('demo','k8s_stub') OR fingerprint_hint LIKE 'cloud-stub:vertex:demo%')`,
+    [tenantId]
+  );
+  await pool.query(
+    `DELETE FROM discovery_events
+     WHERE tenant_id=$1 AND (
+       event_type LIKE 'demo.%'
+       OR message ILIKE '%demo seed%'
+       OR payload->>'collector' = 'demo'
+     )`,
+    [tenantId]
+  );
+  // Drop jobs that only ran the demo collector
+  await pool.query(
+    `DELETE FROM discovery_jobs
+     WHERE tenant_id=$1 AND collector_ids = ARRAY['demo']::text[]`,
+    [tenantId]
+  );
+
+  if (neo4jDriver && ids.length) {
+    const session = neo4jDriver.session();
+    try {
+      await session.run(
+        `MATCH (a:Agent {tenantId: $tenantId})
+         WHERE a.id IN $ids
+         DETACH DELETE a`,
+        { tenantId, ids }
+      );
+    } catch (err) {
+      console.warn("Neo4j demo purge:", err.message);
+    } finally {
+      await session.close();
+    }
+  }
+}
+
+/**
+ * Remove non-AI inventory when DISCOVERY_AI_ONLY is enabled (default).
+ * Drops bare cloud resources, bare EDR devices, and Azure rows that fail the
+ * tightened AI-resource classifier.
+ */
+async function purgeNonAiInventory(pool, neo4jDriver, tenantId) {
+  const { DISCOVERY_AI_ONLY, isAzureAiResource } = await import("./discovery/aiRelevance.js");
+  if (!DISCOVERY_AI_ONLY) {
+    console.log("DISCOVERY_AI_ONLY=false — skipping non-AI inventory purge");
+    return;
+  }
+
+  const clearIds = new Set();
+
+  const obvious = await pool.query(
+    `SELECT id FROM agents
+     WHERE tenant_id=$1
+       AND (
+         metadata->>'inventoryClass' = 'cloud_resource'
+         OR metadata->>'inventoryClass' = 'endpoint_device'
+         OR (category = 'cloud'
+             AND metadata->>'inventoryClass' = 'ai_cloud_resource'
+             AND metadata->>'aiRelevant' = 'false')
+         OR (category = 'endpoint'
+             AND metadata->>'aiRelevant' IS DISTINCT FROM 'true'
+             AND metadata->>'inventoryClass' IS DISTINCT FROM 'edr_connector'
+             AND metadata->>'inventoryClass' IS DISTINCT FROM 'endpoint_ai_agent')
+         OR fingerprint LIKE 'edr:%:device:%'
+       )`,
+    [tenantId]
+  );
+  for (const row of obvious.rows) clearIds.add(row.id);
+
+  // Re-evaluate previously ingested Azure "AI" rows against the tightened classifier
+  const azureRows = await pool.query(
+    `SELECT id, name, metadata FROM agents
+     WHERE tenant_id=$1
+       AND 'cloud_azure' = ANY(source_collectors)
+       AND metadata->>'inventoryClass' = 'ai_cloud_resource'
+       AND metadata->>'azureType' IS NOT NULL`,
+    [tenantId]
+  );
+  for (const row of azureRows.rows) {
+    const meta = row.metadata || {};
+    const stillAi = isAzureAiResource({
+      type: meta.azureType,
+      name: String(row.name || "").replace(/\s*\(AI\)\s*$/i, ""),
+      kind: meta.azureKind,
+      tags: meta.tags || {}
+    });
+    if (!stillAi) clearIds.add(row.id);
+  }
+
+  const ids = [...clearIds];
+  if (!ids.length) {
+    console.log("Non-AI inventory purge: nothing to remove");
+    return;
+  }
+
+  await pool.query(`DELETE FROM relationships WHERE tenant_id=$1 AND (from_id = ANY($2::uuid[]) OR to_id = ANY($2::uuid[]))`, [
+    tenantId,
+    ids
+  ]);
+  await pool.query(`DELETE FROM agent_observations WHERE tenant_id=$1 AND agent_id = ANY($2::uuid[])`, [tenantId, ids]);
+  await pool.query(`DELETE FROM agents WHERE tenant_id=$1 AND id = ANY($2::uuid[])`, [tenantId, ids]);
+  console.log(`Purged ${ids.length} non-AI agent(s) (AI-only discovery mode)`);
+
+  if (neo4jDriver) {
+    const session = neo4jDriver.session();
+    try {
+      await session.run(
+        `MATCH (a:Agent {tenantId: $tenantId})
+         WHERE a.id IN $ids
+         DETACH DELETE a`,
+        { tenantId, ids }
+      );
+    } catch (err) {
+      console.warn("Neo4j non-AI purge:", err.message);
+    } finally {
+      await session.close();
+    }
+  }
+}
 
 async function boot() {
   let postgresReady = false;
@@ -956,19 +1338,11 @@ async function boot() {
   await migrateConnectorEncryption(pool);
   await initNeo4jConstraints();
 
-  const count = await pool.query(`SELECT COUNT(*)::int AS c FROM agents WHERE tenant_id=$1`, [tenantId]);
-  const shouldSeed = allowDemoSeed() || (!IS_PROD && count.rows[0].c === 0);
-  if (shouldSeed) {
-    console.log("Seeding discovery demo data (non-production / explicit allow)...");
-    await runDiscoveryJob(pool, neo4jDriver, {
-      tenantId,
-      collectorIds: ["demo", "ide_filesystem", "process", "mcp"],
-      triggeredBy: "bootstrap",
-      broadcast
-    });
-  } else if (IS_PROD) {
-    console.log("Production boot: demo seed disabled. Inventory starts empty until connectors/discovery run.");
-  }
+  // Purge any leftover demo-seeded inventory (idempotent)
+  await purgeDemoInventory(pool, neo4jDriver, tenantId);
+  await purgeNonAiInventory(pool, neo4jDriver, tenantId);
+
+  console.log("Boot complete. Inventory starts from connectors/discovery only (no demo seed).");
 
   app.listen(PORT, () => {
     console.log(`AgentRadar API listening on :${PORT} (${IS_PROD ? "production" : "development"})`);

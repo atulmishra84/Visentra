@@ -27,8 +27,11 @@ Environment (optional overrides):
   BOOTSTRAP_ADMIN_PASSWORD Admin password (generated if unset)
   JWT_SECRET               JWT signing secret (generated if unset)
   ENCRYPTION_KEY           64-char hex (generated if unset)
-  SEED_ON_START            true|false (default: false)
+  DATA_PLANE_MODE          production|eval (default: production)
   IMAGE_TAG                Image tag (default: timestamp)
+  ENTRA_TENANT_ID          Optional Entra tenant for SSO
+  ENTRA_CLIENT_ID          Optional Entra app client ID
+  ENTRA_CLIENT_SECRET      Optional Entra app client secret
 EOF
 }
 
@@ -146,21 +149,23 @@ if [[ ! "$ENCRYPTION_KEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
   exit 1
 fi
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)Aa1}"
-SEED_ON_START="${SEED_ON_START:-false}"
-ALLOW_DEMO_SEED="${ALLOW_DEMO_SEED:-false}"
+DATA_PLANE_MODE="${DATA_PLANE_MODE:-production}"
 TAG="${IMAGE_TAG:-$(date +%Y%m%d%H%M%S)}"
 
 echo ""
 echo "============================================"
-echo " AgentRadar cloud deploy (EVAL / POC path)"
-echo "  Data plane uses containerized Postgres/Neo4j"
-echo "  — not durable HA. See README for production."
+echo " AgentRadar cloud deploy"
+echo "  Data plane   : $DATA_PLANE_MODE"
+if [[ "$DATA_PLANE_MODE" == "eval" ]]; then
+  echo "  (eval = containerized Postgres/Neo4j — not durable)"
+else
+  echo "  (production = Flexible Server + Key Vault + durable Neo4j volume)"
+fi
 echo "  Subscription : $SUB_NAME"
 echo "  Resource group: $RG ($LOCATION)"
 echo "  Prefix       : $PREFIX"
 echo "  Mode         : $([[ "$EXISTING_DEPLOY" == "true" ]] && echo upgrade || echo fresh)"
 echo "  Admin email  : $ADMIN_EMAIL"
-echo "  Seed demo    : $SEED_ON_START"
 echo "============================================"
 if [[ "$YES" != "true" ]]; then
   read -r -p "Continue? [Y/n] " confirm || true
@@ -173,7 +178,7 @@ fi
 echo "==> Creating resource group..."
 az group create --name "$RG" --location "$LOCATION" -o none
 
-echo "==> Deploying foundation (ACR, Container Apps env, Postgres, Redis, Neo4j)..."
+echo "==> Deploying foundation (ACR, data plane, CAE, Redis, Neo4j)..."
 DEPLOY_OUT=$(az deployment group create \
   --resource-group "$RG" \
   --template-file "$AZURE_DIR/main.bicep" \
@@ -183,14 +188,47 @@ DEPLOY_OUT=$(az deployment group create \
     jwtSecret="$JWT_SECRET" \
     bootstrapAdminPassword="$ADMIN_PASSWORD" \
     bootstrapAdminEmail="$ADMIN_EMAIL" \
+    dataPlaneMode="$DATA_PLANE_MODE" \
   --query properties.outputs -o json)
 
 ACR_NAME=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["acrName"]["value"])')
 ACR_LOGIN=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["acrLoginServer"]["value"])')
+PG_HOST=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["postgresHost"]["value"])')
+PG_USER=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["postgresUser"]["value"])')
+PG_DB=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["postgresDbName"]["value"])')
 PG_APP=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["postgresAppName"]["value"])')
 CAE=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["containerAppsEnvName"]["value"])')
 NAME=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["namePrefix"]["value"])')
 NEO4J_PASSWORD=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["neo4jPassword"]["value"])')
+KV_NAME=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("keyVaultName",{}).get("value",""))')
+KV_URI=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("keyVaultUri",{}).get("value",""))')
+DP_MODE=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["dataPlaneMode"]["value"])')
+
+PG_PASS_ENC=$(python3 -c 'import urllib.parse,os; print(urllib.parse.quote(os.environ["P"], safe=""))' P="$POSTGRES_PASSWORD")
+if [[ "$DP_MODE" == "production" ]]; then
+  POSTGRES_URL="postgres://${PG_USER}:${PG_PASS_ENC}@${PG_HOST}:5432/${PG_DB}?sslmode=require"
+else
+  POSTGRES_URL="postgres://${PG_USER}:${PG_PASS_ENC}@${PG_HOST}:5432/${PG_DB}"
+fi
+
+if [[ -n "$KV_NAME" ]]; then
+  echo "==> Writing secrets to Key Vault: $KV_NAME"
+  ME_OID=$(az ad signed-in-user show --query id -o tsv 2>/dev/null || true)
+  if [[ -n "$ME_OID" ]]; then
+    az role assignment create \
+      --role "Key Vault Secrets Officer" \
+      --assignee-object-id "$ME_OID" \
+      --assignee-principal-type User \
+      --scope "$(az keyvault show -n "$KV_NAME" --query id -o tsv)" \
+      -o none 2>/dev/null || true
+    sleep 8
+  fi
+  az keyvault secret set --vault-name "$KV_NAME" --name jwt-secret --value "$JWT_SECRET" -o none
+  az keyvault secret set --vault-name "$KV_NAME" --name encryption-key --value "$ENCRYPTION_KEY" -o none
+  az keyvault secret set --vault-name "$KV_NAME" --name postgres-url --value "$POSTGRES_URL" -o none
+  az keyvault secret set --vault-name "$KV_NAME" --name bootstrap-password --value "$ADMIN_PASSWORD" -o none
+  az keyvault secret set --vault-name "$KV_NAME" --name neo4j-password --value "$NEO4J_PASSWORD" -o none
+fi
 
 API_IMAGE="$ACR_LOGIN/agentradar-api:$TAG"
 WEB_IMAGE="$ACR_LOGIN/agentradar-web:$TAG"
@@ -201,7 +239,7 @@ az acr build --registry "$ACR_NAME" --image "agentradar-api:$TAG" --file "$PLATF
 az acr build --registry "$ACR_NAME" --image "agentradar-web:$TAG" --file "$PLATFORM/apps/web/Dockerfile" "$PLATFORM/apps/web"
 az acr build --registry "$ACR_NAME" --image "agentradar-discovery:$TAG" --file "$PLATFORM/apps/discovery/Dockerfile" "$PLATFORM/apps/discovery"
 
-POSTGRES_URL="postgres://agentradar:${POSTGRES_PASSWORD}@${PG_APP}:5432/agentradar"
+# POSTGRES_URL already set from Flexible Server / eval host above
 ACR_USER=$(az acr credential show -n "$ACR_NAME" --query username -o tsv)
 ACR_PASS=$(az acr credential show -n "$ACR_NAME" --query passwords[0].value -o tsv)
 
@@ -227,6 +265,7 @@ az containerapp create \
   --env-vars \
     PORT=8080 \
     NODE_ENV=production \
+    DATA_PLANE_MODE="$DP_MODE" \
     POSTGRES_URL=secretref:postgres-url \
     NEO4J_URI="bolt://neo4j-$NAME:7687" \
     NEO4J_USER=neo4j \
@@ -237,8 +276,6 @@ az containerapp create \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
     BOOTSTRAP_ADMIN_PASSWORD=secretref:bootstrap-password \
     CORS_ORIGIN="https://placeholder.local" \
-    SEED_ON_START="$SEED_ON_START" \
-    ALLOW_DEMO_SEED="$ALLOW_DEMO_SEED" \
   -o none 2>/dev/null || \
 az containerapp update \
   --name "api-$NAME" \
@@ -246,6 +283,7 @@ az containerapp update \
   --image "$API_IMAGE" \
   --set-env-vars \
     NODE_ENV=production \
+    DATA_PLANE_MODE="$DP_MODE" \
     POSTGRES_URL=secretref:postgres-url \
     NEO4J_URI="bolt://neo4j-$NAME:7687" \
     NEO4J_USER=neo4j \
@@ -255,8 +293,6 @@ az containerapp update \
     ENCRYPTION_KEY=secretref:encryption-key \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
     BOOTSTRAP_ADMIN_PASSWORD=secretref:bootstrap-password \
-    SEED_ON_START="$SEED_ON_START" \
-    ALLOW_DEMO_SEED="$ALLOW_DEMO_SEED" \
   -o none
 
 az containerapp secret set \
@@ -346,7 +382,8 @@ DISCOVERY_IMAGE=$DISCOVERY_IMAGE
 WEB_URL=https://$WEB_FQDN
 ADMIN_EMAIL=$ADMIN_EMAIL
 NAME_PREFIX=$NAME
-SEED_ON_START=$SEED_ON_START
+DATA_PLANE_MODE=$DP_MODE
+KEY_VAULT_NAME=$KV_NAME
 DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 

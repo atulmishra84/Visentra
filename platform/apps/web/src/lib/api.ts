@@ -181,7 +181,6 @@ export function connectGraphStream(
   const source = new EventSource(url);
   source.onopen = () => onStatus?.("live");
   source.onerror = () => onStatus?.("error");
-  source.onmessage = onMessage;
 
   [
     "graph.updated",
@@ -189,7 +188,7 @@ export function connectGraphStream(
     "inventory.agent.created",
     "inventory.agent.updated"
   ].forEach((eventName) => {
-    source.addEventListener(eventName, onMessage);
+    source.addEventListener(eventName, onMessage as EventListener);
   });
 
   return source;
