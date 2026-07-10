@@ -18,14 +18,8 @@ export function assertProductionConfig() {
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET === DEV_JWT_FALLBACK) {
       errors.push("JWT_SECRET must be set to a strong non-default value in production");
     }
-    if (process.env.ENCRYPTION_KEY) {
-      if (!/^[0-9a-fA-F]{64}$/.test(process.env.ENCRYPTION_KEY)) {
-        errors.push("ENCRYPTION_KEY must be a 64-char hex string (32 bytes) when set");
-      }
-    } else {
-      console.warn(
-        "[config] ENCRYPTION_KEY unset — connector secrets will derive from JWT_SECRET. Set ENCRYPTION_KEY for production."
-      );
+    if (!process.env.ENCRYPTION_KEY || !/^[0-9a-fA-F]{64}$/.test(process.env.ENCRYPTION_KEY)) {
+      errors.push("ENCRYPTION_KEY must be a 64-char hex string (openssl rand -hex 32) in production");
     }
     if (!process.env.CORS_ORIGIN || process.env.CORS_ORIGIN === "*") {
       errors.push("CORS_ORIGIN must be set to your web origin(s) in production (not *)");

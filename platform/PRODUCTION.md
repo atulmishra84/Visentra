@@ -7,7 +7,7 @@ AgentRadar is **agentless discovery & visibility**. This checklist is the minimu
 | Variable | Rule |
 |----------|------|
 | `JWT_SECRET` | Strong random (`openssl rand -hex 32`). Never use the dev fallback. |
-| `ENCRYPTION_KEY` | 64-char hex (`openssl rand -hex 32`). **Do not rotate** without re-entering connector secrets. |
+| `ENCRYPTION_KEY` | 64-char hex (`openssl rand -hex 32`). **Required in production.** Boot migrates legacy JWT-derived connector secrets onto this key once. |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Strong password; change after first login. |
 | `POSTGRES_URL` / DB password | Unique per environment. |
 | `NEO4J_PASSWORD` | Required when Neo4j is enabled. |
@@ -77,13 +77,13 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 | Security headers (API + nginx) | Yes |
 | Demo seed off by default | Yes |
 | JWT in query string | SSE `/stream` + `/events` only in production |
-| Connector secret encryption (AES-GCM) | Yes (`ENCRYPTION_KEY` or JWT-derived) |
+| Connector secret encryption (AES-GCM) | Yes (`ENCRYPTION_KEY` required; legacy JWT key auto-migrated) |
 | Persistent managed DB / Key Vault | Recommended next (see Should-fix) |
 
 ## 7. Operational notes
 
-- **Rotating `ENCRYPTION_KEY`** invalidates stored connector secrets — re-save connectors after rotation.
-- If `ENCRYPTION_KEY` is unset, the API derives a key from `JWT_SECRET` (same as earlier MVP builds). Set an explicit key before first connector save when possible.
+- **First-time `ENCRYPTION_KEY`**: set a new key and redeploy — API boot re-encrypts connectors still on the legacy JWT-derived key.
+- **Rotating `ENCRYPTION_KEY` again** after migration requires decrypt with the old key (not automated) — re-save connectors or restore the previous key.
 - Discovery worker authenticates as the bootstrap admin; prefer a dedicated operator account later.
 - Azure Container Apps Postgres/Neo4j in this MVP are containerized — plan Flexible Server + backups for durable production data.
 - Store admin password and keys in Azure Key Vault / your secret manager — not git.

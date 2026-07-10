@@ -22,6 +22,7 @@ import {
   testConnector
 } from "./services/connectors.js";
 import { classifyShadowAi, summarizeShadowFindings } from "./services/shadowAi.js";
+import { migrateConnectorEncryption } from "./utils/crypto.js";
 import {
   IS_PROD,
   assertProductionConfig,
@@ -909,6 +910,7 @@ async function boot() {
   }
 
   const tenantId = await migrate(pool);
+  await migrateConnectorEncryption(pool);
   await initNeo4jConstraints();
 
   const count = await pool.query(`SELECT COUNT(*)::int AS c FROM agents WHERE tenant_id=$1`, [tenantId]);

@@ -19,11 +19,9 @@ else
 fi
 
 JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
-# Prefer an explicit ENCRYPTION_KEY. If unset, derive from JWT_SECRET using the same
-# formula as the API crypto helper so connector secrets stay decryptable across redeploys.
-if [[ -z "${ENCRYPTION_KEY:-}" ]]; then
-  ENCRYPTION_KEY="$(node -e "console.log(require('crypto').createHash('sha256').update('agentradar-connectors:'+process.argv[1]).digest('hex'))" "$JWT_SECRET")"
-fi
+# Dedicated connector encryption key (required in production). Boot migrates any
+# secrets still encrypted with the legacy JWT-derived key onto this value.
+ENCRYPTION_KEY="${ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)Aa1}"
 SEED_ON_START="${SEED_ON_START:-false}"
 ALLOW_DEMO_SEED="${ALLOW_DEMO_SEED:-false}"
