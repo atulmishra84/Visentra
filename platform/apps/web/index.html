@@ -9,21 +9,7 @@
     />
     <meta name="color-scheme" content="dark light" />
     <title>AgentRadar</title>
-    <script>
-      (function () {
-        try {
-          var stored = localStorage.getItem("agentradar-theme");
-          var theme =
-            stored === "light" || stored === "dark"
-              ? stored
-              : window.matchMedia("(prefers-color-scheme: light)").matches
-                ? "light"
-                : "dark";
-          document.documentElement.setAttribute("data-theme", theme);
-          document.documentElement.style.colorScheme = theme;
-        } catch (e) {}
-      })();
-    </script>
+    <script src="/theme-boot.js"></script>
   </head>
   <body>
     <div id="root"></div>
