@@ -4,6 +4,7 @@ export type Facets = {
   model?: string;
   framework?: string;
   cloud?: string;
+  ide?: string;
   category?: string;
   department?: string;
   evidenceClass?: string;
@@ -21,6 +22,7 @@ const facetFields: Array<keyof Facets> = [
   "evidenceClass",
   "agentStatus",
   "cloud",
+  "ide",
   "owner",
   "framework",
   "model",
@@ -30,6 +32,7 @@ const facetFields: Array<keyof Facets> = [
 function labelFor(key: keyof Facets): string {
   if (key === "q") return "Search";
   if (key === "cloud") return "Provider";
+  if (key === "ide") return "IDE";
   if (key === "category") return "Category";
   if (key === "framework") return "Type / framework";
   if (key === "evidenceClass") return "Evidence";

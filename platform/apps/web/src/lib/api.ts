@@ -170,6 +170,30 @@ export async function downloadAgentExport(format: "csv" | "json", query?: Record
   window.URL.revokeObjectURL(href);
 }
 
+export async function downloadUsageExport(
+  dimension: "models" | "frameworks" | "cloud" | "ide" | "category",
+  query?: Record<string, unknown>
+) {
+  const token = getAuthToken();
+  const response = await fetch(buildApiUrl("/api/usage/export", { ...query, dimension }), {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined
+  });
+
+  if (!response.ok) {
+    throw new Error(`Usage export failed with ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const href = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = `agentradar-usage-${dimension}.csv`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(href);
+}
+
 export function connectGraphStream(
   onMessage: (event: MessageEvent) => void,
   onStatus?: (status: "connecting" | "live" | "error") => void

@@ -50,16 +50,63 @@ function categoryBadge(category: string) {
   return c || "unknown";
 }
 
+function facetsFromSearchParams(params: URLSearchParams): Facets {
+  const keys: Array<keyof Facets> = [
+    "q",
+    "owner",
+    "model",
+    "framework",
+    "cloud",
+    "ide",
+    "category",
+    "department",
+    "evidenceClass",
+    "agentStatus"
+  ];
+  const next: Facets = {};
+  for (const key of keys) {
+    const value = params.get(key);
+    if (value) next[key] = value;
+  }
+  return next;
+}
+
 export function InventoryPage({ title }: { title: string }) {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [facets, setFacets] = useState<Facets>({});
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [facets, setFacets] = useState<Facets>(() => facetsFromSearchParams(searchParams));
   const [payload, setPayload] = useState<unknown>(null);
   const [selected, setSelected] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<"csv" | "json" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const shadowOnly = searchParams.get("shadow") === "true";
+
+  useEffect(() => {
+    const fromUrl = facetsFromSearchParams(searchParams);
+    setFacets((prev) => {
+      const keys = new Set([...Object.keys(prev), ...Object.keys(fromUrl)] as Array<keyof Facets>);
+      for (const key of keys) {
+        if ((prev[key] || "") !== (fromUrl[key] || "")) return fromUrl;
+      }
+      return prev;
+    });
+  }, [searchParams]);
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (shadowOnly) next.set("shadow", "true");
+    (Object.entries(facets) as Array<[keyof Facets, string | undefined]>).forEach(([key, value]) => {
+      if (value) next.set(key, value);
+    });
+    const current = searchParams.toString();
+    const upcoming = next.toString();
+    if (current !== upcoming) {
+      setSearchParams(next, { replace: true });
+    }
+    // Only push facet changes into the URL; shadow is read from searchParams.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: avoid loops on searchParams identity
+  }, [facets, shadowOnly, setSearchParams]);
 
   useEffect(() => {
     let mounted = true;
@@ -101,6 +148,7 @@ export function InventoryPage({ title }: { title: string }) {
       model: uniqueOptions(agents, "model"),
       framework: uniqueOptions(agents, "framework"),
       cloud: uniqueOptions(agents, "cloud"),
+      ide: uniqueOptions(agents, "ide"),
       category: uniqueOptions(agents, "category"),
       department: uniqueOptions(agents, "department"),
       evidenceClass: uniqueMetaOptions(agents, "evidenceClass"),

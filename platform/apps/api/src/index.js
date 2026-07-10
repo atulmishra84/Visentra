@@ -25,6 +25,14 @@ import { classifyShadowAi, summarizeShadowFindings } from "./services/shadowAi.j
 import { writeAudit, listAuditEvents } from "./services/audit.js";
 import { buildCoverageMap } from "./services/coverage.js";
 import {
+  usageBreakdown as usageBreakdownService,
+  buildUsageDashboard,
+  exportUsageCsv,
+  fetchProviderUsage,
+  evidenceMix,
+  discoveryTrends
+} from "./services/usageAnalytics.js";
+import {
   entraEnabled,
   buildAuthorizeUrl,
   exchangeCodeForTokens,
@@ -429,13 +437,23 @@ async function graphFromSql(tenantId, { agentId, depth = 2, limit = 60 } = {}) {
 
 
 async function usageBreakdown(tenantId, column) {
-  const res = await pool.query(
-    `SELECT COALESCE(${column}, 'unknown') AS name, COUNT(*)::int AS count
-     FROM agents WHERE tenant_id=$1
-     GROUP BY 1 ORDER BY count DESC LIMIT 50`,
-    [tenantId]
-  );
-  return res.rows;
+  const dimension =
+    column === "model"
+      ? "models"
+      : column === "framework"
+        ? "frameworks"
+        : column === "cloud_provider"
+          ? "cloud"
+          : column === "ide"
+            ? "ide"
+            : column === "category"
+              ? "category"
+              : "models";
+  const result = await usageBreakdownService(pool, tenantId, dimension, {
+    hideUnknown: false,
+    confirmedOnly: false
+  });
+  return result.items.map((row) => ({ name: row.name, count: row.count }));
 }
 
 const app = express();
@@ -1006,11 +1024,22 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
   if (name === "discovery") {
     return res.json({ dashboard: { jobs: jobs.rows, events: events.rows, collectors: COLLECTOR_IDS } });
   }
-  if (name === "models") return res.json({ dashboard: { items: models, models, usage: models } });
-  if (name === "frameworks")
-    return res.json({ dashboard: { items: frameworks, frameworks, usage: frameworks } });
-  if (name === "cloud") return res.json({ dashboard: { items: cloud, cloud, usage: cloud } });
-  if (name === "ide") return res.json({ dashboard: { items: ide, ide, usage: ide } });
+  if (name === "models") {
+    const dashboard = await buildUsageDashboard(pool, req.tenantId, "models", req.query);
+    return res.json({ dashboard, ...dashboard });
+  }
+  if (name === "frameworks") {
+    const dashboard = await buildUsageDashboard(pool, req.tenantId, "frameworks", req.query);
+    return res.json({ dashboard, ...dashboard });
+  }
+  if (name === "cloud") {
+    const dashboard = await buildUsageDashboard(pool, req.tenantId, "cloud", req.query);
+    return res.json({ dashboard, ...dashboard });
+  }
+  if (name === "ide") {
+    const dashboard = await buildUsageDashboard(pool, req.tenantId, "ide", req.query);
+    return res.json({ dashboard, ...dashboard });
+  }
   if (name === "timeline") {
     const timeline = await pool.query(
       `SELECT id, name, first_discovered, last_seen, category, owner, framework, model
@@ -1022,6 +1051,49 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
     });
   }
   return res.status(404).json({ error: { message: `Unknown dashboard ${name}` } });
+});
+
+app.get("/api/usage/export", auth, async (req, res) => {
+  try {
+    const dimension = String(req.query.dimension || req.query.kind || "models").toLowerCase();
+    const allowed = ["models", "frameworks", "cloud", "ide", "category"];
+    if (!allowed.includes(dimension)) {
+      return res.status(400).json({ error: { message: `dimension must be one of ${allowed.join(", ")}` } });
+    }
+    const csv = await exportUsageCsv(pool, req.tenantId, dimension, req.query);
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename=agentradar-usage-${dimension}.csv`);
+    return res.send(csv);
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Usage export failed") } });
+  }
+});
+
+app.get("/api/usage/providers", auth, async (req, res) => {
+  try {
+    const payload = await fetchProviderUsage(pool, req.tenantId);
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Provider usage failed") } });
+  }
+});
+
+app.get("/api/usage/evidence", auth, async (req, res) => {
+  try {
+    const payload = await evidenceMix(pool, req.tenantId, req.query);
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Evidence mix failed") } });
+  }
+});
+
+app.get("/api/usage/trends", auth, async (req, res) => {
+  try {
+    const payload = await discoveryTrends(pool, req.tenantId, req.query);
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Usage trends failed") } });
+  }
 });
 
 app.get("/api/coverage", auth, async (req, res) => {

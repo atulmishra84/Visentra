@@ -446,6 +446,12 @@ h2 {
   gap: 16px;
 }
 
+.two-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
 .chart-list {
   display: grid;
   gap: 12px;
@@ -460,6 +466,36 @@ h2 {
   font-size: 0.9rem;
 }
 
+.bar-row-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 6px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.bar-row-button:hover {
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
+}
+
+.bar-row-button:hover .bar-fill {
+  filter: brightness(1.08);
+}
+
+.bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-count {
+  min-width: 2.5rem;
+  text-align: right;
+}
+
 .bar-track {
   height: 9px;
   overflow: hidden;
@@ -471,6 +507,182 @@ h2 {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, var(--brand), var(--blue));
+  transition: width 420ms ease;
+}
+
+.bar-fill.accent {
+  background: linear-gradient(90deg, var(--blue), color-mix(in srgb, var(--brand) 70%, white));
+}
+
+.usage-controls {
+  margin-bottom: 14px;
+}
+
+.usage-controls .toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.usage-insight {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-left: 3px solid var(--brand);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  background: color-mix(in srgb, var(--brand) 8%, var(--panel));
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.panel-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.panel-heading h2 {
+  margin: 0;
+}
+
+.subhead {
+  margin: 18px 0 8px;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.mini-bars {
+  display: grid;
+  gap: 8px;
+}
+
+.mini-bar-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 140px) 1fr auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 4px 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mini-bar-row:hover .bar-fill {
+  filter: brightness(1.1);
+}
+
+.trend-chart {
+  margin-top: 8px;
+}
+
+.trend-chart svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.trend-axis {
+  stroke: var(--panel-border);
+  stroke-width: 1;
+}
+
+.trend-line {
+  stroke: var(--brand);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trend-dot {
+  fill: var(--brand);
+}
+
+.trend-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.provider-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.provider-card {
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  padding: 14px;
+}
+
+.provider-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  text-transform: capitalize;
+}
+
+.provider-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.provider-metrics dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.provider-metrics dd {
+  margin: 2px 0 0;
+  font-size: 0.95rem;
+}
+
+.muted.small {
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.status-pill.ok {
+  color: var(--good, #1f9d6c);
+  border-color: rgba(31, 157, 108, 0.35);
+  background: rgba(31, 157, 108, 0.1);
+}
+
+@media (max-width: 900px) {
+  .two-grid,
+  .usage-secondary {
+    grid-template-columns: 1fr;
+  }
+
+  .bar-row,
+  .bar-row-button,
+  .mini-bar-row {
+    grid-template-columns: minmax(80px, 120px) 1fr auto;
+  }
 }
 
 .toolbar,
