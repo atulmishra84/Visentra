@@ -181,7 +181,7 @@ export const collectors = {
                      VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
                     [
                       ctx.tenantId,
-                      `Azure connector "${conn.name}" scanned ${stats.totalResourcesScanned} resources, found ${stats.aiRelevantResources} AI-relevant`,
+                      `Azure connector "${conn.name}" scanned ${stats.totalResourcesScanned} resources — ingested ${stats.cloudResourcesIngested} cloud assets (${stats.aiRelevantResources} AI-relevant)`,
                       JSON.stringify({
                         connectorId: conn.id,
                         provider: "azure",
@@ -334,13 +334,10 @@ export const collectors = {
 
       try {
         const { listActiveEdrConnectors } = await import("../services/connectors.js");
-        const { EDR_VALIDATORS } = await import("./edrIntegrations.js");
+        const { discoverEdrConnector } = await import("./edrIntegrations.js");
         const connectors = await listActiveEdrConnectors(ctx.pool, ctx.tenantId);
 
         for (const conn of connectors) {
-          const validator = EDR_VALIDATORS[conn.provider];
-          if (!validator) continue;
-
           const label =
             {
               crowdstrike: "CrowdStrike",
@@ -351,7 +348,8 @@ export const collectors = {
             }[conn.provider] || conn.provider;
 
           try {
-            const result = await validator({ config: conn.config, secrets: conn.secrets });
+            const { observations, stats } = await discoverEdrConnector(conn);
+            out.push(...observations);
             if (ctx.pool) {
               await ctx.pool.query(
                 `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
@@ -363,40 +361,16 @@ export const collectors = {
                  VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
                 [
                   ctx.tenantId,
-                  `EDR connector "${conn.name}" (${label}) validated: ${result.message}`,
+                  `EDR connector "${conn.name}" (${label}) discovered ${stats.devices || 0} endpoints — ${stats.message || "ok"}`,
                   JSON.stringify({
                     connectorId: conn.id,
                     provider: conn.provider,
-                    category: "edr"
+                    category: "edr",
+                    ...stats
                   })
                 ]
               );
             }
-            out.push({
-              collector_id: "edr",
-              fingerprint: `edr-connector:${conn.provider}:${conn.id}`,
-              name: `${label} — ${conn.name}`,
-              category: "endpoint",
-              provider: conn.provider,
-              deployment_type: "endpoint",
-              running_status: "running",
-              confidence_score: 0.75,
-              metadata: {
-                connectorId: conn.id,
-                connectorName: conn.name,
-                discoveryMode: "edr-api-validated",
-                environment: conn.environment,
-                testMessage: result.message
-              },
-              relationships: [
-                {
-                  rel_type: "OBSERVED_BY",
-                  to_type: "EDRPlatform",
-                  to_key: `edr-${conn.provider}`,
-                  to_name: label
-                }
-              ]
-            });
           } catch (err) {
             const message = err.message || String(err);
             console.warn("EDR connector scan failed:", conn.provider, message);
@@ -429,6 +403,7 @@ export const collectors = {
                 connectorId: conn.id,
                 connectorName: conn.name,
                 discoveryMode: "edr-api-error",
+                inventoryClass: "edr_connector",
                 error: message
               }
             });

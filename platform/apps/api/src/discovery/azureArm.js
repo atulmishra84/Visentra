@@ -1,5 +1,6 @@
 /**
  * Live Azure Resource Manager discovery using connector service-principal credentials.
+ * Ingests subscription inventory (cloud resources), with AI-relevant items flagged.
  */
 
 const AI_TYPE_PATTERNS = [
@@ -16,7 +17,9 @@ const AI_TYPE_PATTERNS = [
   "Microsoft.Insights/components"
 ];
 
-function isAiRelevant(resource) {
+const MAX_RESOURCES = Number(process.env.AZURE_DISCOVERY_MAX_RESOURCES || 500);
+
+export function isAiRelevant(resource) {
   const type = resource.type || "";
   const name = (resource.name || "").toLowerCase();
   if (AI_TYPE_PATTERNS.some((p) => type === p || type.startsWith(p + "/"))) return true;
@@ -67,14 +70,15 @@ async function listSubscriptionResources(token, subscriptionId) {
   return resources;
 }
 
-function resourceToObservation(resource, conn) {
+function resourceToObservation(resource, conn, aiRelevant) {
   const tags = resource.tags || {};
   const type = resource.type || "unknown";
   const shortType = type.split("/").slice(-1)[0];
+  const displayName = resource.name || shortType;
   return {
     collector_id: "cloud_azure",
     fingerprint: `azure:${resource.id}`,
-    name: resource.name || shortType,
+    name: aiRelevant ? `${displayName} (AI)` : displayName,
     category: "cloud",
     cloud_provider: "azure",
     region: resource.location || null,
@@ -82,10 +86,13 @@ function resourceToObservation(resource, conn) {
     deployment_type: "cloud",
     endpoint: resource.id,
     running_status: "unknown",
-    confidence_score: 0.9,
+    confidence_score: aiRelevant ? 0.92 : 0.8,
     owner: tags.owner || tags.Owner || null,
     department: tags.department || tags.Department || null,
     business_unit: tags.businessUnit || tags.bu || null,
+    // Surface resource type in framework column for inventory readability
+    framework: shortType,
+    model: aiRelevant ? "ai-relevant" : null,
     metadata: {
       connectorId: conn.id,
       connectorName: conn.name,
@@ -95,6 +102,8 @@ function resourceToObservation(resource, conn) {
       azureType: type,
       azureKind: resource.kind || null,
       resourceGroup: (resource.id || "").split("/")[4] || null,
+      aiRelevant,
+      inventoryClass: aiRelevant ? "ai_cloud_resource" : "cloud_resource",
       tags
     },
     relationships: [
@@ -102,14 +111,15 @@ function resourceToObservation(resource, conn) {
         rel_type: "DEPLOYED_IN",
         to_type: "CloudResource",
         to_key: resource.id,
-        to_name: resource.name || shortType
+        to_name: displayName
       }
     ]
   };
 }
 
 /**
- * Discover AI-relevant Azure resources for one connector.
+ * Discover Azure subscription resources for one connector.
+ * Returns full cloud inventory (capped), with AI-relevant resources prioritized and flagged.
  * Always returns at least a connector health observation when auth succeeds.
  */
 export async function discoverAzureConnector(conn) {
@@ -124,11 +134,23 @@ export async function discoverAzureConnector(conn) {
 
   const token = await getAzureAccessToken({ tenantId, clientId, clientSecret });
   const resources = await listSubscriptionResources(token, subscriptionId);
-  const aiResources = resources.filter(isAiRelevant);
 
-  const observations = aiResources.map((r) => resourceToObservation(r, conn));
+  const aiResources = [];
+  const otherResources = [];
+  for (const r of resources) {
+    if (isAiRelevant(r)) aiResources.push(r);
+    else otherResources.push(r);
+  }
 
-  // Always emit a connector scan summary so the UI shows the connector was used
+  // Prefer AI-relevant, then fill remaining slots with other cloud resources
+  const selected = [...aiResources];
+  for (const r of otherResources) {
+    if (selected.length >= MAX_RESOURCES) break;
+    selected.push(r);
+  }
+
+  const observations = selected.map((r) => resourceToObservation(r, conn, isAiRelevant(r)));
+
   observations.unshift({
     collector_id: "cloud_azure",
     fingerprint: `azure-connector-scan:${conn.id}:${subscriptionId}`,
@@ -140,6 +162,7 @@ export async function discoverAzureConnector(conn) {
     deployment_type: "cloud",
     running_status: "running",
     confidence_score: 0.95,
+    framework: "subscription-scan",
     metadata: {
       connectorId: conn.id,
       connectorName: conn.name,
@@ -147,7 +170,10 @@ export async function discoverAzureConnector(conn) {
       subscriptionId,
       totalResourcesScanned: resources.length,
       aiRelevantResources: aiResources.length,
-      environment: conn.environment
+      cloudResourcesIngested: selected.length,
+      inventoryClass: "connector_scan",
+      environment: conn.environment,
+      maxResources: MAX_RESOURCES
     },
     relationships: [
       {
@@ -163,7 +189,8 @@ export async function discoverAzureConnector(conn) {
     observations,
     stats: {
       totalResourcesScanned: resources.length,
-      aiRelevantResources: aiResources.length
+      aiRelevantResources: aiResources.length,
+      cloudResourcesIngested: selected.length
     }
   };
 }

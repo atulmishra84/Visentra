@@ -13,15 +13,26 @@ import {
   valueAt
 } from "../lib/api";
 
-function uniqueOptions(rows: Agent[], key: keyof Facets): string[] {
+function uniqueOptions(rows: Agent[], key: string): string[] {
   const values = new Set<string>();
   rows.forEach((row) => {
-    const value = valueAt(row, [key], "");
-    if (value) {
-      values.add(value);
-    }
+    const value =
+      key === "cloud"
+        ? valueAt(row, ["cloud_provider", "cloud", "provider"], "")
+        : valueAt(row, [key], "");
+    if (value) values.add(value);
   });
   return [...values].sort((left, right) => left.localeCompare(right));
+}
+
+function categoryBadge(category: string) {
+  const c = category.toLowerCase();
+  if (c === "cloud") return "cloud";
+  if (c === "endpoint" || c === "edr") return "endpoint";
+  if (["ide", "local", "local_llm", "framework", "mcp", "browser", "autonomous", "saas", "container"].includes(c)) {
+    return "agent";
+  }
+  return c || "unknown";
 }
 
 export function InventoryPage({ title }: { title: string }) {
@@ -38,9 +49,12 @@ export function InventoryPage({ title }: { title: string }) {
     setLoading(true);
     setError(null);
 
-    apiRequest<unknown>("/api/agents", { query: { ...facets, limit: 100 } })
+    apiRequest<unknown>("/api/agents", { query: { ...facets, limit: 500 } })
       .then((data) => mounted && setPayload(data))
-      .catch((requestError) => mounted && setError(requestError instanceof Error ? requestError.message : "Failed to load agents."))
+      .catch(
+        (requestError) =>
+          mounted && setError(requestError instanceof Error ? requestError.message : "Failed to load inventory.")
+      )
       .finally(() => mounted && setLoading(false));
 
     return () => {
@@ -49,6 +63,18 @@ export function InventoryPage({ title }: { title: string }) {
   }, [facets]);
 
   const agents = useMemo(() => listFromPayload<Agent>(payload, ["items", "agents"]), [payload]);
+
+  const counts = useMemo(() => {
+    const out = { all: agents.length, cloud: 0, endpoint: 0, agent: 0, other: 0 };
+    for (const row of agents) {
+      const kind = categoryBadge(valueAt(row, ["category"], ""));
+      if (kind === "cloud") out.cloud += 1;
+      else if (kind === "endpoint") out.endpoint += 1;
+      else if (kind === "agent") out.agent += 1;
+      else out.other += 1;
+    }
+    return out;
+  }, [agents]);
 
   const options = useMemo(
     () => ({
@@ -74,12 +100,25 @@ export function InventoryPage({ title }: { title: string }) {
     }
   };
 
+  const setCategoryQuick = (category?: string) => {
+    setFacets((prev) => ({ ...prev, category: category || undefined }));
+  };
+
   const columns: Array<Column<Agent>> = [
     {
       key: "name",
       header: "Name",
-      render: (agent) => <strong>{valueAt(agent, ["name", "displayName", "id"], "Unnamed agent")}</strong>,
+      render: (agent) => <strong>{valueAt(agent, ["name", "displayName", "id"], "Unnamed asset")}</strong>,
       sortValue: (agent) => valueAt(agent, ["name", "displayName", "id"])
+    },
+    {
+      key: "category",
+      header: "Category",
+      render: (agent) => {
+        const category = valueAt(agent, ["category"], "unknown");
+        return <span className="badge">{category}</span>;
+      },
+      sortValue: (agent) => valueAt(agent, ["category"])
     },
     {
       key: "owner",
@@ -88,22 +127,23 @@ export function InventoryPage({ title }: { title: string }) {
       sortValue: (agent) => valueAt(agent, ["owner", "team"])
     },
     {
+      key: "framework",
+      header: "Type / framework",
+      render: (agent) => valueAt(agent, ["framework", "runtimeFramework", "device", "hostname"]),
+      sortValue: (agent) => valueAt(agent, ["framework", "runtimeFramework", "device", "hostname"])
+    },
+    {
       key: "model",
-      header: "Model",
+      header: "Model / signal",
       render: (agent) => valueAt(agent, ["model", "primaryModel", "models"]),
       sortValue: (agent) => valueAt(agent, ["model", "primaryModel", "models"])
     },
     {
-      key: "framework",
-      header: "Framework",
-      render: (agent) => valueAt(agent, ["framework", "runtimeFramework"]),
-      sortValue: (agent) => valueAt(agent, ["framework", "runtimeFramework"])
-    },
-    {
       key: "cloud",
-      header: "Cloud",
-      render: (agent) => valueAt(agent, ["cloud", "provider", "environment"]),
-      sortValue: (agent) => valueAt(agent, ["cloud", "provider", "environment"])
+      header: "Provider",
+      render: (agent) =>
+        valueAt(agent, ["cloud_provider", "provider", "cloud", "environment"]),
+      sortValue: (agent) => valueAt(agent, ["cloud_provider", "provider", "cloud", "environment"])
     },
     {
       key: "confidence",
@@ -125,7 +165,9 @@ export function InventoryPage({ title }: { title: string }) {
         <div>
           <p className="eyebrow">Inventory</p>
           <h1>{title}</h1>
-          <p className="page-description">Facet and export canonical AI agent inventory from the live API.</p>
+          <p className="page-description">
+            Unified inventory from discovery: AI agents, cloud resources, and EDR endpoints. Filter by category to focus.
+          </p>
         </div>
         <div className="toolbar">
           <button className="button" disabled={Boolean(exporting)} type="button" onClick={() => exportAgents("csv")}>
@@ -137,17 +179,40 @@ export function InventoryPage({ title }: { title: string }) {
         </div>
       </header>
 
+      <div className="toolbar" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <button className={`button ${!facets.category ? "primary" : "ghost"}`} type="button" onClick={() => setCategoryQuick()}>
+          All
+        </button>
+        <button
+          className={`button ${facets.category === "cloud" ? "primary" : "ghost"}`}
+          type="button"
+          onClick={() => setCategoryQuick("cloud")}
+        >
+          Cloud
+        </button>
+        <button
+          className={`button ${facets.category === "endpoint" ? "primary" : "ghost"}`}
+          type="button"
+          onClick={() => setCategoryQuick("endpoint")}
+        >
+          Endpoints
+        </button>
+        <span className="muted" style={{ alignSelf: "center", fontSize: 13 }}>
+          In this view: {counts.cloud} cloud · {counts.endpoint} endpoints · {counts.agent + counts.other} agents/other
+        </span>
+      </div>
+
       <FacetBar facets={facets} options={options} onChange={setFacets} />
       {error ? <div className="error-state">{error}</div> : null}
 
       <section className="panel">
         <div className="page-header">
-          <h2>Agents</h2>
+          <h2>Discovered assets</h2>
           <span className="status-pill">{agents.length} results</span>
         </div>
         <DataTable
           columns={columns}
-          emptyMessage="No agents match the current filters. Clear facets or run discovery."
+          emptyMessage="No assets match the current filters. Clear facets or run discovery (cloud / EDR)."
           loading={loading}
           rows={agents}
           onRowClick={setSelected}
@@ -157,13 +222,17 @@ export function InventoryPage({ title }: { title: string }) {
       <DetailDrawer
         data={selected}
         open={Boolean(selected)}
-        title={selected ? valueAt(selected, ["name", "displayName", "id"], "Agent") : "Agent"}
-        subtitle={selected ? valueAt(selected, ["summary", "description", "category"], "Agent inventory detail") : undefined}
+        title={selected ? valueAt(selected, ["name", "displayName", "id"], "Asset") : "Asset"}
+        subtitle={
+          selected
+            ? valueAt(selected, ["category", "summary", "description"], "Inventory detail")
+            : undefined
+        }
         onClose={() => setSelected(null)}
       >
         {selected?.id ? (
           <button className="button primary" type="button" onClick={() => navigate(`/agents/${String(selected.id)}`)}>
-            Open agent detail
+            Open detail
           </button>
         ) : null}
       </DetailDrawer>

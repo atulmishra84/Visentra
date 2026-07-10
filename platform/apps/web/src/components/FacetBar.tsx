@@ -15,18 +15,19 @@ type FacetBarProps = {
 };
 
 const facetFields: Array<keyof Facets> = [
-  "owner",
-  "model",
-  "framework",
-  "cloud",
   "category",
+  "cloud",
+  "owner",
+  "framework",
+  "model",
   "department"
 ];
 
 function labelFor(key: keyof Facets): string {
-  if (key === "q") {
-    return "Search";
-  }
+  if (key === "q") return "Search";
+  if (key === "cloud") return "Provider";
+  if (key === "category") return "Category";
+  if (key === "framework") return "Type / framework";
   return key[0].toUpperCase() + key.slice(1);
 }
 
@@ -45,7 +46,7 @@ export function FacetBar({ facets, options = {}, onChange }: FacetBarProps) {
         <input
           id="facet-q"
           className="input"
-          placeholder="Name, owner, model..."
+          placeholder="Name, owner, type, hostname..."
           value={facets.q ?? ""}
           onChange={(event) => update("q", event.target.value)}
         />

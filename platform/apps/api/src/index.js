@@ -127,7 +127,7 @@ function agentFilters(query, startIdx = 2) {
   }
   if (query.q) {
     clauses.push(
-      `AND (name ILIKE $${i} OR owner ILIKE $${i} OR hostname ILIKE $${i} OR model ILIKE $${i} OR framework ILIKE $${i} OR repository ILIKE $${i})`
+      `AND (name ILIKE $${i} OR owner ILIKE $${i} OR hostname ILIKE $${i} OR model ILIKE $${i} OR framework ILIKE $${i} OR repository ILIKE $${i} OR category ILIKE $${i} OR provider ILIKE $${i} OR cloud_provider ILIKE $${i} OR device ILIKE $${i})`
     );
     params.push(`%${query.q}%`);
     i += 1;

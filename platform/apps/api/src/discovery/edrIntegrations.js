@@ -1,5 +1,7 @@
 import crypto from "crypto";
 
+const EDR_DEVICE_LIMIT = Number(process.env.EDR_DISCOVERY_MAX_DEVICES || 100);
+
 function cortexAuthHeaders(apiKey, apiKeyId) {
   const nonce = crypto.randomBytes(16).toString("hex");
   const timestamp = Date.now().toString();
@@ -30,6 +32,62 @@ async function azureAppToken(tenantId, clientId, clientSecret, scope) {
     throw new Error(json.error_description || json.error || `Token request failed (${res.status})`);
   }
   return json.access_token;
+}
+
+function endpointObservation({
+  provider,
+  conn,
+  id,
+  name,
+  hostname,
+  os,
+  owner,
+  ip,
+  status,
+  extra = {}
+}) {
+  const label =
+    {
+      crowdstrike: "CrowdStrike",
+      defender: "Microsoft Defender",
+      intune: "Microsoft Intune",
+      cortex: "Cortex XDR",
+      netskope: "Netskope"
+    }[provider] || provider;
+
+  return {
+    collector_id: "edr",
+    fingerprint: `edr:${provider}:device:${id}`,
+    name: name || hostname || `${label} device ${id}`,
+    category: "endpoint",
+    provider,
+    deployment_type: "endpoint",
+    hostname: hostname || null,
+    operating_system: os || null,
+    owner: owner || null,
+    ip: ip || null,
+    device: name || hostname || id,
+    running_status: status || "unknown",
+    confidence_score: 0.85,
+    framework: label,
+    metadata: {
+      connectorId: conn.id,
+      connectorName: conn.name,
+      discoveryMode: "edr-device-inventory",
+      inventoryClass: "endpoint_device",
+      edrProvider: provider,
+      environment: conn.environment,
+      ...extra
+    },
+    relationships: [
+      {
+        rel_type: "OBSERVED_BY",
+        to_type: "EDRPlatform",
+        to_key: `edr-${provider}`,
+        to_name: label
+      }
+    ]
+  };
 }
 
 export async function validateCrowdstrike({ config, secrets }) {
@@ -69,8 +127,87 @@ export async function validateCrowdstrike({ config, secrets }) {
   const count = Array.isArray(data.resources) ? data.resources.length : 0;
   return {
     ok: true,
-    message: `CrowdStrike authenticated (${base}). Device query OK (sample ${count}).`
+    message: `CrowdStrike authenticated (${base}). Device query OK (sample ${count}).`,
+    accessToken: tokenJson.access_token,
+    base
   };
+}
+
+export async function discoverCrowdstrike(conn) {
+  const result = await validateCrowdstrike({ config: conn.config, secrets: conn.secrets });
+  const observations = [
+    {
+      collector_id: "edr",
+      fingerprint: `edr-connector:crowdstrike:${conn.id}`,
+      name: `CrowdStrike — ${conn.name}`,
+      category: "endpoint",
+      provider: "crowdstrike",
+      deployment_type: "endpoint",
+      running_status: "running",
+      confidence_score: 0.9,
+      framework: "CrowdStrike",
+      metadata: {
+        connectorId: conn.id,
+        connectorName: conn.name,
+        discoveryMode: "edr-api-validated",
+        inventoryClass: "edr_connector",
+        testMessage: result.message,
+        environment: conn.environment
+      },
+      relationships: [
+        {
+          rel_type: "OBSERVED_BY",
+          to_type: "EDRPlatform",
+          to_key: "edr-crowdstrike",
+          to_name: "CrowdStrike"
+        }
+      ]
+    }
+  ];
+
+  if (!result.accessToken) {
+    return { observations, stats: { devices: 0, message: result.message } };
+  }
+
+  const base = result.base;
+  const idsRes = await fetch(`${base}/devices/queries/devices/v1?limit=${EDR_DEVICE_LIMIT}`, {
+    headers: { Authorization: `Bearer ${result.accessToken}`, Accept: "application/json" }
+  });
+  if (!idsRes.ok) {
+    return { observations, stats: { devices: 0, message: result.message } };
+  }
+  const idsJson = await idsRes.json().catch(() => ({}));
+  const ids = Array.isArray(idsJson.resources) ? idsJson.resources.slice(0, EDR_DEVICE_LIMIT) : [];
+  if (!ids.length) return { observations, stats: { devices: 0, message: result.message } };
+
+  const detailRes = await fetch(`${base}/devices/entities/devices/v2`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${result.accessToken}`,
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ ids })
+  });
+  const detailJson = await detailRes.json().catch(() => ({}));
+  const devices = Array.isArray(detailJson.resources) ? detailJson.resources : [];
+  for (const d of devices) {
+    observations.push(
+      endpointObservation({
+        provider: "crowdstrike",
+        conn,
+        id: d.device_id,
+        name: d.hostname || d.device_id,
+        hostname: d.hostname,
+        os: [d.platform_name, d.os_version].filter(Boolean).join(" "),
+        owner: d.last_login_user || d.machine_domain || null,
+        ip: d.local_ip || d.external_ip || null,
+        status: d.status || "unknown",
+        extra: { crowdstrikeDeviceId: d.device_id, productType: d.product_type_desc }
+      })
+    );
+  }
+  return { observations, stats: { devices: devices.length, message: result.message } };
 }
 
 export async function validateDefender({ config, secrets }) {
@@ -96,12 +233,76 @@ export async function validateDefender({ config, secrets }) {
   if (res.status === 403) {
     return {
       ok: true,
-      message: "Defender token OK. Grant Machine.Read.All (application) for endpoint discovery."
+      message: "Defender token OK. Grant Machine.Read.All (application) for endpoint discovery.",
+      accessToken: token
     };
   }
   const json = await res.json().catch(() => ({}));
   const n = Array.isArray(json.value) ? json.value.length : 0;
-  return { ok: true, message: `Microsoft Defender for Endpoint authenticated. Sample machines: ${n}.` };
+  return {
+    ok: true,
+    message: `Microsoft Defender for Endpoint authenticated. Sample machines: ${n}.`,
+    accessToken: token
+  };
+}
+
+export async function discoverDefender(conn) {
+  const result = await validateDefender({ config: conn.config, secrets: conn.secrets });
+  const observations = [
+    {
+      collector_id: "edr",
+      fingerprint: `edr-connector:defender:${conn.id}`,
+      name: `Microsoft Defender — ${conn.name}`,
+      category: "endpoint",
+      provider: "defender",
+      deployment_type: "endpoint",
+      running_status: "running",
+      confidence_score: 0.9,
+      framework: "Microsoft Defender",
+      metadata: {
+        connectorId: conn.id,
+        connectorName: conn.name,
+        discoveryMode: "edr-api-validated",
+        inventoryClass: "edr_connector",
+        testMessage: result.message,
+        environment: conn.environment
+      },
+      relationships: [
+        {
+          rel_type: "OBSERVED_BY",
+          to_type: "EDRPlatform",
+          to_key: "edr-defender",
+          to_name: "Microsoft Defender"
+        }
+      ]
+    }
+  ];
+  if (!result.accessToken) return { observations, stats: { devices: 0, message: result.message } };
+
+  const res = await fetch(
+    `https://api.securitycenter.microsoft.com/api/machines?$top=${EDR_DEVICE_LIMIT}`,
+    { headers: { Authorization: `Bearer ${result.accessToken}` } }
+  );
+  if (!res.ok) return { observations, stats: { devices: 0, message: result.message } };
+  const json = await res.json().catch(() => ({}));
+  const machines = Array.isArray(json.value) ? json.value : [];
+  for (const m of machines) {
+    observations.push(
+      endpointObservation({
+        provider: "defender",
+        conn,
+        id: m.id,
+        name: m.computerDnsName || m.id,
+        hostname: m.computerDnsName,
+        os: [m.osPlatform, m.version].filter(Boolean).join(" "),
+        owner: m.lastExternalIpAddress ? null : null,
+        ip: m.lastIpAddress || m.lastExternalIpAddress || null,
+        status: m.healthStatus || m.onboardingStatus || "unknown",
+        extra: { defenderMachineId: m.id, riskScore: m.riskScore }
+      })
+    );
+  }
+  return { observations, stats: { devices: machines.length, message: result.message } };
 }
 
 export async function validateIntune({ config, secrets }) {
@@ -122,12 +323,76 @@ export async function validateIntune({ config, secrets }) {
   if (res.status === 403) {
     return {
       ok: true,
-      message: "Intune token OK. Grant DeviceManagementManagedDevices.Read.All for discovery."
+      message: "Intune token OK. Grant DeviceManagementManagedDevices.Read.All for discovery.",
+      accessToken: token
     };
   }
   const json = await res.json().catch(() => ({}));
   const n = Array.isArray(json.value) ? json.value.length : 0;
-  return { ok: true, message: `Microsoft Intune authenticated. Sample managed devices: ${n}.` };
+  return {
+    ok: true,
+    message: `Microsoft Intune authenticated. Sample managed devices: ${n}.`,
+    accessToken: token
+  };
+}
+
+export async function discoverIntune(conn) {
+  const result = await validateIntune({ config: conn.config, secrets: conn.secrets });
+  const observations = [
+    {
+      collector_id: "edr",
+      fingerprint: `edr-connector:intune:${conn.id}`,
+      name: `Microsoft Intune — ${conn.name}`,
+      category: "endpoint",
+      provider: "intune",
+      deployment_type: "endpoint",
+      running_status: "running",
+      confidence_score: 0.9,
+      framework: "Microsoft Intune",
+      metadata: {
+        connectorId: conn.id,
+        connectorName: conn.name,
+        discoveryMode: "edr-api-validated",
+        inventoryClass: "edr_connector",
+        testMessage: result.message,
+        environment: conn.environment
+      },
+      relationships: [
+        {
+          rel_type: "OBSERVED_BY",
+          to_type: "EDRPlatform",
+          to_key: "edr-intune",
+          to_name: "Microsoft Intune"
+        }
+      ]
+    }
+  ];
+  if (!result.accessToken) return { observations, stats: { devices: 0, message: result.message } };
+
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=${EDR_DEVICE_LIMIT}`,
+    { headers: { Authorization: `Bearer ${result.accessToken}` } }
+  );
+  if (!res.ok) return { observations, stats: { devices: 0, message: result.message } };
+  const json = await res.json().catch(() => ({}));
+  const devices = Array.isArray(json.value) ? json.value : [];
+  for (const d of devices) {
+    observations.push(
+      endpointObservation({
+        provider: "intune",
+        conn,
+        id: d.id,
+        name: d.deviceName || d.id,
+        hostname: d.deviceName,
+        os: [d.operatingSystem, d.osVersion].filter(Boolean).join(" "),
+        owner: d.userPrincipalName || d.emailAddress || null,
+        ip: null,
+        status: d.complianceState || d.managementState || "unknown",
+        extra: { intuneDeviceId: d.id, model: d.model, manufacturer: d.manufacturer }
+      })
+    );
+  }
+  return { observations, stats: { devices: devices.length, message: result.message } };
 }
 
 export async function validateCortex({ config, secrets }) {
@@ -155,7 +420,81 @@ export async function validateCortex({ config, secrets }) {
   }
   const endpoints = json.reply?.endpoints || json.reply || [];
   const n = Array.isArray(endpoints) ? endpoints.length : 0;
-  return { ok: true, message: `Cortex XDR authenticated for tenant ${fqdn}. Sample endpoints: ${n}.` };
+  return {
+    ok: true,
+    message: `Cortex XDR authenticated for tenant ${fqdn}. Sample endpoints: ${n}.`,
+    baseUrl,
+    apiKey,
+    apiKeyId
+  };
+}
+
+export async function discoverCortex(conn) {
+  const result = await validateCortex({ config: conn.config, secrets: conn.secrets });
+  const observations = [
+    {
+      collector_id: "edr",
+      fingerprint: `edr-connector:cortex:${conn.id}`,
+      name: `Cortex XDR — ${conn.name}`,
+      category: "endpoint",
+      provider: "cortex",
+      deployment_type: "endpoint",
+      running_status: "running",
+      confidence_score: 0.9,
+      framework: "Cortex XDR",
+      metadata: {
+        connectorId: conn.id,
+        connectorName: conn.name,
+        discoveryMode: "edr-api-validated",
+        inventoryClass: "edr_connector",
+        testMessage: result.message,
+        environment: conn.environment
+      },
+      relationships: [
+        {
+          rel_type: "OBSERVED_BY",
+          to_type: "EDRPlatform",
+          to_key: "edr-cortex",
+          to_name: "Cortex XDR"
+        }
+      ]
+    }
+  ];
+
+  const res = await fetch(`${result.baseUrl}/endpoints/get_endpoints/`, {
+    method: "POST",
+    headers: cortexAuthHeaders(result.apiKey, result.apiKeyId),
+    body: JSON.stringify({
+      request_data: {
+        search_from: 0,
+        search_to: EDR_DEVICE_LIMIT
+      }
+    })
+  });
+  const json = await res.json().catch(() => ({}));
+  const endpoints = json.reply?.endpoints || [];
+  if (Array.isArray(endpoints)) {
+    for (const e of endpoints) {
+      observations.push(
+        endpointObservation({
+          provider: "cortex",
+          conn,
+          id: e.endpoint_id || e.agent_id || e.host_name,
+          name: e.host_name || e.endpoint_name || e.endpoint_id,
+          hostname: e.host_name,
+          os: [e.os_type, e.os_version].filter(Boolean).join(" "),
+          owner: e.users?.[0] || null,
+          ip: e.ip || e.ipv6?.[0] || null,
+          status: e.endpoint_status || "unknown",
+          extra: { cortexEndpointId: e.endpoint_id, groupName: e.group_name }
+        })
+      );
+    }
+  }
+  return {
+    observations,
+    stats: { devices: Array.isArray(endpoints) ? endpoints.length : 0, message: result.message }
+  };
 }
 
 export async function validateNetskope({ config, secrets }) {
@@ -169,7 +508,6 @@ export async function validateNetskope({ config, secrets }) {
   const base = `https://${tenant}.goskope.com`;
   let v2;
   try {
-    // Prefer v2 token header; fall back to v1 token query used by many tenants
     v2 = await fetch(`${base}/api/v2/services/npa/publishers`, {
       headers: { "Netskope-Api-Token": token, Accept: "application/json" }
     });
@@ -179,7 +517,13 @@ export async function validateNetskope({ config, secrets }) {
     );
   }
   if (v2.ok) {
-    return { ok: true, message: `Netskope authenticated to ${tenant}.goskope.com (API v2).` };
+    return {
+      ok: true,
+      message: `Netskope authenticated to ${tenant}.goskope.com (API v2).`,
+      base,
+      token,
+      mode: "v2"
+    };
   }
 
   let v1;
@@ -201,7 +545,83 @@ export async function validateNetskope({ config, secrets }) {
       `Netskope API failed (v2=${v2.status}, v1=${v1.status}). Check tenant name and API token.`;
     throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
   }
-  return { ok: true, message: `Netskope authenticated to ${tenant}.goskope.com (API v1 clients).` };
+  return {
+    ok: true,
+    message: `Netskope authenticated to ${tenant}.goskope.com (API v1 clients).`,
+    base,
+    token,
+    mode: "v1"
+  };
+}
+
+export async function discoverNetskope(conn) {
+  const result = await validateNetskope({ config: conn.config, secrets: conn.secrets });
+  const observations = [
+    {
+      collector_id: "edr",
+      fingerprint: `edr-connector:netskope:${conn.id}`,
+      name: `Netskope — ${conn.name}`,
+      category: "endpoint",
+      provider: "netskope",
+      deployment_type: "endpoint",
+      running_status: "running",
+      confidence_score: 0.9,
+      framework: "Netskope",
+      metadata: {
+        connectorId: conn.id,
+        connectorName: conn.name,
+        discoveryMode: "edr-api-validated",
+        inventoryClass: "edr_connector",
+        testMessage: result.message,
+        environment: conn.environment
+      },
+      relationships: [
+        {
+          rel_type: "OBSERVED_BY",
+          to_type: "EDRPlatform",
+          to_key: "edr-netskope",
+          to_name: "Netskope"
+        }
+      ]
+    }
+  ];
+
+  const clientsRes = await fetch(
+    `${result.base}/api/v1/clients?token=${encodeURIComponent(result.token)}&limit=${EDR_DEVICE_LIMIT}`,
+    { headers: { Accept: "application/json" } }
+  ).catch(() => null);
+
+  if (clientsRes?.ok) {
+    const json = await clientsRes.json().catch(() => ({}));
+    const data = json.data || json;
+    const clients = Array.isArray(data) ? data : Array.isArray(data?.clients) ? data.clients : [];
+    for (const c of clients.slice(0, EDR_DEVICE_LIMIT)) {
+      const id = c.client_id || c.device_id || c.host_info?.hostname || c._id || JSON.stringify(c).slice(0, 40);
+      observations.push(
+        endpointObservation({
+          provider: "netskope",
+          conn,
+          id: String(id),
+          name: c.host_info?.hostname || c.hostname || c.device_name || String(id),
+          hostname: c.host_info?.hostname || c.hostname,
+          os: c.host_info?.os || c.os || null,
+          owner: c.username || c.userkey || null,
+          ip: c.last_event?.ip_address || c.ip_address || null,
+          status: c.client_status || c.status || "unknown",
+          extra: { netskopeClientId: id }
+        })
+      );
+    }
+    return {
+      observations,
+      stats: {
+        devices: Math.max(0, observations.length - 1),
+        message: result.message
+      }
+    };
+  }
+
+  return { observations, stats: { devices: 0, message: result.message } };
 }
 
 export const EDR_VALIDATORS = {
@@ -212,4 +632,20 @@ export const EDR_VALIDATORS = {
   netskope: validateNetskope
 };
 
+export const EDR_DISCOVERERS = {
+  crowdstrike: discoverCrowdstrike,
+  defender: discoverDefender,
+  intune: discoverIntune,
+  cortex: discoverCortex,
+  netskope: discoverNetskope
+};
+
 export const EDR_PROVIDERS = Object.keys(EDR_VALIDATORS);
+
+export async function discoverEdrConnector(conn) {
+  const discoverer = EDR_DISCOVERERS[conn.provider];
+  if (!discoverer) {
+    throw new Error(`No EDR discoverer for provider ${conn.provider}`);
+  }
+  return discoverer(conn);
+}
