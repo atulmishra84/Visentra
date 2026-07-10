@@ -46,6 +46,44 @@ function platformObservation({
   extra = {}
 }) {
   const label = PLATFORM_LABELS[provider] || provider;
+  const tools = Array.isArray(extra.tools) ? extra.tools : extra.tools ? [extra.tools] : [];
+  const knowledgeSources = Array.isArray(extra.knowledgeSources)
+    ? extra.knowledgeSources
+    : extra.knowledge
+      ? [extra.knowledge]
+      : [];
+  const triggers = Array.isArray(extra.triggers) ? extra.triggers : [];
+  const agentConfig = {
+    tools,
+    mcpServers: Array.isArray(extra.mcpServers) ? extra.mcpServers : [],
+    knowledgeSources,
+    triggers,
+    memoryStores: extra.memoryStore ? [extra.memoryStore] : [],
+    vectorStores: extra.vectorStore ? [extra.vectorStore] : [],
+    models: model ? [model] : [],
+    instructionsPresent: Boolean(extra.hasInstructions || extra.instructions || extra.systemPrompt),
+    instructionSource: extra.instructionSource || (extra.hasInstructions ? "platform_config" : null),
+    howConfigured: `${label} API discovery`,
+    framework: framework || label,
+    version: extra.version || null,
+    ...(extra.agentConfig || {})
+  };
+  const agentAccess = {
+    scopes: {
+      internet: true,
+      email: provider === "m365_copilot",
+      sharepoint: provider === "m365_copilot",
+      crm: provider === "salesforce",
+      identity: true,
+      ...(extra.accessScopes || {})
+    },
+    identities: owner ? [owner] : [],
+    dataStores: knowledgeSources,
+    connectedApps: [label],
+    permissions: Array.isArray(extra.permissions) ? extra.permissions : [],
+    ...(extra.agentAccess || {})
+  };
+
   return {
     collector_id: "saas_platform",
     fingerprint: `saas:${provider}:agent:${id}`,
@@ -59,6 +97,9 @@ function platformObservation({
     running_status: status || "unknown",
     confidence_score: 0.94,
     business_unit: conn.environment || null,
+    internet_access: true,
+    email_access: provider === "m365_copilot",
+    tools,
     metadata: {
       connectorId: conn.id,
       connectorName: conn.name,
@@ -71,6 +112,10 @@ function platformObservation({
       platformLabel: label,
       managedPlatformAgent: true,
       environment: conn.environment,
+      howIdentified: `${label} registered agent`,
+      agentConfig,
+      agentAccess,
+      hasInstructions: agentConfig.instructionsPresent,
       ...extra
     },
     relationships: [

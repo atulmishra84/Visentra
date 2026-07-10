@@ -13,6 +13,8 @@
  *   candidate — name/tag/heuristic only; needs correlation
  */
 
+import { enrichObservationWithDepth } from "../services/agentDepth.js";
+
 export const EVIDENCE_CLASSES = [
   "platform_agent",
   "cloud_ai_runtime",
@@ -210,12 +212,14 @@ export function enrichObservationWithEvidence(obs) {
     evidenceReason: classified.reason
   };
 
-  return {
+  const withEvidence = {
     ...obs,
     confidence_score: classified.confidence_score,
     metadata,
     __skipIngest: false
   };
+
+  return enrichObservationWithDepth(withEvidence);
 }
 
 export function isIngestibleAgentObservation(obs) {

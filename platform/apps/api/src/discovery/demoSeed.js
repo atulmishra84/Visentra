@@ -47,7 +47,24 @@ export function buildDemoObservations() {
         evidenceClass: "ide_agent",
         agentStatus: "confirmed",
         demoSeed: true,
-        howIdentified: "Demo seed — Cursor + MCP"
+        howIdentified: "Demo seed — Cursor + MCP",
+        hasInstructions: true,
+        agentConfig: {
+          tools: ["edit", "terminal", "search"],
+          mcpServers: ["filesystem", "github", "postgres"],
+          knowledgeSources: ["workspace"],
+          triggers: [],
+          memoryStores: [],
+          instructionsPresent: true,
+          instructionSource: "cursor_rules",
+          howConfigured: "Cursor MCP + rules"
+        },
+        agentAccess: {
+          scopes: { filesystem: true, github: true, internet: true, mcp: true, database: true },
+          identities: ["alex.chen@example.com"],
+          dataStores: ["postgres"],
+          connectedApps: ["Cursor", "GitHub"]
+        }
       },
       last_seen: now
     },
@@ -203,7 +220,23 @@ export function buildDemoObservations() {
         inventoryClass: "saas_platform_agent",
         evidenceClass: "platform_agent",
         agentStatus: "confirmed",
-        demoSeed: true
+        demoSeed: true,
+        hasInstructions: true,
+        howIdentified: "Demo seed — M365 Copilot",
+        agentConfig: {
+          tools: ["draft_email", "summarize", "search_files"],
+          knowledgeSources: ["SharePoint", "OneDrive", "Outlook"],
+          triggers: ["user_prompt"],
+          instructionsPresent: true,
+          instructionSource: "copilot_studio",
+          howConfigured: "M365 Copilot tenant config"
+        },
+        agentAccess: {
+          scopes: { email: true, sharepoint: true, internet: true, identity: true, calendar: true },
+          identities: ["it-admin@example.com"],
+          dataStores: ["SharePoint", "OneDrive"],
+          connectedApps: ["Microsoft 365"]
+        }
       },
       last_seen: now
     },

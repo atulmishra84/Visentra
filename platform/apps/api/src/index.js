@@ -34,6 +34,11 @@ import {
   buildExecutiveInsights
 } from "./services/usageAnalytics.js";
 import {
+  summarizeAgentDepth,
+  computeBlastRadius,
+  computeDiscoveryChanges
+} from "./services/agentDepth.js";
+import {
   entraEnabled,
   buildAuthorizeUrl,
   exchangeCodeForTokens,
@@ -226,6 +231,26 @@ function agentFilters(query, startIdx = 2) {
     clauses.push(`AND metadata->>'agentStatus' = $${i}`);
     params.push(String(query.agentStatus || query.status));
     i += 1;
+  }
+  if (query.access || query.canAccess) {
+    clauses.push(`AND metadata->'agentAccess'->'granted' ? $${i}`);
+    params.push(String(query.access || query.canAccess));
+    i += 1;
+  }
+  if (query.accessSensitivity || query.sensitivity) {
+    clauses.push(`AND metadata->>'accessSensitivity' = $${i}`);
+    params.push(String(query.accessSensitivity || query.sensitivity));
+    i += 1;
+  }
+  if (query.overPermissioned === "true" || query.overPermissioned === true) {
+    clauses.push(`AND metadata->>'overPermissioned' = 'true'`);
+  } else if (query.overPermissioned === "false" || query.overPermissioned === false) {
+    clauses.push(`AND COALESCE(metadata->>'overPermissioned','false') <> 'true'`);
+  }
+  if (query.hasInstructions === "true" || query.hasInstructions === true) {
+    clauses.push(`AND metadata->>'hasInstructions' = 'true'`);
+  } else if (query.hasInstructions === "false" || query.hasInstructions === false) {
+    clauses.push(`AND COALESCE(metadata->>'hasInstructions','false') <> 'true'`);
   }
   return { clauses: clauses.join(" "), params, nextIdx: i };
 }
@@ -683,17 +708,55 @@ app.get("/api/agents/:id", auth, async (req, res) => {
   );
   const row = agent.rows[0];
   const shadow = classifyShadowAi(row);
+  const depth = summarizeAgentDepth(row);
+  let blast = null;
+  try {
+    const radius = await computeBlastRadius(pool, req.tenantId, { agentId: row.id, limit: 1 });
+    blast = radius.items[0] || null;
+  } catch {
+    blast = null;
+  }
   res.json({
     agent: {
       ...row,
       shadowAi: shadow.isShadow,
       shadowAiScore: shadow.score,
       shadowAiReasons: shadow.reasons,
-      shadowAiTags: shadow.tags
+      shadowAiTags: shadow.tags,
+      ...depth,
+      blastRadius: blast
     },
     relationships: rels.rows,
-    observations: observations.rows
+    observations: observations.rows,
+    agentConfig: depth.agentConfig,
+    agentAccess: depth.agentAccess,
+    blastRadius: blast
   });
+});
+
+app.get("/api/risk/paths", auth, async (req, res) => {
+  try {
+    const payload = await computeBlastRadius(pool, req.tenantId, {
+      agentId: req.query.agentId || null,
+      limit: Number(req.query.limit) || 25
+    });
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Risk path query failed") } });
+  }
+});
+
+app.get("/api/discovery/changes", auth, async (req, res) => {
+  try {
+    const payload = await computeDiscoveryChanges(pool, req.tenantId, {
+      sinceHours: req.query.sinceHours || req.query.hours || 168,
+      agentId: req.query.agentId || null,
+      limit: Number(req.query.limit) || 100
+    });
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Discovery changes query failed") } });
+  }
 });
 
 app.get("/api/assets", auth, async (req, res) => {
@@ -1018,12 +1081,57 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
       type: "shadow_ai",
       title: f.name
     }));
+    let changes = { summary: {}, newlyDiscovered: [], configDrift: [], changedRelationships: 0 };
+    let blast = { items: [] };
+    try {
+      changes = await computeDiscoveryChanges(pool, req.tenantId, { sinceHours: 168, limit: 50 });
+    } catch {
+      /* optional */
+    }
+    try {
+      blast = await computeBlastRadius(pool, req.tenantId, { limit: 15 });
+    } catch {
+      /* optional */
+    }
+    const driftQueue = (changes.configDrift || []).slice(0, 20).map((d) => ({
+      id: d.agentId,
+      name: d.name,
+      owner: d.owner,
+      category: d.category,
+      queue: "config_drift",
+      type: "config_drift",
+      title: d.name,
+      summary: (d.changes || []).map((c) => `${c.op} ${c.field}:${c.value}`).join(", "),
+      confidence_score: 0.7,
+      last_seen: d.changedAt
+    }));
+    const blastQueue = (blast.items || [])
+      .filter((b) => b.score >= 45)
+      .slice(0, 15)
+      .map((b) => ({
+        id: b.agentId,
+        name: b.name,
+        owner: b.owner,
+        category: b.category,
+        queue: "blast_radius",
+        type: "blast_radius",
+        title: b.name,
+        summary: `${b.tier} · score ${b.score} · ${(b.reasons || []).join(", ")}`,
+        confidence_score: Math.min(1, b.score / 100),
+        last_seen: null
+      }));
+    const mergedQueue = [...driftQueue, ...blastQueue, ...queue].slice(0, 80);
     return res.json({
       dashboard: {
         ...base,
-        queue,
-        items: queue,
-        newDiscoveries: queue.length,
+        queue: mergedQueue,
+        items: mergedQueue,
+        newDiscoveries: (changes.newlyDiscovered || []).length,
+        changedRelationships: changes.changedRelationships || 0,
+        configDrift: (changes.configDrift || []).length,
+        highBlastRadius: blastQueue.length,
+        discoveryChanges: changes,
+        blastRadius: blast,
         collectorHealth: COLLECTOR_IDS.map((id) => {
           const last = jobs.rows.find((j) => (j.collector_ids || []).includes(id));
           return {

@@ -812,6 +812,17 @@ tbody tr:hover {
   font-family: var(--font-mono);
 }
 
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.chip-row .badge {
+  font-size: 12px;
+}
+
 .empty-state,
 .loading-state,
 .error-state {

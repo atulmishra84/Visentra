@@ -530,6 +530,18 @@ export function ExecutiveDashboardPage() {
           trend="Discovery confidence"
           tone="good"
         />
+        <KpiCard
+          label="Over-permissioned"
+          value={metric(dashboard, ["overPermissionedAgents", "overPermissioned"], 0)}
+          trend="Broad access scopes"
+          tone="warn"
+        />
+        <KpiCard
+          label="High-sensitivity access"
+          value={metric(dashboard, ["highAccessSensitivity"], 0)}
+          trend="Secrets / admin / identity"
+          tone="warn"
+        />
       </section>
 
       <p className="muted" style={{ marginBottom: 16 }}>

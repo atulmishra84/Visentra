@@ -61,7 +61,11 @@ function facetsFromSearchParams(params: URLSearchParams): Facets {
     "category",
     "department",
     "evidenceClass",
-    "agentStatus"
+    "agentStatus",
+    "access",
+    "accessSensitivity",
+    "overPermissioned",
+    "hasInstructions"
   ];
   const next: Facets = {};
   for (const key of keys) {
@@ -152,7 +156,20 @@ export function InventoryPage({ title }: { title: string }) {
       category: uniqueOptions(agents, "category"),
       department: uniqueOptions(agents, "department"),
       evidenceClass: uniqueMetaOptions(agents, "evidenceClass"),
-      agentStatus: uniqueMetaOptions(agents, "agentStatus")
+      agentStatus: uniqueMetaOptions(agents, "agentStatus"),
+      accessSensitivity: uniqueMetaOptions(agents, "accessSensitivity"),
+      access: (() => {
+        const values = new Set<string>();
+        agents.forEach((row) => {
+          const meta = (row.metadata || {}) as Record<string, unknown>;
+          const access = (meta.agentAccess as Record<string, unknown> | undefined) || {};
+          const granted = Array.isArray(access.granted) ? access.granted : [];
+          granted.forEach((scope) => {
+            if (scope) values.add(String(scope));
+          });
+        });
+        return [...values].sort((left, right) => left.localeCompare(right));
+      })()
     }),
     [agents]
   );
@@ -201,6 +218,29 @@ export function InventoryPage({ title }: { title: string }) {
         return <span className={`status-pill ${status === "confirmed" ? "ok" : ""}`}>{status}</span>;
       },
       sortValue: (agent) => metaAt(agent, "agentStatus")
+    },
+    {
+      key: "access",
+      header: "Access",
+      render: (agent) => {
+        const sensitivity = metaAt(agent, "accessSensitivity", "—");
+        const grants = metaAt(agent, "accessGrantCount", "0");
+        const over = metaAt(agent, "overPermissioned") === "true";
+        return (
+          <span className={`badge ${over ? "bad" : ""}`}>
+            {sensitivity}
+            {grants !== "0" && grants !== "" ? ` · ${grants}` : ""}
+            {over ? " · over" : ""}
+          </span>
+        );
+      },
+      sortValue: (agent) => metaAt(agent, "accessSensitivity")
+    },
+    {
+      key: "how",
+      header: "How identified",
+      render: (agent) => metaAt(agent, "howIdentified", "—"),
+      sortValue: (agent) => metaAt(agent, "howIdentified")
     },
     {
       key: "category",
