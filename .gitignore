@@ -7,10 +7,18 @@ tfplan
 .terraform.lock.hcl
 terraform.tfvars
 
-# Secrets
+# Secrets & env
 *.pem
 *.key
-*.env
+.env
+!.env.example
+certs/*.pem
+certs/*.key
+!certs/README.md
+
+# Node
+node_modules/
+npm-debug.log*
 
 # OS
 .DS_Store
