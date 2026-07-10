@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
   email           TEXT NOT NULL,
   name            TEXT NOT NULL,
   role            TEXT NOT NULL DEFAULT 'analyst'
-                    CHECK (role IN ('platform_admin', 'ciso', 'analyst', 'auditor')),
+                    CHECK (role IN ('platform_admin', 'ciso', 'analyst', 'auditor', 'viewer', 'admin')),
   password_hash   TEXT NOT NULL,
   mfa_enabled     BOOLEAN NOT NULL DEFAULT false,
   mfa_secret_enc  TEXT,

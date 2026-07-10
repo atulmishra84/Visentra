@@ -169,6 +169,36 @@ function normalizeResource(r) {
 async function upsertAgent(tenantId, resource) {
   const phi = detectPhi(resource);
   const scored = scoreAgent({ ...resource, ...phi });
+  const tags = resource.tags || {};
+  const owner = tags.owner || tags.Owner || null;
+  const env = tags.env || tags.Env || tags.environment || 'Cloud';
+  const shadow = !owner;
+  const detect = 'Azure ARM Discovery';
+  const type = resource.resource_type;
+  const risk =
+    scored.risk_level === 'high' && scored.risk_score >= 85
+      ? 'critical'
+      : scored.risk_level === 'high'
+        ? 'high'
+        : scored.risk_level === 'medium'
+          ? 'medium'
+          : 'low';
+  const controls = {};
+  for (const [fw, val] of Object.entries(scored.framework_scores || {})) {
+    const key = fw.toLowerCase().replace(/_ai_rmf|_ai_act/, '').replace('iso27001', 'iso27001');
+    const map = {
+      hipaa: 'hipaa',
+      hitrust: 'hitrust',
+      soc2: 'soc2',
+      iso27001: 'iso27001',
+      gdpr: 'gdpr',
+      nist_ai_rmf: 'nist',
+      eu_ai_act: 'euai',
+    };
+    const ck = map[fw] || map[key] || key;
+    controls[ck] = val.status || 'warn';
+  }
+  if (!controls.fda_samd) controls.fda_samd = 'warn';
 
   const existing = await query(
     `SELECT id, hipaa_status, phi_cleared_by, phi_cleared_at, phi_clear_reason
@@ -179,26 +209,30 @@ async function upsertAgent(tenantId, resource) {
   let hipaa_status = phi.hipaa_status;
   let phi_flagged = phi.phi_flagged;
   let phi_vectors = phi.phi_vectors;
-  let cleared = {};
 
   if (existing.rows[0]?.hipaa_status === 'cleared') {
     hipaa_status = 'cleared';
-    cleared = {
-      phi_cleared_by: existing.rows[0].phi_cleared_by,
-      phi_cleared_at: existing.rows[0].phi_cleared_at,
-      phi_clear_reason: existing.rows[0].phi_clear_reason,
-    };
-    // Re-score with cleared status
     Object.assign(scored, scoreAgent({ ...resource, ...phi, hipaa_status: 'cleared', phi_flagged }));
   }
+
+  const meta = {
+    ...(resource.metadata || {}),
+    notes: [
+      resource.resource_group ? `Resource Group: ${resource.resource_group}` : null,
+      resource.region ? `Region: ${resource.region}` : null,
+    ]
+      .filter(Boolean)
+      .join(' | '),
+  };
 
   if (existing.rows[0]) {
     await query(
       `UPDATE agents SET
-        name=$3, resource_type=$4, subscription_id=$5, resource_group=$6, region=$7,
-        tags=$8, metadata=$9, protocols=$10, phi_flagged=$11, phi_vectors=$12,
-        hipaa_status=$13, risk_score=$14, risk_level=$15, risk_factors=$16,
-        framework_scores=$17, last_seen=NOW(), updated_at=NOW()
+        name=$3, resource_type=$4, type=$4, subscription_id=$5, resource_group=$6, region=$7,
+        tags=$8, metadata=$9, protocols=$10, phi_flagged=$11, phi=$11, phi_vectors=$12,
+        hipaa_status=$13, risk_score=$14, risk_level=$15, risk=$16, risk_factors=$17,
+        framework_scores=$18, shadow=$19, owner=$20, env=$21, detect=$22, controls=$23,
+        last_seen=NOW(), updated_at=NOW()
        WHERE id=$1 AND tenant_id=$2`,
       [
         existing.rows[0].id,
@@ -209,15 +243,21 @@ async function upsertAgent(tenantId, resource) {
         resource.resource_group,
         resource.region,
         JSON.stringify(resource.tags),
-        JSON.stringify(resource.metadata),
+        JSON.stringify(meta),
         JSON.stringify(resource.protocols),
         phi_flagged,
         JSON.stringify(phi_vectors),
         hipaa_status,
         scored.risk_score,
         scored.risk_level,
+        risk,
         JSON.stringify(scored.risk_factors),
         JSON.stringify(scored.framework_scores),
+        shadow,
+        owner,
+        env,
+        detect,
+        JSON.stringify(controls),
       ]
     );
     return existing.rows[0].id;
@@ -225,10 +265,11 @@ async function upsertAgent(tenantId, resource) {
 
   const inserted = await query(
     `INSERT INTO agents (
-      tenant_id, azure_resource_id, name, resource_type, subscription_id, resource_group,
-      region, tags, metadata, protocols, phi_flagged, phi_vectors, hipaa_status,
-      risk_score, risk_level, risk_factors, framework_scores
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      tenant_id, azure_resource_id, name, resource_type, type, subscription_id, resource_group,
+      region, tags, metadata, protocols, phi_flagged, phi, phi_vectors, hipaa_status,
+      risk_score, risk_level, risk, risk_factors, framework_scores,
+      shadow, owner, env, detect, controls, hosted
+    ) VALUES ($1,$2,$3,$4,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,true)
     RETURNING id`,
     [
       tenantId,
@@ -239,15 +280,21 @@ async function upsertAgent(tenantId, resource) {
       resource.resource_group,
       resource.region,
       JSON.stringify(resource.tags),
-      JSON.stringify(resource.metadata),
+      JSON.stringify(meta),
       JSON.stringify(resource.protocols),
       phi_flagged,
       JSON.stringify(phi_vectors),
       hipaa_status,
       scored.risk_score,
       scored.risk_level,
+      risk,
       JSON.stringify(scored.risk_factors),
       JSON.stringify(scored.framework_scores),
+      shadow,
+      owner,
+      env,
+      detect,
+      JSON.stringify(controls),
     ]
   );
   return inserted.rows[0].id;
