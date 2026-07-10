@@ -200,8 +200,8 @@ export function ConnectorsPage() {
           <p className="eyebrow">Settings</p>
           <h1>Connectors</h1>
           <p className="page-description">
-            Add cloud environment credentials for Azure, AWS, and GCP. Secrets are encrypted and never shown again.
-            After saving Azure, click <strong>Test</strong> then <strong>Scan cloud now</strong> to discover resources.
+            Add cloud and EDR environment credentials (Azure, AWS, GCP, and later CrowdStrike/Defender). Secrets are encrypted and never shown again.
+            After saving Azure, click <strong>Test</strong> then <strong>Scan cloud now</strong> to discover resources. AgentRadar is agentless — endpoint coverage comes from EDR integrations, not a local client.
           </p>
         </div>
         <button className="button primary" type="button" onClick={() => void scanNow()}>
