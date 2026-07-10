@@ -1,0 +1,88 @@
+import { useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { KpiCard } from "../components/KpiCard";
+import { apiRequest, compactDate, numberAt, type Agent, valueAt } from "../lib/api";
+
+export function AgentDetailPage() {
+  const { id } = useParams();
+  const [payload, setPayload] = useState<unknown>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id) {
+      return;
+    }
+
+    let mounted = true;
+    setLoading(true);
+    apiRequest<unknown>(`/api/agents/${encodeURIComponent(id)}`)
+      .then((data) => mounted && setPayload(data))
+      .catch((requestError) => mounted && setError(requestError instanceof Error ? requestError.message : "Failed to load agent."))
+      .finally(() => mounted && setLoading(false));
+
+    return () => {
+      mounted = false;
+    };
+  }, [id]);
+
+  const agent = ((payload as { agent?: Agent } | null)?.agent ?? payload ?? {}) as Agent;
+
+  if (loading) {
+    return <div className="page"><div className="loading-state">Loading agent profile...</div></div>;
+  }
+
+  if (error) {
+    return <div className="page"><div className="error-state">{error}</div></div>;
+  }
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Agent Detail</p>
+          <h1>{valueAt(agent, ["name", "displayName", "id"], "Agent")}</h1>
+          <p className="page-description">
+            {valueAt(agent, ["summary", "description", "category"], "Canonical agent profile from the inventory API.")}
+          </p>
+        </div>
+        <div className="toolbar">
+          <Link className="button" to={`/topology?agentId=${encodeURIComponent(String(agent.id ?? id))}`}>
+            Open in topology
+          </Link>
+          <Link className="button" to="/inventory">
+            Back to inventory
+          </Link>
+        </div>
+      </header>
+
+      <section className="card-grid">
+        <KpiCard label="Owner" value={valueAt(agent, ["owner", "team"])} />
+        <KpiCard label="Framework" value={valueAt(agent, ["framework", "runtimeFramework"])} />
+        <KpiCard label="Model" value={valueAt(agent, ["model", "primaryModel", "models"])} />
+        <KpiCard
+          label="Confidence"
+          value={`${Math.round(numberAt(agent, ["confidence", "confidence_score"], 0) * 100)}%`}
+          tone="good"
+        />
+      </section>
+
+      <section className="split-grid">
+        <div className="panel">
+          <h2>Runtime & Ownership</h2>
+          <div className="chart-list">
+            <div className="bar-row"><span>Department</span><span>{valueAt(agent, ["department", "businessUnit"])}</span><span /></div>
+            <div className="bar-row"><span>Cloud</span><span>{valueAt(agent, ["cloud", "provider", "environment"])}</span><span /></div>
+            <div className="bar-row"><span>Category</span><span>{valueAt(agent, ["category", "type"])}</span><span /></div>
+            <div className="bar-row"><span>Last seen</span><span>{compactDate(agent.lastObservedAt ?? agent.last_seen)}</span><span /></div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <h2>Raw JSON</h2>
+          <pre className="json-block">{JSON.stringify(agent, null, 2)}</pre>
+        </div>
+      </section>
+    </div>
+  );
+}

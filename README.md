@@ -2,6 +2,24 @@
 
 > **Discover. Govern. Secure. Every AI agent, everywhere.**
 
+## Discovery & Visibility Platform (new)
+
+A greenfield **Enterprise AI Agent Discovery & Visibility** track (CrowdStrike-for-agents + Wiz-for-AI + Datadog-for-runtime + CMDB-for-AI-assets) lives alongside the legacy governance stack:
+
+| Artifact | Path |
+|----------|------|
+| Engineering blueprint (30 deliverables) | [`docs/blueprint/`](./docs/blueprint/) |
+| Working MVP (API, web, discovery, compose) | [`platform/`](./platform/) |
+
+```bash
+cd platform/infra/compose && docker compose up -d --build
+# UI http://localhost:5173  —  admin@agentradar.local / AgentRadar!dev
+```
+
+Scope of the new track: **Discover · Inventory · Relationships · Visibility** (no governance/remediation yet). The root Compose V1 and AKS `deploy/` stacks below are unchanged.
+
+---
+
 AgentRadar is an enterprise AI governance platform that gives organizations complete visibility, risk intelligence, and compliance control over every AI agent running in their cloud environment. Built on a Bring Your Own Cloud (BYOC) model, AgentRadar deploys entirely inside the customer's own Azure tenant — your data never leaves your environment.
 
 ## Platform loop

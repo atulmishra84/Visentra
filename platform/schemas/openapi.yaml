@@ -1,0 +1,220 @@
+openapi: 3.0.3
+info:
+  title: AgentRadar Discovery & Visibility API
+  version: 1.0.0
+  description: Enterprise AI Agent Discovery & Visibility Platform API (MVP)
+servers:
+  - url: http://localhost:8080
+    description: Local MVP
+tags:
+  - name: auth
+  - name: agents
+  - name: assets
+  - name: graph
+  - name: search
+  - name: discovery
+  - name: dashboards
+  - name: export
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: Authenticated
+  /api/auth/me:
+    get:
+      tags: [auth]
+      summary: Current user
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: User profile
+  /api/agents:
+    get:
+      tags: [agents]
+      summary: List agents
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: owner
+          schema: { type: string }
+        - in: query
+          name: model
+          schema: { type: string }
+        - in: query
+          name: framework
+          schema: { type: string }
+        - in: query
+          name: cloud
+          schema: { type: string }
+        - in: query
+          name: category
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: Agent list
+  /api/agents/{id}:
+    get:
+      tags: [agents]
+      summary: Agent detail
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Agent
+  /api/assets:
+    get:
+      tags: [assets]
+      summary: List assets
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: type
+          schema: { type: string }
+      responses:
+        '200':
+          description: Assets
+  /api/graph:
+    get:
+      tags: [graph]
+      summary: Topology subgraph
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: agentId
+          schema: { type: string }
+        - in: query
+          name: depth
+          schema: { type: integer, default: 2 }
+      responses:
+        '200':
+          description: Nodes and edges
+  /api/graph/stream:
+    get:
+      tags: [graph]
+      summary: SSE graph deltas
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: text/event-stream
+  /api/search:
+    get:
+      tags: [search]
+      summary: Faceted search
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+      responses:
+        '200':
+          description: Hits and facets
+  /api/discovery/jobs:
+    get:
+      tags: [discovery]
+      summary: List discovery jobs
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Jobs
+    post:
+      tags: [discovery]
+      summary: Trigger discovery
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                collectors:
+                  type: array
+                  items: { type: string }
+      responses:
+        '202':
+          description: Job accepted
+  /api/discovery/events:
+    get:
+      tags: [discovery]
+      summary: Discovery events
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Events
+  /api/dashboards/{name}:
+    get:
+      tags: [dashboards]
+      summary: Dashboard aggregates
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+            enum: [executive, operations, discovery, models, frameworks, cloud, ide, timeline]
+      responses:
+        '200':
+          description: Dashboard payload
+  /api/export/agents:
+    get:
+      tags: [export]
+      summary: Export agents CSV or JSON
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: format
+          schema: { type: string, enum: [json, csv], default: json }
+      responses:
+        '200':
+          description: Export body
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Agent:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        owner: { type: string }
+        framework: { type: string }
+        model: { type: string }
+        provider: { type: string }
+        category: { type: string }
+        confidence_score: { type: number }
+        last_seen: { type: string, format: date-time }
