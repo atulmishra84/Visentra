@@ -19,7 +19,8 @@ export async function migrate(pool) {
       ALTER TABLE connectors ADD CONSTRAINT connectors_provider_check
         CHECK (provider IN (
           'azure', 'aws', 'gcp',
-          'crowdstrike', 'defender', 'intune', 'cortex', 'netskope'
+          'crowdstrike', 'defender', 'intune', 'cortex', 'netskope',
+          'm365_copilot', 'salesforce', 'workday', 'servicenow'
         ));
     EXCEPTION WHEN undefined_table THEN
       NULL;

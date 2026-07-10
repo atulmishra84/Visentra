@@ -415,6 +415,96 @@ export const collectors = {
 
       return out;
     }
+  },
+
+  saas_platform: {
+    id: "saas_platform",
+    async scan(ctx) {
+      const out = [];
+      if (!ctx.pool || !ctx.tenantId) return out;
+
+      try {
+        const { listActiveSaasConnectors } = await import("../services/connectors.js");
+        const { discoverSaasConnector } = await import("./saasPlatforms.js");
+        const connectors = await listActiveSaasConnectors(ctx.pool, ctx.tenantId);
+
+        for (const conn of connectors) {
+          const label =
+            {
+              m365_copilot: "Microsoft 365 Copilot",
+              salesforce: "Salesforce Agentforce",
+              workday: "Workday",
+              servicenow: "ServiceNow"
+            }[conn.provider] || conn.provider;
+
+          try {
+            const { observations, stats } = await discoverSaasConnector(conn);
+            out.push(...observations);
+            if (ctx.pool) {
+              await ctx.pool.query(
+                `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
+                 WHERE id=$1 AND tenant_id=$2`,
+                [conn.id, ctx.tenantId]
+              );
+              await ctx.pool.query(
+                `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+                 VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
+                [
+                  ctx.tenantId,
+                  `SaaS platform "${conn.name}" (${label}) discovered ${stats.agents || 0} agents — ${stats.message || "ok"}`,
+                  JSON.stringify({
+                    connectorId: conn.id,
+                    provider: conn.provider,
+                    category: "saas",
+                    ...stats
+                  })
+                ]
+              );
+            }
+          } catch (err) {
+            const message = err.message || String(err);
+            console.warn("SaaS platform scan failed:", conn.provider, message);
+            if (ctx.pool) {
+              await ctx.pool.query(
+                `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
+                 WHERE id=$1 AND tenant_id=$2`,
+                [conn.id, ctx.tenantId, message]
+              );
+              await ctx.pool.query(
+                `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+                 VALUES ($1,'connector.scan.error','error',$2,$3::jsonb)`,
+                [
+                  ctx.tenantId,
+                  `SaaS platform "${conn.name}" (${label}) failed: ${message}`,
+                  JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "saas" })
+                ]
+              );
+            }
+            out.push({
+              collector_id: "saas_platform",
+              fingerprint: `saas-connector-error:${conn.provider}:${conn.id}`,
+              name: `${label} connector error — ${conn.name}`,
+              category: "saas",
+              provider: conn.provider,
+              confidence_score: 0.2,
+              running_status: "unknown",
+              risk_indicators: ["connector_auth_failed"],
+              metadata: {
+                connectorId: conn.id,
+                connectorName: conn.name,
+                discoveryMode: "saas-platform-error",
+                inventoryClass: "saas_connector",
+                error: message
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("saas platform scan:", err.message);
+      }
+
+      return out;
+    }
   }
 };
 
@@ -425,6 +515,7 @@ export const DEFAULT_COLLECTORS = [
   "mcp",
   "cloud_stub",
   "edr",
+  "saas_platform",
   "k8s_stub"
 ];
 

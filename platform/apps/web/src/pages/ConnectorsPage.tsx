@@ -9,7 +9,11 @@ type ProviderKey =
   | "defender"
   | "intune"
   | "cortex"
-  | "netskope";
+  | "netskope"
+  | "m365_copilot"
+  | "salesforce"
+  | "workday"
+  | "servicenow";
 
 type ProviderSchema = {
   category?: string;
@@ -26,7 +30,11 @@ const PROVIDER_LABELS: Record<ProviderKey, string> = {
   defender: "Microsoft Defender for Endpoint",
   intune: "Microsoft Intune",
   cortex: "Palo Alto Cortex XDR",
-  netskope: "Netskope"
+  netskope: "Netskope",
+  m365_copilot: "Microsoft 365 Copilot / Copilot Studio",
+  salesforce: "Salesforce Agentforce",
+  workday: "Workday Illuminate / AI",
+  servicenow: "ServiceNow Now Assist / Virtual Agent"
 };
 
 const EMPTY_FORM = {
@@ -50,7 +58,15 @@ const EMPTY_FORM = {
   apiKeyId: "",
   apiKey: "",
   tenant: "",
-  apiToken: ""
+  apiToken: "",
+  loginUrl: "https://login.salesforce.com",
+  username: "",
+  password: "",
+  securityToken: "",
+  instanceUrl: "",
+  apiVersion: "v59.0",
+  refreshToken: "",
+  instance: ""
 };
 
 export function ConnectorsPage() {
@@ -64,7 +80,13 @@ export function ConnectorsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const providerSchema = schema[form.provider];
-  const isEdr = providerSchema?.category === "edr" || ["crowdstrike", "defender", "intune", "cortex", "netskope"].includes(form.provider);
+  const category =
+    providerSchema?.category ||
+    (["crowdstrike", "defender", "intune", "cortex", "netskope"].includes(form.provider)
+      ? "edr"
+      : ["m365_copilot", "salesforce", "workday", "servicenow"].includes(form.provider)
+        ? "saas"
+        : "cloud");
 
   const load = async () => {
     setLoading(true);
@@ -123,11 +145,19 @@ export function ConnectorsPage() {
       fqdn: config.fqdn || "",
       apiKeyId: config.apiKeyId || "",
       tenant: config.tenant || "",
+      loginUrl: config.loginUrl || "https://login.salesforce.com",
+      username: config.username || "",
+      instanceUrl: config.instanceUrl || "",
+      apiVersion: config.apiVersion || "v59.0",
+      instance: config.instance || "",
       clientSecret: "",
       secretAccessKey: "",
       privateKey: "",
       apiKey: "",
-      apiToken: ""
+      apiToken: "",
+      password: "",
+      securityToken: "",
+      refreshToken: ""
     });
     setMessage("Leave secret fields blank to keep existing secrets.");
   };
@@ -210,22 +240,30 @@ export function ConnectorsPage() {
     }
   };
 
-  const scanNow = async (mode: "cloud" | "edr" | "all") => {
+  const scanNow = async (mode: "cloud" | "edr" | "saas" | "all") => {
     setError(null);
     setMessage(null);
     const collectors =
-      mode === "cloud" ? ["cloud_stub"] : mode === "edr" ? ["edr"] : ["cloud_stub", "edr"];
+      mode === "cloud"
+        ? ["cloud_stub"]
+        : mode === "edr"
+          ? ["edr"]
+          : mode === "saas"
+            ? ["saas_platform"]
+            : ["cloud_stub", "edr", "saas_platform"];
     try {
       await apiRequest("/api/discovery/jobs", {
         method: "POST",
         body: JSON.stringify({ collectors })
       });
       setMessage(
-        mode === "edr"
-          ? "EDR discovery started. Open Discovery Dashboard or Inventory in ~10s to see CrowdStrike / Defender / Intune / Cortex / Netskope results."
-          : mode === "cloud"
-            ? "Cloud discovery started. Open Discovery Dashboard or Inventory in ~10s to see Azure scan results."
-            : "Cloud + EDR discovery started. Check Discovery Dashboard or Inventory in ~10s."
+        mode === "saas"
+          ? "SaaS platform discovery started (Copilot, Salesforce, Workday, ServiceNow). Check Inventory in ~10s."
+          : mode === "edr"
+            ? "EDR discovery started."
+            : mode === "cloud"
+              ? "Cloud discovery started."
+              : "Cloud + EDR + SaaS discovery started."
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start discovery.");
@@ -236,12 +274,27 @@ export function ConnectorsPage() {
     const keys = Object.keys(schema).length
       ? (Object.keys(schema) as ProviderKey[])
       : (Object.keys(PROVIDER_LABELS) as ProviderKey[]);
-    const cloud = keys.filter((k) => schema[k]?.category === "cloud" || ["azure", "aws", "gcp"].includes(k));
-    const edr = keys.filter(
-      (k) => schema[k]?.category === "edr" || ["crowdstrike", "defender", "intune", "cortex", "netskope"].includes(k)
-    );
-    return { cloud, edr };
+    return {
+      cloud: keys.filter((k) => schema[k]?.category === "cloud" || ["azure", "aws", "gcp"].includes(k)),
+      edr: keys.filter(
+        (k) =>
+          schema[k]?.category === "edr" || ["crowdstrike", "defender", "intune", "cortex", "netskope"].includes(k)
+      ),
+      saas: keys.filter(
+        (k) =>
+          schema[k]?.category === "saas" ||
+          ["m365_copilot", "salesforce", "workday", "servicenow"].includes(k)
+      )
+    };
   }, [schema]);
+
+  const formTitle = editingId
+    ? "Edit connector"
+    : category === "edr"
+      ? "Add EDR integration"
+      : category === "saas"
+        ? "Add SaaS / platform agents"
+        : "Add cloud environment";
 
   return (
     <div className="page">
@@ -250,17 +303,20 @@ export function ConnectorsPage() {
           <p className="eyebrow">Settings</p>
           <h1>Connectors</h1>
           <p className="page-description">
-            Add cloud and EDR credentials (Azure, AWS, GCP, CrowdStrike, Defender, Intune, Cortex XDR, Netskope).
-            Secrets are encrypted and never shown again. AgentRadar is agentless — endpoint coverage comes from EDR
-            integrations, not a local client. Save → <strong>Test</strong> → scan.
+            Connect cloud, EDR, and SaaS platforms to discover agents — including Microsoft Copilot, Salesforce
+            Agentforce, Workday Illuminate, and ServiceNow Now Assist. Secrets are encrypted. Save →{" "}
+            <strong>Test</strong> → scan.
           </p>
         </div>
-        <div className="toolbar" style={{ gap: 8 }}>
+        <div className="toolbar" style={{ gap: 8, flexWrap: "wrap" }}>
           <button className="button" type="button" onClick={() => void scanNow("cloud")}>
-            Scan cloud now
+            Scan cloud
           </button>
-          <button className="button primary" type="button" onClick={() => void scanNow("edr")}>
-            Scan EDR now
+          <button className="button" type="button" onClick={() => void scanNow("edr")}>
+            Scan EDR
+          </button>
+          <button className="button primary" type="button" onClick={() => void scanNow("saas")}>
+            Scan SaaS platforms
           </button>
         </div>
       </header>
@@ -270,7 +326,7 @@ export function ConnectorsPage() {
 
       <div className="split-layout">
         <section className="panel">
-          <h2>{editingId ? "Edit connector" : isEdr ? "Add EDR integration" : "Add cloud environment"}</h2>
+          <h2>{formTitle}</h2>
           <form className="connector-form" onSubmit={submit}>
             <label>
               Display name
@@ -279,7 +335,13 @@ export function ConnectorsPage() {
                 required
                 value={form.name}
                 onChange={(e) => onChange("name", e.target.value)}
-                placeholder={isEdr ? "Prod CrowdStrike / Netskope" : "Prod Azure subscription"}
+                placeholder={
+                  category === "saas"
+                    ? "Prod Salesforce / Workday / Copilot"
+                    : category === "edr"
+                      ? "Prod CrowdStrike / Netskope"
+                      : "Prod Azure subscription"
+                }
               />
             </label>
 
@@ -294,6 +356,13 @@ export function ConnectorsPage() {
                 >
                   <optgroup label="Cloud">
                     {providerOptions.cloud.map((key) => (
+                      <option key={key} value={key}>
+                        {PROVIDER_LABELS[key] || key}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="SaaS / platform agents">
+                    {providerOptions.saas.map((key) => (
                       <option key={key} value={key}>
                         {PROVIDER_LABELS[key] || key}
                       </option>
@@ -379,14 +448,14 @@ export function ConnectorsPage() {
             <div className="loading-state">Loading connectors...</div>
           ) : connectors.length === 0 ? (
             <div className="empty-state">
-              No connectors yet. Add cloud (Azure/AWS/GCP) or EDR (CrowdStrike, Defender, Intune, Cortex, Netskope)
+              No connectors yet. Add cloud, SaaS platforms (Copilot / Salesforce / Workday / ServiceNow), or EDR
               credentials to start discovery.
             </div>
           ) : (
             <div className="connector-list">
               {connectors.map((connector) => {
                 const provider = String(connector.provider || "") as ProviderKey;
-                const category = String(connector.category || (PROVIDER_LABELS[provider] ? "" : "cloud"));
+                const cat = String(connector.category || "");
                 return (
                   <article className="connector-card" key={String(connector.id)}>
                     <div className="connector-card-head">
@@ -394,7 +463,7 @@ export function ConnectorsPage() {
                         <strong>{valueAt(connector, ["name"])}</strong>
                         <div className="muted">
                           {PROVIDER_LABELS[provider] || provider.toUpperCase()}
-                          {category ? ` · ${category}` : ""} · {valueAt(connector, ["environment"])}
+                          {cat ? ` · ${cat}` : ""} · {valueAt(connector, ["environment"])}
                         </div>
                       </div>
                       <span className={`status-pill ${connector.status === "active" ? "" : "warn"}`}>

@@ -308,6 +308,82 @@ export function demoObservations(tenantId) {
       relationships: [
         { rel_type: "ACCESSES", to_type: "ExternalService", to_key: "notion", to_name: "Notion" }
       ]
+    },
+    {
+      collector_id: "demo",
+      fingerprint: "saas:m365_copilot:tenant-demo",
+      name: "Microsoft 365 Copilot (demo tenant)",
+      category: "saas",
+      owner: "m365-admins@acme.com",
+      department: "IT",
+      business_unit: "Corporate",
+      provider: "m365_copilot",
+      framework: "Microsoft 365 Copilot",
+      model: "microsoft-copilot",
+      deployment_type: "saas",
+      running_status: "running",
+      confidence_score: 0.9,
+      metadata: { managedPlatformAgent: true, platform: "m365_copilot", inventoryClass: "platform_agent" },
+      relationships: [
+        { rel_type: "RUNS_ON", to_type: "SaaSPlatform", to_key: "saas-m365_copilot", to_name: "Microsoft 365 Copilot" }
+      ]
+    },
+    {
+      collector_id: "demo",
+      fingerprint: "saas:salesforce:agentforce:case-triage",
+      name: "Salesforce Agentforce — Case Triage",
+      category: "saas",
+      owner: "crm-ops@acme.com",
+      department: "Customer Success",
+      business_unit: "Revenue",
+      provider: "salesforce",
+      framework: "Salesforce Agentforce",
+      model: "salesforce-agentforce",
+      deployment_type: "saas",
+      running_status: "running",
+      confidence_score: 0.91,
+      metadata: { managedPlatformAgent: true, platform: "salesforce", inventoryClass: "platform_agent" },
+      relationships: [
+        { rel_type: "RUNS_ON", to_type: "SaaSPlatform", to_key: "saas-salesforce", to_name: "Salesforce Agentforce" }
+      ]
+    },
+    {
+      collector_id: "demo",
+      fingerprint: "saas:workday:illuminate:hr-assist",
+      name: "Workday Illuminate — HR Assist",
+      category: "saas",
+      owner: "hris@acme.com",
+      department: "People Ops",
+      business_unit: "Corporate",
+      provider: "workday",
+      framework: "Workday Illuminate",
+      model: "workday-illuminate",
+      deployment_type: "saas",
+      running_status: "running",
+      confidence_score: 0.89,
+      metadata: { managedPlatformAgent: true, platform: "workday", inventoryClass: "platform_agent" },
+      relationships: [
+        { rel_type: "RUNS_ON", to_type: "SaaSPlatform", to_key: "saas-workday", to_name: "Workday Illuminate" }
+      ]
+    },
+    {
+      collector_id: "demo",
+      fingerprint: "saas:servicenow:now-assist:it-virtual-agent",
+      name: "ServiceNow Now Assist — IT Virtual Agent",
+      category: "saas",
+      owner: "itsm@acme.com",
+      department: "IT Service Management",
+      business_unit: "Technology",
+      provider: "servicenow",
+      framework: "ServiceNow Now Assist",
+      model: "servicenow-now-assist",
+      deployment_type: "saas",
+      running_status: "running",
+      confidence_score: 0.9,
+      metadata: { managedPlatformAgent: true, platform: "servicenow", inventoryClass: "platform_agent" },
+      relationships: [
+        { rel_type: "RUNS_ON", to_type: "SaaSPlatform", to_key: "saas-servicenow", to_name: "ServiceNow Now Assist" }
+      ]
     }
   ].map((o) => ({ ...o, tenant_id: tenantId, observed_at: now }));
 }

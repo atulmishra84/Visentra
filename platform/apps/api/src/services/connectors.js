@@ -82,12 +82,63 @@ export const PROVIDER_FIELDS = {
       tenant: "Netskope tenant (e.g. acme for acme.goskope.com)",
       apiToken: "REST API token"
     }
+  },
+  m365_copilot: {
+    category: "saas",
+    config: ["tenantId", "clientId"],
+    secrets: ["clientSecret"],
+    labels: {
+      tenantId: "Azure AD Tenant ID",
+      clientId: "Application (client) ID",
+      clientSecret: "Client secret"
+    }
+  },
+  salesforce: {
+    category: "saas",
+    config: ["loginUrl", "clientId", "username", "instanceUrl", "apiVersion"],
+    secrets: ["clientSecret", "password", "securityToken"],
+    labels: {
+      loginUrl: "Login URL (https://login.salesforce.com or test)",
+      clientId: "Connected App consumer key",
+      clientSecret: "Connected App consumer secret",
+      username: "API username (optional if client_credentials enabled)",
+      password: "API password",
+      securityToken: "Security token (appended to password)",
+      instanceUrl: "Instance URL override (optional)",
+      apiVersion: "API version (default v59.0)"
+    }
+  },
+  workday: {
+    category: "saas",
+    config: ["tenant", "clientId", "username"],
+    secrets: ["clientSecret", "refreshToken", "password"],
+    labels: {
+      tenant: "Workday tenant (e.g. acme)",
+      clientId: "API client ID (OAuth)",
+      clientSecret: "API client secret (OAuth)",
+      refreshToken: "OAuth refresh token",
+      username: "Integration System User (basic auth fallback)",
+      password: "ISU password (basic auth fallback)"
+    }
+  },
+  servicenow: {
+    category: "saas",
+    config: ["instance", "username", "clientId"],
+    secrets: ["password", "clientSecret"],
+    labels: {
+      instance: "Instance (e.g. acme for acme.service-now.com)",
+      username: "API username",
+      password: "API password",
+      clientId: "OAuth client ID (optional)",
+      clientSecret: "OAuth client secret (optional)"
+    }
   }
 };
 
 export const CLOUD_PROVIDERS = ["azure", "aws", "gcp"];
 export const EDR_PROVIDERS = ["crowdstrike", "defender", "intune", "cortex", "netskope"];
-export const ALL_PROVIDERS = [...CLOUD_PROVIDERS, ...EDR_PROVIDERS];
+export const SAAS_PROVIDERS = ["m365_copilot", "salesforce", "workday", "servicenow"];
+export const ALL_PROVIDERS = [...CLOUD_PROVIDERS, ...EDR_PROVIDERS, ...SAAS_PROVIDERS];
 
 function publicConnector(row) {
   const cfg = row.config || {};
@@ -282,6 +333,12 @@ export async function testConnector(pool, tenantId, id) {
       const result = await validator({ config, secrets });
       ok = result.ok;
       message = result.message;
+    } else if (SAAS_PROVIDERS.includes(row.provider)) {
+      const { SAAS_VALIDATORS } = await import("../discovery/saasPlatforms.js");
+      const validator = SAAS_VALIDATORS[row.provider];
+      const result = await validator({ config, secrets });
+      ok = result.ok;
+      message = result.message;
     } else if (row.provider === "aws") {
       ok = Boolean(config.accessKeyId && secrets.secretAccessKey);
       message = ok
@@ -333,6 +390,25 @@ export async function listActiveEdrConnectors(pool, tenantId) {
        AND provider = ANY($2::text[])
        AND status IN ('active', 'error')`,
     [tenantId, EDR_PROVIDERS]
+  );
+  return res.rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    provider: row.provider,
+    environment: row.environment,
+    status: row.status,
+    config: row.config || {},
+    secrets: decryptJson(row.secrets_enc)
+  }));
+}
+
+export async function listActiveSaasConnectors(pool, tenantId) {
+  const res = await pool.query(
+    `SELECT * FROM connectors
+     WHERE tenant_id=$1
+       AND provider = ANY($2::text[])
+       AND status IN ('active', 'error')`,
+    [tenantId, SAAS_PROVIDERS]
   );
   return res.rows.map((row) => ({
     id: row.id,

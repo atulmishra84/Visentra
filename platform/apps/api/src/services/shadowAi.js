@@ -99,12 +99,22 @@ export function classifyShadowAi(agent) {
     return { isShadow: false, score: 0, reasons: [], tags: [] };
   }
 
+  const meta = agent.metadata || {};
+  if (meta.managedPlatformAgent === true) {
+    // Connected SaaS platform agents are managed inventory, not Shadow AI
+    return {
+      isShadow: false,
+      score: 0,
+      reasons: ["Managed platform agent via SaaS connector"],
+      tags: ["managed_platform_agent"]
+    };
+  }
+
   const owner = String(agent.owner || "").trim();
   const risks = asArray(agent.risk_indicators).map(String);
   const blob = textBlob(agent);
   const category = String(agent.category || "").toLowerCase();
   const confidence = Number(agent.confidence_score ?? agent.confidence ?? 0.5);
-  const meta = agent.metadata || {};
 
   for (const risk of risks) {
     if (SHADOW_RISK_TAGS.has(risk) || /shadow|unmanaged|unsanctioned/i.test(risk)) {
@@ -160,7 +170,7 @@ export function classifyShadowAi(agent) {
     reasons.push("MCP server/tooling without owner");
   }
 
-  if (meta.aiRelevant && !owner && category === "cloud") {
+  if (meta.aiRelevant === true && !owner && category === "cloud") {
     score += 0.25;
     tags.push("cloud_ai_ownerless");
     reasons.push("AI-relevant cloud resource without owner tag");
@@ -178,9 +188,12 @@ export function classifyShadowAi(agent) {
     reasons.push("AI signal from unverified connector adapter");
   }
 
-  // Cap and decide
+  // Cap and decide — require meaningful signal strength
   score = Math.min(1, Number(score.toFixed(3)));
-  const isShadow = score >= 0.35 || tags.some((t) => SHADOW_RISK_TAGS.has(t) || t === "consumer_ai");
+  const strongTag = tags.some((t) =>
+    ["saas_shadow", "unmanaged_saas", "shadow_ai", "consumer_ai", "local_llm_unmanaged", "browser_ai"].includes(t)
+  );
+  const isShadow = score >= 0.35 || strongTag;
 
   return {
     isShadow,

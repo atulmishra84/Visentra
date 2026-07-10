@@ -193,7 +193,8 @@ CREATE TABLE IF NOT EXISTS connectors (
   provider        TEXT NOT NULL
                     CHECK (provider IN (
                       'azure', 'aws', 'gcp',
-                      'crowdstrike', 'defender', 'intune', 'cortex', 'netskope'
+                      'crowdstrike', 'defender', 'intune', 'cortex', 'netskope',
+                      'm365_copilot', 'salesforce', 'workday', 'servicenow'
                     )),
   status          TEXT NOT NULL DEFAULT 'active'
                     CHECK (status IN ('active', 'disabled', 'error')),

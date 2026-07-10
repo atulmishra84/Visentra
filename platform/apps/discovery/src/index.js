@@ -30,7 +30,7 @@ async function trigger(token) {
       Authorization: `Bearer ${token}`
     },
     body: JSON.stringify({
-      collectors: ["cloud_stub", "edr", "ide_filesystem", "process", "mcp", "k8s_stub"]
+      collectors: ["cloud_stub", "edr", "saas_platform", "ide_filesystem", "process", "mcp", "k8s_stub"]
     })
   });
   if (!res.ok && res.status !== 202) {
