@@ -160,18 +160,84 @@ function agentFilters(query, startIdx = 2) {
   return { clauses: clauses.join(" "), params, nextIdx: i };
 }
 
-async function graphFromSql(tenantId, { agentId, depth = 2 } = {}) {
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || "")
+  );
+}
+
+async function resolveSeedAgents(tenantId, seed) {
+  const q = String(seed || "").trim();
+  if (!q) return [];
+
+  if (isUuid(q)) {
+    const byId = await pool.query(`SELECT * FROM agents WHERE tenant_id=$1 AND id=$2`, [tenantId, q]);
+    if (byId.rows.length) return byId.rows;
+  }
+
+  const byKey = await pool.query(
+    `SELECT * FROM agents
+     WHERE tenant_id=$1
+       AND (fingerprint = $2 OR lower(name) = lower($2))
+     ORDER BY last_seen DESC
+     LIMIT 5`,
+    [tenantId, q]
+  );
+  if (byKey.rows.length) return byKey.rows;
+
+  const fuzzy = await pool.query(
+    `SELECT * FROM agents
+     WHERE tenant_id=$1
+       AND (name ILIKE $2 OR fingerprint ILIKE $2 OR framework ILIKE $2 OR category ILIKE $2)
+     ORDER BY last_seen DESC
+     LIMIT 12`,
+    [tenantId, `%${q}%`]
+  );
+  return fuzzy.rows;
+}
+
+async function graphFromSql(tenantId, { agentId, depth = 2, limit = 60 } = {}) {
   const nodes = new Map();
   const edges = [];
+  const maxNodes = Math.min(Math.max(Number(limit) || 60, 10), 200);
+  const hopDepth = Math.min(Math.max(Number(depth) || 2, 1), 3);
 
   let agents;
+  let seedMode = Boolean(agentId);
+
   if (agentId) {
-    agents = await pool.query(`SELECT * FROM agents WHERE tenant_id=$1 AND id=$2`, [tenantId, agentId]);
+    agents = { rows: await resolveSeedAgents(tenantId, agentId) };
+    if (!agents.rows.length) {
+      return {
+        nodes: [],
+        edges: [],
+        meta: {
+          seed: agentId,
+          matched: 0,
+          message: `No inventory match for "${agentId}". Try an agent UUID, fingerprint, or name from Inventory.`
+        }
+      };
+    }
   } else {
+    // Prefer agents that already have relationships so the explorer is never empty/sparse
     agents = await pool.query(
-      `SELECT * FROM agents WHERE tenant_id=$1 ORDER BY last_seen DESC LIMIT 100`,
-      [tenantId]
+      `SELECT a.*
+       FROM agents a
+       WHERE a.tenant_id=$1
+         AND EXISTS (
+           SELECT 1 FROM relationships r
+           WHERE r.tenant_id=a.tenant_id AND r.from_id=a.id
+         )
+       ORDER BY a.last_seen DESC
+       LIMIT $2`,
+      [tenantId, maxNodes]
     );
+    if (!agents.rows.length) {
+      agents = await pool.query(
+        `SELECT * FROM agents WHERE tenant_id=$1 ORDER BY last_seen DESC LIMIT $2`,
+        [tenantId, maxNodes]
+      );
+    }
   }
 
   for (const a of agents.rows) {
@@ -182,28 +248,35 @@ async function graphFromSql(tenantId, { agentId, depth = 2 } = {}) {
       name: a.name,
       category: a.category,
       framework: a.framework,
-      model: a.model
+      model: a.model,
+      provider: a.provider || a.cloud_provider
     });
   }
 
   const agentIds = agents.rows.map((a) => a.id);
-  if (!agentIds.length) return { nodes: [], edges: [] };
+  if (!agentIds.length) {
+    return { nodes: [], edges: [], meta: { matched: 0, message: "No inventory assets yet. Run discovery first." } };
+  }
 
   const rels = await pool.query(
     `SELECT r.*, a.name AS from_name, s.name AS to_name, s.asset_type
      FROM relationships r
      JOIN agents a ON a.id = r.from_id
      JOIN assets s ON s.id = r.to_id
-     WHERE r.tenant_id=$1 AND r.from_id = ANY($2::uuid[])`,
+     WHERE r.tenant_id=$1 AND r.from_id = ANY($2::uuid[])
+     ORDER BY r.last_seen DESC
+     LIMIT 500`,
     [tenantId, agentIds]
   );
 
   for (const r of rels.rows) {
+    if (nodes.size >= maxNodes * 2 && !nodes.has(r.to_id)) continue;
     nodes.set(r.to_id, {
       id: r.to_id,
-      type: r.to_type || r.asset_type,
+      type: r.to_type || r.asset_type || "Asset",
       label: r.to_name,
-      name: r.to_name
+      name: r.to_name,
+      category: r.asset_type || r.to_type
     });
     edges.push({
       id: r.id,
@@ -218,14 +291,14 @@ async function graphFromSql(tenantId, { agentId, depth = 2 } = {}) {
   }
 
   // Optional Neo4j enrichment (SQL graph is primary for MVP)
-  if (neo4jDriver && agentId && depth > 1) {
+  if (neo4jDriver && seedMode && hopDepth > 1 && agentIds.length === 1) {
     const session = neo4jDriver.session();
     try {
       await session.run(
         `MATCH (a:Agent {tenantId: $tenantId, id: $agentId})-[*1..2]-(n)
          WHERE n.tenantId = $tenantId
          RETURN count(n) AS c`,
-        { tenantId, agentId }
+        { tenantId, agentId: agentIds[0] }
       );
     } catch (err) {
       console.warn("Neo4j graph query:", err.message);
@@ -234,8 +307,19 @@ async function graphFromSql(tenantId, { agentId, depth = 2 } = {}) {
     }
   }
 
-  return { nodes: [...nodes.values()], edges };
+  return {
+    nodes: [...nodes.values()],
+    edges,
+    meta: {
+      seed: agentId || null,
+      matched: agents.rows.length,
+      nodeCount: nodes.size,
+      edgeCount: edges.length,
+      depth: hopDepth
+    }
+  };
 }
+
 
 async function usageBreakdown(tenantId, column) {
   const res = await pool.query(
@@ -359,9 +443,40 @@ app.get("/api/assets", auth, async (req, res) => {
 });
 
 app.get("/api/graph", auth, async (req, res) => {
-  const depth = Number(req.query.depth) || 2;
-  const graph = await graphFromSql(req.tenantId, { agentId: req.query.agentId, depth });
-  res.json(graph);
+  try {
+    const depth = Number(req.query.depth) || 2;
+    const limit = Number(req.query.limit) || 60;
+    const graph = await graphFromSql(req.tenantId, {
+      agentId: req.query.agentId || req.query.q || req.query.seed,
+      depth,
+      limit
+    });
+    res.json(graph);
+  } catch (err) {
+    console.error("graph query failed:", err);
+    res.status(500).json({ error: { message: err.message || "Graph query failed" }, nodes: [], edges: [] });
+  }
+});
+
+app.get("/api/graph/seeds", auth, async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    const params = [req.tenantId];
+    let sql = `
+      SELECT a.id, a.name, a.category, a.framework, a.fingerprint, a.cloud_provider, a.provider,
+             (SELECT COUNT(*)::int FROM relationships r WHERE r.from_id=a.id) AS edge_count
+      FROM agents a
+      WHERE a.tenant_id=$1`;
+    if (q) {
+      params.push(`%${q}%`);
+      sql += ` AND (a.name ILIKE $2 OR a.fingerprint ILIKE $2 OR a.category ILIKE $2 OR a.framework ILIKE $2)`;
+    }
+    sql += ` ORDER BY edge_count DESC, a.last_seen DESC LIMIT 40`;
+    const result = await pool.query(sql, params);
+    res.json({ seeds: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: { message: err.message }, seeds: [] });
+  }
 });
 
 app.get("/api/graph/stream", auth, (req, res) => {

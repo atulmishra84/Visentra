@@ -44,6 +44,14 @@ export type GraphPayload = {
   relationships?: GraphEdge[];
   items?: unknown[];
   requestId?: string;
+  meta?: {
+    seed?: string | null;
+    matched?: number;
+    nodeCount?: number;
+    edgeCount?: number;
+    depth?: number;
+    message?: string;
+  };
 };
 
 const TOKEN_KEY = "agentradar.jwt";

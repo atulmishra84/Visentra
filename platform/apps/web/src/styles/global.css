@@ -592,6 +592,7 @@ tbody tr:hover {
 }
 
 .graph-shell {
+  position: relative;
   height: min(72vh, 760px);
   overflow: hidden;
   border: 1px solid var(--panel-border);
@@ -599,6 +600,20 @@ tbody tr:hover {
   background:
     radial-gradient(circle at 50% 0%, rgba(65, 214, 195, 0.08), transparent 34rem),
     #07111f;
+}
+
+.graph-meta {
+  position: absolute;
+  z-index: 5;
+  top: 12px;
+  left: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(8, 17, 31, 0.88);
+  border: 1px solid var(--panel-border);
+  color: var(--muted);
+  font-size: 12px;
+  pointer-events: none;
 }
 
 .react-flow__node {
