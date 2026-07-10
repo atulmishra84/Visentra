@@ -13,7 +13,18 @@ Greenfield implementation of the Discovery & Visibility track. See the engineeri
 | Neo4j | Topology graph projection |
 | Redis / NATS / OpenSearch | Provisioned in compose for production-parity; MVP search uses Postgres facets |
 
-## Quick start
+## Azure deploy
+
+```bash
+az login --use-device-code
+cd platform/infra/azure
+./deploy.sh
+# Opens a public Container Apps URL — see README in that folder
+```
+
+See [`platform/infra/azure/README.md`](./infra/azure/README.md).
+
+## Quick start (local)
 
 ```bash
 cd platform/infra/compose
