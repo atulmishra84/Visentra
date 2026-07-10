@@ -1,5 +1,11 @@
 # AgentRadar Cloud Deploy Package
 
+> **Evaluation / POC path.** This installer deploys Postgres, Redis, and Neo4j as
+> Container Apps **without persistent volumes or managed backups**. Inventory and
+> connector secrets metadata can be lost on reschedule. For production, use Azure
+> Database for PostgreSQL Flexible Server (+ backups), Key Vault, and Entra ID SSO
+> — see [`../PRODUCTION.md`](../PRODUCTION.md).
+
 One-click install of **AgentRadar Discovery & Visibility** into **your Azure subscription** (customer cloud / BYOC).
 
 ## Data plane modes
@@ -88,6 +94,7 @@ export JWT_SECRET='…' ENCRYPTION_KEY='…' POSTGRES_PASSWORD='…' BOOTSTRAP_A
 ## Security notes
 
 - Prefer `DATA_PLANE_MODE=production` for any durable inventory.
+- **Eval data plane:** containerized Postgres/Neo4j are not durable — plan Flexible Server + backups before production traffic.
 - `ENCRYPTION_KEY` and `JWT_SECRET` are generated per **fresh** install unless you supply them; upgrades require the originals.
 - Admin password is **not** written to `out/last-deploy.env`
 - Inventory is never demo-seeded — it starts empty until connectors/discovery run.

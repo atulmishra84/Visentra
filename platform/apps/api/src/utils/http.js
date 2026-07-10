@@ -184,7 +184,7 @@ function fetchWithHttpsRequest(url, init, timeoutMs) {
  * fetch() with HTTPS allowlist, timeout, and redirect rejection.
  */
 export async function safeFetch(input, init = {}, policy) {
-  if (!policy || (!(policy.allowHosts?.length) && !(policy.allowHostSuffixes?.length))) {
+  if (!policy || (!(policy.allowHosts?.length) && !(policy.allowHostSuffixes?.length) && !policy.allowPrivate)) {
     throw new Error("Outbound fetch requires an allowlist policy");
   }
   const url = assertAllowedUrl(input, policy);

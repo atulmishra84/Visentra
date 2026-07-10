@@ -55,6 +55,10 @@ export ENTRA_CLIENT_SECRET=…
 
 ## 3. Azure deploy
 
+> **Note:** The Container Apps Postgres/Neo4j path is an **evaluation / POC** data plane
+> (no persistent volumes). For production, use Azure Database for PostgreSQL Flexible
+> Server with backups and Key Vault for secrets.
+
 ### Customer one-click (recommended)
 
 ```bash
