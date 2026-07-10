@@ -1,13 +1,29 @@
 import crypto from "crypto";
 
+const DEV_JWT_FALLBACK = "agentradar-dev-secret-change-me";
+const IS_PROD = process.env.NODE_ENV === "production";
+
+function deriveKeyFromJwt(material) {
+  return crypto.createHash("sha256").update(`agentradar-connectors:${material}`).digest();
+}
+
 function getKey() {
   const hex = process.env.ENCRYPTION_KEY;
   if (hex && /^[0-9a-fA-F]{64}$/.test(hex)) {
     return Buffer.from(hex, "hex");
   }
-  // Dev/MVP fallback: derive stable 32-byte key from JWT_SECRET
-  const material = process.env.JWT_SECRET || "agentradar-dev-secret-change-me";
-  return crypto.createHash("sha256").update(`agentradar-connectors:${material}`).digest();
+  const material = process.env.JWT_SECRET || (IS_PROD ? null : DEV_JWT_FALLBACK);
+  if (!material) {
+    throw new Error("ENCRYPTION_KEY (64-char hex) or JWT_SECRET is required in production");
+  }
+  if (IS_PROD) {
+    console.warn(
+      "[crypto] ENCRYPTION_KEY unset — deriving from JWT_SECRET. Set an explicit ENCRYPTION_KEY for production."
+    );
+  } else {
+    console.warn("[crypto] ENCRYPTION_KEY unset — deriving from JWT_SECRET (dev only)");
+  }
+  return deriveKeyFromJwt(material);
 }
 
 export function encryptJson(value) {
@@ -38,4 +54,8 @@ export function maskSecret(value) {
   const s = String(value);
   if (s.length <= 4) return "••••";
   return `${"•".repeat(Math.min(12, s.length - 4))}${s.slice(-4)}`;
+}
+
+export function generateEncryptionKey() {
+  return crypto.randomBytes(32).toString("hex");
 }

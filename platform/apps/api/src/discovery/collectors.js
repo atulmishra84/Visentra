@@ -519,6 +519,18 @@ export const DEFAULT_COLLECTORS = [
   "k8s_stub"
 ];
 
+/** Production-safe collectors (no demo / sample stubs) */
+export const PRODUCTION_COLLECTORS = [
+  "ide_filesystem",
+  "process",
+  "mcp",
+  "cloud_stub",
+  "edr",
+  "saas_platform"
+];
+
+export const ALL_COLLECTOR_IDS = Object.keys(collectors);
+
 export async function runCollectors(collectorIds, ctx) {
   const ids = collectorIds?.length ? collectorIds : DEFAULT_COLLECTORS;
   const observations = [];

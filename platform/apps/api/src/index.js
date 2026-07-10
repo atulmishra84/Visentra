@@ -2,11 +2,16 @@ import express from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import pg from "pg";
 import neo4j from "neo4j-driver";
 import { migrate } from "./migrate.js";
 import { runDiscoveryJob } from "./discovery/pipeline.js";
-import { DEFAULT_COLLECTORS, DEFAULT_COLLECTORS as COLLECTOR_IDS } from "./discovery/collectors.js";
+import {
+  DEFAULT_COLLECTORS,
+  PRODUCTION_COLLECTORS,
+  ALL_COLLECTOR_IDS
+} from "./discovery/collectors.js";
 import {
   PROVIDER_FIELDS,
   listConnectors,
@@ -17,15 +22,31 @@ import {
   testConnector
 } from "./services/connectors.js";
 import { classifyShadowAi, summarizeShadowFindings } from "./services/shadowAi.js";
+import {
+  IS_PROD,
+  assertProductionConfig,
+  resolveJwtSecret,
+  resolveCorsOrigin,
+  allowDemoSeed,
+  sanitizeCollectors,
+  createRateLimiter
+} from "./config.js";
+
+assertProductionConfig();
 
 const PORT = Number(process.env.PORT || 8080);
-const JWT_SECRET = process.env.JWT_SECRET || "agentradar-dev-secret-change-me";
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
+const JWT_SECRET = resolveJwtSecret();
+const CORS_ORIGIN = resolveCorsOrigin();
+const JWT_TTL = process.env.JWT_TTL || (IS_PROD ? "8h" : "12h");
+const COLLECTOR_IDS = IS_PROD ? PRODUCTION_COLLECTORS : DEFAULT_COLLECTORS;
 
 const pool = new pg.Pool({ connectionString: process.env.POSTGRES_URL });
 let neo4jDriver = null;
 try {
   if (process.env.NEO4J_URI) {
+    if (IS_PROD && !process.env.NEO4J_PASSWORD) {
+      throw new Error("NEO4J_PASSWORD is required in production when NEO4J_URI is set");
+    }
     neo4jDriver = neo4j.driver(
       process.env.NEO4J_URI,
       neo4j.auth.basic(process.env.NEO4J_USER || "neo4j", process.env.NEO4J_PASSWORD || "agentradar")
@@ -33,6 +54,7 @@ try {
   }
 } catch (err) {
   console.warn("Neo4j driver init failed:", err.message);
+  if (IS_PROD) throw err;
 }
 
 /** @type {Map<string, Set<import('express').Response>>} */
@@ -55,14 +77,19 @@ function signToken(user) {
   return jwt.sign(
     { sub: user.id, tid: user.tenant_id, email: user.email, role: user.role, name: user.name },
     JWT_SECRET,
-    { expiresIn: "12h" }
+    { expiresIn: JWT_TTL }
   );
 }
 
 function auth(req, res, next) {
   const header = req.headers.authorization || "";
-  const queryToken = req.query.token;
-  const raw = header.startsWith("Bearer ") ? header.slice(7) : queryToken;
+  const bearer = header.startsWith("Bearer ") ? header.slice(7) : null;
+  // EventSource cannot set Authorization headers. Allow ?token= for SSE routes only in production.
+  const path = String(req.path || "");
+  const isSsePath = path.endsWith("/stream") || path.endsWith("/events");
+  const queryToken =
+    typeof req.query.token === "string" && (!IS_PROD || isSsePath) ? req.query.token : null;
+  const raw = bearer || queryToken;
   if (!raw) return res.status(401).json({ error: { message: "Unauthorized" } });
   try {
     req.user = jwt.verify(String(raw), JWT_SECRET);
@@ -346,19 +373,48 @@ async function usageBreakdown(tenantId, column) {
 }
 
 const app = express();
-app.use(cors({ origin: CORS_ORIGIN === "*" ? true : CORS_ORIGIN, credentials: true }));
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.use(express.json({ limit: "2mb" }));
+app.use((req, res, next) => {
+  req.requestId = req.headers["x-request-id"] || crypto.randomUUID();
+  res.setHeader("X-Request-Id", req.requestId);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  next();
+});
+
+const loginRateLimit = createRateLimiter({ windowMs: 60_000, max: IS_PROD ? 10 : 60 });
 
 app.get("/health", async (_req, res) => {
+  res.json({
+    status: "ok",
+    service: "agentradar-api",
+    env: IS_PROD ? "production" : "development",
+    neo4j: Boolean(neo4jDriver)
+  });
+});
+
+app.get("/ready", async (_req, res) => {
   try {
     await pool.query("SELECT 1");
-    res.json({ status: "ok", neo4j: Boolean(neo4jDriver), service: "agentradar-api" });
+    if (neo4jDriver) {
+      const session = neo4jDriver.session();
+      try {
+        await session.run("RETURN 1 AS ok");
+      } finally {
+        await session.close();
+      }
+    }
+    res.json({ status: "ready", postgres: true, neo4j: Boolean(neo4jDriver) });
   } catch (err) {
-    res.status(503).json({ status: "error", error: err.message });
+    res.status(503).json({ status: "not_ready", error: IS_PROD ? "dependency check failed" : err.message });
   }
 });
 
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", loginRateLimit, async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: { message: "email and password required" } });
   const result = await pool.query(
@@ -566,8 +622,8 @@ app.get("/api/discovery/jobs", auth, async (req, res) => {
 });
 
 app.post("/api/discovery/jobs", auth, requireRole("platform_admin", "operator"), async (req, res) => {
-  const collectors = req.body?.collectors || DEFAULT_COLLECTORS;
-  res.status(202).json({ accepted: true, message: "Discovery job started" });
+  const collectors = sanitizeCollectors(req.body?.collectors, ALL_COLLECTOR_IDS);
+  res.status(202).json({ accepted: true, message: "Discovery job started", collectors });
   runDiscoveryJob(pool, neo4jDriver, {
     tenantId: req.tenantId,
     collectorIds: collectors,
@@ -856,18 +912,21 @@ async function boot() {
   await initNeo4jConstraints();
 
   const count = await pool.query(`SELECT COUNT(*)::int AS c FROM agents WHERE tenant_id=$1`, [tenantId]);
-  if (count.rows[0].c === 0 || process.env.SEED_ON_START === "true") {
-    console.log("Seeding discovery demo data...");
+  const shouldSeed = allowDemoSeed() || (!IS_PROD && count.rows[0].c === 0);
+  if (shouldSeed) {
+    console.log("Seeding discovery demo data (non-production / explicit allow)...");
     await runDiscoveryJob(pool, neo4jDriver, {
       tenantId,
       collectorIds: ["demo", "ide_filesystem", "process", "mcp"],
       triggeredBy: "bootstrap",
       broadcast
     });
+  } else if (IS_PROD) {
+    console.log("Production boot: demo seed disabled. Inventory starts empty until connectors/discovery run.");
   }
 
   app.listen(PORT, () => {
-    console.log(`AgentRadar API listening on :${PORT}`);
+    console.log(`AgentRadar API listening on :${PORT} (${IS_PROD ? "production" : "development"})`);
   });
 }
 

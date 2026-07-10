@@ -1,6 +1,6 @@
 # AgentRadar Discovery — Azure Container Apps deploy
 
-Fastest path to a public Azure URL for the Discovery & Visibility MVP.
+Production-oriented path to a public Azure URL for the Discovery & Visibility MVP.
 
 ## Architecture
 
@@ -24,42 +24,49 @@ az login --use-device-code
 az account set --subscription "<subscription-id>"
 ```
 
-## Deploy
+## Deploy (production defaults)
 
 ```bash
 cd platform/infra/azure
 chmod +x deploy.sh
+
+export BOOTSTRAP_ADMIN_EMAIL=admin@yourcompany.com
+export BOOTSTRAP_ADMIN_PASSWORD='…strong password…'
+export JWT_SECRET="$(openssl rand -hex 32)"
+export ENCRYPTION_KEY="$(openssl rand -hex 32)"
+export SEED_ON_START=false
+export ALLOW_DEMO_SEED=false
+
 ./deploy.sh
 ```
 
-Optional env overrides:
+| Variable | Notes |
+|----------|-------|
+| `LOCATION` | Default `westus2` |
+| `RG` | Default `rg-agentradar-discovery` |
+| `PREFIX` | Default `agentradar` |
+| `BOOTSTRAP_ADMIN_EMAIL` | Required for login |
+| `BOOTSTRAP_ADMIN_PASSWORD` | **Required** (no hardcoded default) |
+| `JWT_SECRET` | Auto-generated if unset |
+| `ENCRYPTION_KEY` | Auto-generated if unset (64-char hex) |
+| `SEED_ON_START` | Default `false` |
+| `ALLOW_DEMO_SEED` | Default `false` |
 
-| Variable | Default |
-|----------|---------|
-| `LOCATION` | `westus2` |
-| `RG` | `rg-agentradar-discovery` |
-| `PREFIX` | `agentradar` |
-| `BOOTSTRAP_ADMIN_EMAIL` | `admin@agentradar.local` |
-| `BOOTSTRAP_ADMIN_PASSWORD` | `AgentRadar!Azure1` |
+Deploy sets `NODE_ENV=production`, injects `ENCRYPTION_KEY`, and locks `CORS_ORIGIN` to the web FQDN.
 
-Outputs are written to `.last-deploy.env` (gitignored) including `WEB_URL` and `API_URL`.
+Outputs (non-secret) are written to `.last-deploy.env` (gitignored). The admin password is printed once — store it in a secret manager.
 
 ## After deploy
 
 1. Open `WEB_URL` from `.last-deploy.env`
-2. Sign in with bootstrap admin credentials
-3. Confirm inventory is seeded (demo collector runs on API start)
+2. Sign in with bootstrap admin credentials (login form is blank in production builds)
+3. Inventory starts **empty** — add Connectors (Azure / EDR / SaaS) → Test → Scan
+4. Verify `/ready` on the API (via web proxy or internal)
 
-If the SPA cannot reach `/api` through the web proxy, rebuild web with an absolute API URL:
-
-```bash
-docker build --build-arg VITE_API_URL="https://<api-fqdn>" -t ... platform/apps/web
-```
-
-Or set Container App env `API_UPSTREAM=api-<namePrefix>` on the web app (internal DNS).
+See also [`../../PRODUCTION.md`](../../PRODUCTION.md).
 
 ## Tear down
 
 ```bash
-az group delete --name rg-agentradar-discovery --yes --no-wait
+az group delete --name "$RG" --yes --no-wait
 ```

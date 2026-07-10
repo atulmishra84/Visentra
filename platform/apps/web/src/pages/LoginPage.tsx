@@ -3,11 +3,13 @@ import { Navigate, useLocation } from "react-router-dom";
 import { API_BASE_URL } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
+const isProdBuild = import.meta.env.PROD;
+
 export function LoginPage() {
   const { isAuthenticated, login, loading, error } = useAuth();
   const location = useLocation();
-  const [email, setEmail] = useState("admin@agentradar.local");
-  const [password, setPassword] = useState("AgentRadar!dev");
+  const [email, setEmail] = useState(isProdBuild ? "" : "admin@agentradar.local");
+  const [password, setPassword] = useState(isProdBuild ? "" : "AgentRadar!dev");
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/executive";
@@ -39,7 +41,7 @@ export function LoginPage() {
         </div>
 
         <div>
-          <p className="eyebrow">Discovery & Visibility MVP</p>
+          <p className="eyebrow">Discovery & Visibility</p>
           <h1>Know every agent, model, edge, and runtime in motion.</h1>
           <p className="page-description">
             A high-trust command center for inventory, topology, usage analytics, discovery events,
@@ -67,12 +69,18 @@ export function LoginPage() {
         <form className="login-card" onSubmit={submit}>
           <p className="eyebrow">Secure access</p>
           <h2>Sign in to AgentRadar</h2>
-          <p className="muted">API base: <span className="mono">{API_BASE_URL}</span></p>
+          {!isProdBuild ? (
+            <p className="muted">
+              API base: <span className="mono">{API_BASE_URL}</span>
+            </p>
+          ) : null}
 
-          <div className="hint">
-            Default login hint: <span className="mono">admin@agentradar.local</span> /
-            <span className="mono"> AgentRadar!dev</span>
-          </div>
+          {!isProdBuild ? (
+            <div className="hint">
+              Dev login hint: <span className="mono">admin@agentradar.local</span> /
+              <span className="mono"> AgentRadar!dev</span>
+            </div>
+          ) : null}
 
           <div className="field" style={{ marginTop: 18 }}>
             <label htmlFor="email">Email</label>
@@ -81,6 +89,7 @@ export function LoginPage() {
               className="input"
               id="email"
               type="email"
+              required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
@@ -93,6 +102,7 @@ export function LoginPage() {
               className="input"
               id="password"
               type="password"
+              required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />

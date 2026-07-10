@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy AgentRadar Discovery MVP to Azure Container Apps
+# Deploy AgentRadar Discovery MVP to Azure Container Apps (production-oriented)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -10,9 +10,23 @@ LOCATION="${LOCATION:-westus2}"
 PREFIX="${PREFIX:-agentradar}"
 RG="${RG:-rg-${PREFIX}-discovery}"
 ADMIN_EMAIL="${BOOTSTRAP_ADMIN_EMAIL:-admin@agentradar.local}"
-ADMIN_PASSWORD="${BOOTSTRAP_ADMIN_PASSWORD:-AgentRadar!Azure1}"
+
+if [[ -z "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]]; then
+  ADMIN_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-16)Aa1!"
+  echo "==> Generated BOOTSTRAP_ADMIN_PASSWORD (save securely — shown once at end)"
+else
+  ADMIN_PASSWORD="$BOOTSTRAP_ADMIN_PASSWORD"
+fi
+
 JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
+# Prefer an explicit ENCRYPTION_KEY. If unset, derive from JWT_SECRET using the same
+# formula as the API crypto helper so connector secrets stay decryptable across redeploys.
+if [[ -z "${ENCRYPTION_KEY:-}" ]]; then
+  ENCRYPTION_KEY="$(node -e "console.log(require('crypto').createHash('sha256').update('agentradar-connectors:'+process.argv[1]).digest('hex'))" "$JWT_SECRET")"
+fi
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)Aa1}"
+SEED_ON_START="${SEED_ON_START:-false}"
+ALLOW_DEMO_SEED="${ALLOW_DEMO_SEED:-false}"
 
 echo "==> Resource group: $RG ($LOCATION)"
 az group create --name "$RG" --location "$LOCATION" -o none
@@ -74,21 +88,25 @@ az containerapp create \
   --cpu 0.5 --memory 1.0Gi \
   --secrets \
     jwt-secret="$JWT_SECRET" \
+    encryption-key="$ENCRYPTION_KEY" \
     postgres-url="$POSTGRES_URL" \
     bootstrap-password="$ADMIN_PASSWORD" \
     neo4j-password="$NEO4J_PASSWORD" \
   --env-vars \
     PORT=8080 \
+    NODE_ENV=production \
     POSTGRES_URL=secretref:postgres-url \
     NEO4J_URI="bolt://neo4j-$NAME:7687" \
     NEO4J_USER=neo4j \
     NEO4J_PASSWORD=secretref:neo4j-password \
     REDIS_URL="redis://redis-$NAME:6379" \
     JWT_SECRET=secretref:jwt-secret \
+    ENCRYPTION_KEY=secretref:encryption-key \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
     BOOTSTRAP_ADMIN_PASSWORD=secretref:bootstrap-password \
-    CORS_ORIGIN='*' \
-    SEED_ON_START=true \
+    CORS_ORIGIN="https://placeholder.local" \
+    SEED_ON_START="$SEED_ON_START" \
+    ALLOW_DEMO_SEED="$ALLOW_DEMO_SEED" \
   -o none 2>/dev/null || \
 az containerapp update \
   --name "api-$NAME" \
@@ -96,16 +114,18 @@ az containerapp update \
   --image "$API_IMAGE" \
   --set-env-vars \
     PORT=8080 \
+    NODE_ENV=production \
     POSTGRES_URL=secretref:postgres-url \
     NEO4J_URI="bolt://neo4j-$NAME:7687" \
     NEO4J_USER=neo4j \
     NEO4J_PASSWORD=secretref:neo4j-password \
     REDIS_URL="redis://redis-$NAME:6379" \
     JWT_SECRET=secretref:jwt-secret \
+    ENCRYPTION_KEY=secretref:encryption-key \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
     BOOTSTRAP_ADMIN_PASSWORD=secretref:bootstrap-password \
-    CORS_ORIGIN='*' \
-    SEED_ON_START=true \
+    SEED_ON_START="$SEED_ON_START" \
+    ALLOW_DEMO_SEED="$ALLOW_DEMO_SEED" \
   -o none
 
 # Ensure secrets exist on update path
@@ -114,6 +134,7 @@ az containerapp secret set \
   --resource-group "$RG" \
   --secrets \
     jwt-secret="$JWT_SECRET" \
+    encryption-key="$ENCRYPTION_KEY" \
     postgres-url="$POSTGRES_URL" \
     bootstrap-password="$ADMIN_PASSWORD" \
     neo4j-password="$NEO4J_PASSWORD" \
@@ -154,6 +175,7 @@ az containerapp create \
   --cpu 0.25 --memory 0.5Gi \
   --secrets bootstrap-password="$ADMIN_PASSWORD" \
   --env-vars \
+    NODE_ENV=production \
     API_INTERNAL_URL="http://api-$NAME" \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
     BOOTSTRAP_ADMIN_PASSWORD=secretref:bootstrap-password \
@@ -164,10 +186,23 @@ az containerapp update \
   --name "discovery-$NAME" \
   --resource-group "$RG" \
   --image "$DISCOVERY_IMAGE" \
+  --set-env-vars \
+    NODE_ENV=production \
+    API_INTERNAL_URL="http://api-$NAME" \
+    BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
+    BOOTSTRAP_ADMIN_PASSWORD=secretref:bootstrap-password \
+    DISCOVERY_INTERVAL_MS=300000 \
   -o none
 
 WEB_FQDN=$(az containerapp show -n "web-$NAME" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv)
 API_FQDN=$(az containerapp show -n "api-$NAME" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv 2>/dev/null || true)
+
+# Lock CORS to the public web origin now that FQDN is known
+az containerapp update \
+  --name "api-$NAME" \
+  --resource-group "$RG" \
+  --set-env-vars "CORS_ORIGIN=https://$WEB_FQDN" \
+  -o none
 
 # Keep API internal; web proxies via API_UPSTREAM
 if [[ -z "${API_FQDN:-}" || "$API_FQDN" == "null" ]]; then
@@ -184,9 +219,9 @@ DISCOVERY_IMAGE=$DISCOVERY_IMAGE
 WEB_URL=https://$WEB_FQDN
 API_URL=$API_FQDN
 ADMIN_EMAIL=$ADMIN_EMAIL
-ADMIN_PASSWORD=$ADMIN_PASSWORD
 POSTGRES_APP=$PG_APP
 NAME_PREFIX=$NAME
+SEED_ON_START=$SEED_ON_START
 EOF
 
 echo ""
@@ -195,5 +230,7 @@ echo " AgentRadar Discovery deployed to Azure"
 echo " Web:  https://$WEB_FQDN"
 echo " API:  http://api-$NAME (internal; proxied via web /api)"
 echo " Login: $ADMIN_EMAIL"
-echo " Password saved in $AZURE_DIR/.last-deploy.env"
+echo " Admin password: $ADMIN_PASSWORD"
+echo " (Password is NOT written to .last-deploy.env — store in a secret manager)"
+echo " SEED_ON_START=$SEED_ON_START"
 echo "============================================"

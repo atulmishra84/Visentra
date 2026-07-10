@@ -25,14 +25,19 @@ See [`docs/blueprint/01-product-vision.md`](../docs/blueprint/01-product-vision.
 
 ## Azure deploy
 
+Production-oriented deploy (secrets required — see [`PRODUCTION.md`](./PRODUCTION.md)):
+
 ```bash
 az login --use-device-code
 cd platform/infra/azure
+export BOOTSTRAP_ADMIN_PASSWORD='…strong…'
+export JWT_SECRET="$(openssl rand -hex 32)"
+export ENCRYPTION_KEY="$(openssl rand -hex 32)"
+export SEED_ON_START=false
 ./deploy.sh
-# Opens a public Container Apps URL — see README in that folder
 ```
 
-See [`platform/infra/azure/README.md`](./infra/azure/README.md).
+See [`platform/infra/azure/README.md`](./infra/azure/README.md) and [`PRODUCTION.md`](./PRODUCTION.md).
 
 ## Quick start (local)
 
@@ -43,9 +48,19 @@ docker compose up -d --build
 
 - Web UI: http://localhost:5173
 - API health: http://localhost:8080/health
+- API ready: http://localhost:8080/ready
 - Neo4j browser: http://localhost:7474
 
-Login: `admin@agentradar.local` / `AgentRadar!dev`
+**Local/dev login:** `admin@agentradar.local` / `AgentRadar!dev`  
+**Production:** no demo seed; set secrets per [`PRODUCTION.md`](./PRODUCTION.md).
+
+### Production-like local stack
+
+```bash
+cd platform/infra/compose
+cp .env.example .env   # fill secrets
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
 
 ## Local API development
 
