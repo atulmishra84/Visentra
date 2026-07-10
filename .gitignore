@@ -12,6 +12,7 @@ terraform.tfvars
 *.key
 .env
 !.env.example
+platform/infra/azure/.last-deploy.env
 certs/*.pem
 certs/*.key
 !certs/README.md
