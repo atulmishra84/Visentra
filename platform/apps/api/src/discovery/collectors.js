@@ -168,12 +168,22 @@ export const collectors = {
         try {
           const { listActiveCloudConnectors } = await import("../services/connectors.js");
           const { discoverAzureConnector } = await import("./azureArm.js");
+          const { discoverAwsConnector } = await import("./awsCloud.js");
+          const { discoverGcpConnector } = await import("./gcpCloud.js");
           const connectors = await listActiveCloudConnectors(ctx.pool, ctx.tenantId);
+          const discoverers = {
+            azure: discoverAzureConnector,
+            aws: discoverAwsConnector,
+            gcp: discoverGcpConnector
+          };
+          const labels = { azure: "Azure", aws: "AWS", gcp: "GCP" };
 
           for (const conn of connectors) {
-            if (conn.provider === "azure") {
+            const discoverer = discoverers[conn.provider];
+            if (discoverer) {
+              const label = labels[conn.provider] || conn.provider;
               try {
-                const { observations, stats } = await discoverAzureConnector(conn);
+                const { observations, stats } = await discoverer(conn);
                 out.push(...observations);
                 if (ctx.pool) {
                   await ctx.pool.query(
@@ -181,10 +191,10 @@ export const collectors = {
                      VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
                     [
                       ctx.tenantId,
-                      `Azure connector "${conn.name}" scanned ${stats.totalResourcesScanned} resources — ingested ${stats.cloudResourcesIngested} cloud assets (${stats.aiRelevantResources} AI-relevant)`,
+                      `${label} connector "${conn.name}" scanned ${stats.totalResourcesScanned || 0} resources — ingested ${stats.cloudResourcesIngested || 0} cloud assets (${stats.aiRelevantResources || 0} AI-relevant)`,
                       JSON.stringify({
                         connectorId: conn.id,
-                        provider: "azure",
+                        provider: conn.provider,
                         ...stats
                       })
                     ]
@@ -197,7 +207,7 @@ export const collectors = {
                 }
               } catch (err) {
                 const message = err.message || String(err);
-                console.warn("Azure connector scan failed:", message);
+                console.warn(`${label} connector scan failed:`, message);
                 if (ctx.pool) {
                   await ctx.pool.query(
                     `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
@@ -209,50 +219,30 @@ export const collectors = {
                      VALUES ($1,'connector.scan.error','error',$2,$3::jsonb)`,
                     [
                       ctx.tenantId,
-                      `Azure connector "${conn.name}" failed: ${message}`,
-                      JSON.stringify({ connectorId: conn.id, provider: "azure" })
+                      `${label} connector "${conn.name}" failed: ${message}`,
+                      JSON.stringify({ connectorId: conn.id, provider: conn.provider })
                     ]
                   );
                 }
                 out.push({
                   collector_id: "cloud_stub",
-                  fingerprint: `azure-connector-error:${conn.id}`,
-                  name: `Azure connector error — ${conn.name}`,
+                  fingerprint: `${conn.provider}-connector-error:${conn.id}`,
+                  name: `${label} connector error — ${conn.name}`,
                   category: "cloud",
-                  cloud_provider: "azure",
+                  cloud_provider: conn.provider,
                   confidence_score: 0.2,
                   running_status: "unknown",
                   risk_indicators: ["connector_auth_failed"],
                   metadata: {
                     connectorId: conn.id,
                     connectorName: conn.name,
-                    discoveryMode: "azure-arm-error",
+                    discoveryMode: `${conn.provider}-api-error`,
                     error: message
                   }
                 });
               }
               continue;
             }
-
-            // AWS/GCP: credentialed placeholder until live adapters land
-            out.push({
-              collector_id: "cloud_stub",
-              fingerprint: `cloud-connector:${conn.provider}:${conn.id}`,
-              name: `${conn.provider.toUpperCase()} connector — ${conn.name}`,
-              category: "cloud",
-              cloud_provider: conn.provider === "gcp" ? "gcp" : conn.provider,
-              region: conn.config.region || null,
-              provider: conn.provider,
-              deployment_type: "cloud",
-              running_status: "unknown",
-              confidence_score: 0.55,
-              metadata: {
-                connectorId: conn.id,
-                connectorName: conn.name,
-                discoveryMode: "credentialed-connector-pending-live-adapter",
-                environment: conn.environment
-              }
-            });
           }
         } catch (err) {
           console.warn("cloud connector scan:", err.message);
@@ -322,6 +312,227 @@ export const collectors = {
       } catch {
         /* ignore */
       }
+      return out;
+    }
+  },
+
+  k8s_api: {
+    id: "k8s_api",
+    async scan(ctx) {
+      const out = [];
+      if (!ctx.pool || !ctx.tenantId) return out;
+
+      try {
+        const { listActiveK8sConnectors } = await import("../services/connectors.js");
+        const { discoverK8sConnector } = await import("./k8sApi.js");
+        const connectors = await listActiveK8sConnectors(ctx.pool, ctx.tenantId);
+
+        for (const conn of connectors) {
+          try {
+            const { observations, stats } = await discoverK8sConnector(conn);
+            out.push(...observations);
+            await ctx.pool.query(
+              `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId]
+            );
+            await ctx.pool.query(
+              `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+               VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
+              [
+                ctx.tenantId,
+                `Kubernetes connector "${conn.name}" scanned ${stats.totalWorkloadsScanned || 0} workloads — ingested ${stats.workloadsIngested || 0} AI workloads`,
+                JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "container", ...stats })
+              ]
+            );
+          } catch (err) {
+            const message = err.message || String(err);
+            console.warn("Kubernetes connector scan failed:", message);
+            await ctx.pool.query(
+              `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId, message]
+            );
+            await ctx.pool.query(
+              `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+               VALUES ($1,'connector.scan.error','error',$2,$3::jsonb)`,
+              [
+                ctx.tenantId,
+                `Kubernetes connector "${conn.name}" failed: ${message}`,
+                JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "container" })
+              ]
+            );
+            out.push({
+              collector_id: "k8s_api",
+              fingerprint: `k8s-connector-error:${conn.id}`,
+              name: `Kubernetes connector error — ${conn.name}`,
+              category: "container",
+              provider: "kubernetes",
+              confidence_score: 0.2,
+              running_status: "unknown",
+              risk_indicators: ["connector_auth_failed"],
+              metadata: {
+                connectorId: conn.id,
+                connectorName: conn.name,
+                discoveryMode: "kubernetes-api-error",
+                inventoryClass: "kubernetes_connector",
+                error: message
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("kubernetes connector scan:", err.message);
+      }
+
+      return out;
+    }
+  },
+
+  git_sources: {
+    id: "git_sources",
+    async scan(ctx) {
+      const out = [];
+      if (!ctx.pool || !ctx.tenantId) return out;
+
+      try {
+        const { listActiveGitSourceConnectors } = await import("../services/connectors.js");
+        const { discoverGitSourceConnector } = await import("./gitSources.js");
+        const connectors = await listActiveGitSourceConnectors(ctx.pool, ctx.tenantId);
+        const labels = { github: "GitHub", gitlab: "GitLab" };
+
+        for (const conn of connectors) {
+          const label = labels[conn.provider] || conn.provider;
+          try {
+            const { observations, stats } = await discoverGitSourceConnector(conn);
+            out.push(...observations);
+            await ctx.pool.query(
+              `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId]
+            );
+            await ctx.pool.query(
+              `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+               VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
+              [
+                ctx.tenantId,
+                `${label} connector "${conn.name}" scanned ${stats.reposScanned || 0} repositories — ingested ${stats.reposIngested || 0} AI-related repos`,
+                JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "source", ...stats })
+              ]
+            );
+          } catch (err) {
+            const message = err.message || String(err);
+            console.warn("Git source connector scan failed:", conn.provider, message);
+            await ctx.pool.query(
+              `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId, message]
+            );
+            await ctx.pool.query(
+              `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+               VALUES ($1,'connector.scan.error','error',$2,$3::jsonb)`,
+              [
+                ctx.tenantId,
+                `${label} connector "${conn.name}" failed: ${message}`,
+                JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "source" })
+              ]
+            );
+            out.push({
+              collector_id: "git_sources",
+              fingerprint: `git-connector-error:${conn.provider}:${conn.id}`,
+              name: `${label} connector error — ${conn.name}`,
+              category: "repository",
+              provider: conn.provider,
+              confidence_score: 0.2,
+              running_status: "unknown",
+              risk_indicators: ["connector_auth_failed"],
+              metadata: {
+                connectorId: conn.id,
+                connectorName: conn.name,
+                discoveryMode: "git-source-error",
+                inventoryClass: "source_connector",
+                error: message
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("git source scan:", err.message);
+      }
+
+      return out;
+    }
+  },
+
+  identity_entra: {
+    id: "identity_entra",
+    async scan(ctx) {
+      const out = [];
+      if (!ctx.pool || !ctx.tenantId) return out;
+
+      try {
+        const { listActiveIdentityConnectors } = await import("../services/connectors.js");
+        const { discoverEntra } = await import("./entraIdentity.js");
+        const connectors = await listActiveIdentityConnectors(ctx.pool, ctx.tenantId);
+
+        for (const conn of connectors) {
+          try {
+            const { observations, stats } = await discoverEntra(conn);
+            out.push(...observations);
+            await ctx.pool.query(
+              `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId]
+            );
+            await ctx.pool.query(
+              `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+               VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
+              [
+                ctx.tenantId,
+                `Entra ID connector "${conn.name}" scanned ${(stats.servicePrincipalsScanned || 0) + (stats.applicationsScanned || 0)} identities — ingested ${stats.identitiesIngested || 0} AI-related identities`,
+                JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "identity", ...stats })
+              ]
+            );
+          } catch (err) {
+            const message = err.message || String(err);
+            console.warn("Entra identity connector scan failed:", message);
+            await ctx.pool.query(
+              `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId, message]
+            );
+            await ctx.pool.query(
+              `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+               VALUES ($1,'connector.scan.error','error',$2,$3::jsonb)`,
+              [
+                ctx.tenantId,
+                `Entra ID connector "${conn.name}" failed: ${message}`,
+                JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "identity" })
+              ]
+            );
+            out.push({
+              collector_id: "identity_entra",
+              fingerprint: `entra-connector-error:${conn.id}`,
+              name: `Entra ID connector error — ${conn.name}`,
+              category: "identity",
+              provider: "entra_identity",
+              confidence_score: 0.2,
+              running_status: "unknown",
+              risk_indicators: ["connector_auth_failed"],
+              metadata: {
+                connectorId: conn.id,
+                connectorName: conn.name,
+                discoveryMode: "entra-graph-error",
+                inventoryClass: "identity_connector",
+                error: message
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("entra identity scan:", err.message);
+      }
+
       return out;
     }
   },
@@ -514,9 +725,11 @@ export const DEFAULT_COLLECTORS = [
   "process",
   "mcp",
   "cloud_stub",
+  "k8s_api",
+  "git_sources",
+  "identity_entra",
   "edr",
-  "saas_platform",
-  "k8s_stub"
+  "saas_platform"
 ];
 
 /** Production-safe collectors (no demo / sample stubs) */
@@ -525,6 +738,9 @@ export const PRODUCTION_COLLECTORS = [
   "process",
   "mcp",
   "cloud_stub",
+  "k8s_api",
+  "git_sources",
+  "identity_entra",
   "edr",
   "saas_platform"
 ];

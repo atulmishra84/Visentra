@@ -34,12 +34,34 @@ export async function migrate(pool) {
       ALTER TABLE connectors ADD CONSTRAINT connectors_provider_check
         CHECK (provider IN (
           'azure', 'aws', 'gcp',
+          'github', 'gitlab', 'entra_identity', 'kubernetes', 'kubernetes_identity',
           'crowdstrike', 'defender', 'intune', 'cortex', 'netskope',
           'm365_copilot', 'salesforce', 'workday', 'servicenow'
         ));
     EXCEPTION WHEN undefined_table THEN
       NULL;
     END $$;
+  `);
+
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'local'
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_events (
+      id              BIGSERIAL PRIMARY KEY,
+      tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      actor_id        UUID,
+      actor_email     TEXT,
+      action          TEXT NOT NULL,
+      resource_type   TEXT,
+      resource_id     TEXT,
+      details         JSONB NOT NULL DEFAULT '{}',
+      ip              TEXT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_events(tenant_id, created_at DESC)
   `);
 
   const isProd = process.env.NODE_ENV === "production";

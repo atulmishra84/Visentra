@@ -22,6 +22,16 @@ import {
   testConnector
 } from "./services/connectors.js";
 import { classifyShadowAi, summarizeShadowFindings } from "./services/shadowAi.js";
+import { writeAudit, listAuditEvents } from "./services/audit.js";
+import { buildCoverageMap } from "./services/coverage.js";
+import {
+  entraEnabled,
+  buildAuthorizeUrl,
+  exchangeCodeForTokens,
+  decodeIdToken,
+  mapEntraRole,
+  newOidcState
+} from "./auth/entra.js";
 import { migrateConnectorEncryption } from "./utils/crypto.js";
 import { publicErrorMessage } from "./utils/http.js";
 import {
@@ -429,6 +439,15 @@ app.post("/api/auth/login", loginRateLimit, async (req, res) => {
     return res.status(401).json({ error: { message: "Invalid credentials" } });
   }
   await pool.query(`UPDATE users SET last_login=NOW() WHERE id=$1`, [user.id]);
+  await writeAudit(pool, {
+    tenantId: user.tenant_id,
+    actorId: user.id,
+    actorEmail: user.email,
+    action: "auth.login",
+    resourceType: "user",
+    resourceId: user.id,
+    ip: req.ip
+  });
   const token = signToken(user);
   res.json({
     token,
@@ -439,9 +458,99 @@ app.post("/api/auth/login", loginRateLimit, async (req, res) => {
       role: user.role,
       roles: [user.role],
       tenant: user.tenant_slug,
-      tenantId: user.tenant_id
+      tenantId: user.tenant_id,
+      authProvider: user.auth_provider || "local"
     }
   });
+});
+
+app.get("/api/auth/sso/status", (_req, res) => {
+  res.json({
+    entraEnabled: entraEnabled(),
+    providers: entraEnabled() ? ["entra"] : []
+  });
+});
+
+app.get("/api/auth/sso/entra/start", loginRateLimit, (req, res) => {
+  if (!entraEnabled()) {
+    return res.status(404).json({ error: { message: "Entra SSO is not configured" } });
+  }
+  try {
+    const state = newOidcState();
+    const nonce = newOidcState();
+    // Short-lived cookies for OIDC CSRF/nonce (SameSite=Lax for top-level redirect)
+    res.cookie?.("ar_oidc_state", state, { httpOnly: true, sameSite: "lax", maxAge: 600_000, secure: IS_PROD });
+    // Express may not have cookie-parser — also return state for SPA to echo back
+    const url = buildAuthorizeUrl({ state, nonce });
+    res.json({ authorizeUrl: url, state, nonce });
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Unable to start Entra SSO") } });
+  }
+});
+
+app.post("/api/auth/sso/entra/callback", loginRateLimit, async (req, res) => {
+  if (!entraEnabled()) {
+    return res.status(404).json({ error: { message: "Entra SSO is not configured" } });
+  }
+  const { code, state } = req.body || {};
+  if (!code) return res.status(400).json({ error: { message: "code is required" } });
+  try {
+    const tokens = await exchangeCodeForTokens(code);
+    const claims = decodeIdToken(tokens.id_token);
+    if (state && claims.nonce && req.body?.nonce && claims.nonce !== req.body.nonce) {
+      return res.status(401).json({ error: { message: "Invalid OIDC nonce" } });
+    }
+    const email = claims.preferred_username || claims.email || claims.upn;
+    if (!email) return res.status(401).json({ error: { message: "Entra token missing email claim" } });
+    const name = claims.name || email;
+    const role = mapEntraRole(claims);
+
+    // Bind SSO users to the bootstrap tenant (single-tenant BYOC)
+    const tenant = await pool.query(`SELECT id, slug FROM tenants ORDER BY created_at ASC LIMIT 1`);
+    const tenantId = tenant.rows[0]?.id;
+    if (!tenantId) return res.status(500).json({ error: { message: "No tenant provisioned" } });
+
+    const unusable = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
+    const upsert = await pool.query(
+      `INSERT INTO users (tenant_id, email, name, role, password_hash, auth_provider)
+       VALUES ($1,$2,$3,$4,$5,'entra')
+       ON CONFLICT (tenant_id, email) DO UPDATE SET
+         name = EXCLUDED.name,
+         auth_provider = 'entra',
+         last_login = NOW(),
+         updated_at = NOW()
+       RETURNING *`,
+      [tenantId, String(email).toLowerCase(), name, role, unusable]
+    );
+    const user = upsert.rows[0];
+    user.tenant_slug = tenant.rows[0].slug;
+    await writeAudit(pool, {
+      tenantId,
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "auth.sso.entra",
+      resourceType: "user",
+      resourceId: user.id,
+      details: { oid: claims.oid || null },
+      ip: req.ip
+    });
+    const token = signToken(user);
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        roles: [user.role],
+        tenant: user.tenant_slug,
+        tenantId: user.tenant_id,
+        authProvider: "entra"
+      }
+    });
+  } catch (err) {
+    res.status(401).json({ error: { message: publicErrorMessage(err, "Entra SSO failed") } });
+  }
 });
 
 app.get("/api/auth/me", auth, async (req, res) => {
@@ -656,6 +765,16 @@ app.post("/api/discovery/jobs", auth, requireRole("platform_admin", "operator"),
     jobId: job.id,
     collectors: job.collector_ids || collectors
   });
+  writeAudit(pool, {
+    tenantId: req.tenantId,
+    actorId: req.user.sub,
+    actorEmail: req.user.email,
+    action: "discovery.job.start",
+    resourceType: "discovery_job",
+    resourceId: job.id,
+    details: { collectors: job.collector_ids || collectors },
+    ip: req.ip
+  }).catch(() => {});
   executeDiscoveryJob(pool, neo4jDriver, job, {
     tenantId: req.tenantId,
     triggeredBy: req.user.email,
@@ -816,7 +935,15 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
         queue,
         items: queue,
         newDiscoveries: queue.length,
-        collectorHealth: COLLECTOR_IDS.map((id) => ({ name: id, status: "ready" })),
+        collectorHealth: COLLECTOR_IDS.map((id) => {
+          const last = jobs.rows.find((j) => (j.collector_ids || []).includes(id));
+          return {
+            name: id,
+            status: last?.status === "error" ? "error" : last ? "ready" : "idle",
+            lastJobAt: last?.finished_at || last?.started_at || null,
+            lastJobStatus: last?.status || null
+          };
+        }),
         openJobs: jobs.rows.filter((j) => j.status === "running").length
       }
     });
@@ -840,6 +967,24 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
     });
   }
   return res.status(404).json({ error: { message: `Unknown dashboard ${name}` } });
+});
+
+app.get("/api/coverage", auth, async (req, res) => {
+  try {
+    const map = await buildCoverageMap(pool, req.tenantId, ALL_COLLECTOR_IDS);
+    res.json(map);
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Coverage map failed") } });
+  }
+});
+
+app.get("/api/audit", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  try {
+    const events = await listAuditEvents(pool, req.tenantId, { limit: req.query.limit });
+    res.json({ events, items: events });
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Audit query failed") } });
+  }
 });
 
 app.get("/api/export/agents", auth, async (req, res) => {
@@ -899,6 +1044,16 @@ app.post("/api/connectors", auth, requireRole("platform_admin", "operator"), asy
         JSON.stringify({ connectorId: connector.id, provider: connector.provider })
       ]
     );
+    await writeAudit(pool, {
+      tenantId: req.tenantId,
+      actorId: req.user.sub,
+      actorEmail: req.user.email,
+      action: "connector.create",
+      resourceType: "connector",
+      resourceId: connector.id,
+      details: { provider: connector.provider, name: connector.name },
+      ip: req.ip
+    });
     res.status(201).json({ connector });
   } catch (err) {
     res.status(err.status || 500).json({
@@ -917,6 +1072,16 @@ app.put("/api/connectors/:id", auth, requireRole("platform_admin", "operator"), 
   try {
     const connector = await updateConnector(pool, req.tenantId, req.params.id, req.body || {});
     if (!connector) return res.status(404).json({ error: { message: "Connector not found" } });
+    await writeAudit(pool, {
+      tenantId: req.tenantId,
+      actorId: req.user.sub,
+      actorEmail: req.user.email,
+      action: "connector.update",
+      resourceType: "connector",
+      resourceId: connector.id,
+      details: { provider: connector.provider, name: connector.name },
+      ip: req.ip
+    });
     res.json({ connector });
   } catch (err) {
     res.status(err.status || 500).json({
@@ -926,14 +1091,35 @@ app.put("/api/connectors/:id", auth, requireRole("platform_admin", "operator"), 
 });
 
 app.delete("/api/connectors/:id", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  const existing = await getConnector(pool, req.tenantId, req.params.id);
   const ok = await deleteConnector(pool, req.tenantId, req.params.id);
   if (!ok) return res.status(404).json({ error: { message: "Connector not found" } });
+  await writeAudit(pool, {
+    tenantId: req.tenantId,
+    actorId: req.user.sub,
+    actorEmail: req.user.email,
+    action: "connector.delete",
+    resourceType: "connector",
+    resourceId: req.params.id,
+    details: { name: existing?.name, provider: existing?.provider },
+    ip: req.ip
+  });
   res.status(204).end();
 });
 
 app.post("/api/connectors/:id/test", auth, requireRole("platform_admin", "operator"), async (req, res) => {
   const result = await testConnector(pool, req.tenantId, req.params.id);
   if (!result) return res.status(404).json({ error: { message: "Connector not found" } });
+  await writeAudit(pool, {
+    tenantId: req.tenantId,
+    actorId: req.user.sub,
+    actorEmail: req.user.email,
+    action: "connector.test",
+    resourceType: "connector",
+    resourceId: req.params.id,
+    details: { ok: result.ok, message: result.message },
+    ip: req.ip
+  });
   res.json(result);
 });
 

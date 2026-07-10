@@ -33,6 +33,56 @@ export const PROVIDER_FIELDS = {
       privateKey: "Service account private key"
     }
   },
+  kubernetes: {
+    category: "container",
+    config: ["apiServer", "skipTlsVerify"],
+    secrets: ["token"],
+    labels: {
+      apiServer: "Kubernetes API server URL (https://...)",
+      skipTlsVerify: "Skip TLS certificate verification (true/false)",
+      token: "Bearer token"
+    }
+  },
+  kubernetes_identity: {
+    category: "identity",
+    config: ["apiServer", "skipTlsVerify"],
+    secrets: ["token"],
+    labels: {
+      apiServer: "Kubernetes API server URL (https://...)",
+      skipTlsVerify: "Skip TLS certificate verification (true/false)",
+      token: "Bearer token"
+    }
+  },
+  github: {
+    category: "source",
+    config: ["orgOrUser", "apiBase"],
+    secrets: ["token"],
+    labels: {
+      orgOrUser: "GitHub organization or user (optional)",
+      apiBase: "GitHub API base URL (default https://api.github.com)",
+      token: "GitHub token"
+    }
+  },
+  gitlab: {
+    category: "source",
+    config: ["host", "projectGroup"],
+    secrets: ["token"],
+    labels: {
+      host: "GitLab host (gitlab.com or self-hosted FQDN)",
+      projectGroup: "Project group/path (optional)",
+      token: "GitLab token"
+    }
+  },
+  entra_identity: {
+    category: "identity",
+    config: ["tenantId", "clientId"],
+    secrets: ["clientSecret"],
+    labels: {
+      tenantId: "Entra tenant ID",
+      clientId: "Application (client) ID",
+      clientSecret: "Client secret"
+    }
+  },
   crowdstrike: {
     category: "edr",
     config: ["baseUrl", "clientId"],
@@ -136,9 +186,21 @@ export const PROVIDER_FIELDS = {
 };
 
 export const CLOUD_PROVIDERS = ["azure", "aws", "gcp"];
+export const KUBERNETES_PROVIDERS = ["kubernetes"];
+export const GIT_PROVIDERS = ["github", "gitlab"];
+export const IDENTITY_PROVIDERS = ["entra_identity", "kubernetes_identity"];
 export const EDR_PROVIDERS = ["crowdstrike", "defender", "intune", "cortex", "netskope"];
 export const SAAS_PROVIDERS = ["m365_copilot", "salesforce", "workday", "servicenow"];
-export const ALL_PROVIDERS = [...CLOUD_PROVIDERS, ...EDR_PROVIDERS, ...SAAS_PROVIDERS];
+export const ALL_PROVIDERS = [
+  ...new Set([
+    ...CLOUD_PROVIDERS,
+    ...KUBERNETES_PROVIDERS,
+    ...GIT_PROVIDERS,
+    ...IDENTITY_PROVIDERS,
+    ...EDR_PROVIDERS,
+    ...SAAS_PROVIDERS
+  ])
+];
 
 function publicConnector(row) {
   const cfg = row.config || {};
@@ -340,15 +402,31 @@ export async function testConnector(pool, tenantId, id) {
       ok = result.ok;
       message = result.message;
     } else if (row.provider === "aws") {
-      ok = Boolean(config.accessKeyId && secrets.secretAccessKey);
-      message = ok
-        ? "AWS credentials present. Live discovery adapter is limited in this release."
-        : "Missing AWS accessKeyId or secretAccessKey.";
+      const { validateAwsConnector } = await import("../discovery/awsCloud.js");
+      const result = await validateAwsConnector({ id: row.id, name: row.name, config, secrets });
+      ok = result.ok;
+      message = result.message;
     } else if (row.provider === "gcp") {
-      ok = Boolean(config.projectId && (config.clientEmail || secrets.privateKey));
-      message = ok
-        ? "GCP credentials present. Live discovery adapter is limited in this release."
-        : "Missing GCP projectId or service account material.";
+      const { validateGcpConnector } = await import("../discovery/gcpCloud.js");
+      const result = await validateGcpConnector({ id: row.id, name: row.name, config, secrets });
+      ok = result.ok;
+      message = result.message;
+    } else if (row.provider === "kubernetes" || row.provider === "kubernetes_identity") {
+      const { validateK8sConnector } = await import("../discovery/k8sApi.js");
+      const result = await validateK8sConnector({ id: row.id, name: row.name, config, secrets });
+      ok = result.ok;
+      message = result.message;
+    } else if (GIT_PROVIDERS.includes(row.provider)) {
+      const { GIT_VALIDATORS } = await import("../discovery/gitSources.js");
+      const validator = GIT_VALIDATORS[row.provider];
+      const result = await validator({ config, secrets });
+      ok = result.ok;
+      message = result.message;
+    } else if (row.provider === "entra_identity") {
+      const { validateEntra } = await import("../discovery/entraIdentity.js");
+      const result = await validateEntra({ id: row.id, name: row.name, config, secrets });
+      ok = result.ok;
+      message = result.message;
     }
   } catch (err) {
     ok = false;
@@ -364,13 +442,13 @@ export async function testConnector(pool, tenantId, id) {
   return { ok, message, connector: await getConnector(pool, tenantId, id) };
 }
 
-export async function listActiveCloudConnectors(pool, tenantId) {
+export async function listActiveConnectorsByProviders(pool, tenantId, providers) {
   const res = await pool.query(
     `SELECT * FROM connectors
      WHERE tenant_id=$1
        AND provider = ANY($2::text[])
        AND status IN ('active', 'error')`,
-    [tenantId, CLOUD_PROVIDERS]
+    [tenantId, providers]
   );
   return res.rows.map((row) => ({
     id: row.id,
@@ -381,42 +459,28 @@ export async function listActiveCloudConnectors(pool, tenantId) {
     config: row.config || {},
     secrets: decryptJson(row.secrets_enc)
   }));
+}
+
+export async function listActiveCloudConnectors(pool, tenantId) {
+  return listActiveConnectorsByProviders(pool, tenantId, CLOUD_PROVIDERS);
 }
 
 export async function listActiveEdrConnectors(pool, tenantId) {
-  const res = await pool.query(
-    `SELECT * FROM connectors
-     WHERE tenant_id=$1
-       AND provider = ANY($2::text[])
-       AND status IN ('active', 'error')`,
-    [tenantId, EDR_PROVIDERS]
-  );
-  return res.rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    provider: row.provider,
-    environment: row.environment,
-    status: row.status,
-    config: row.config || {},
-    secrets: decryptJson(row.secrets_enc)
-  }));
+  return listActiveConnectorsByProviders(pool, tenantId, EDR_PROVIDERS);
 }
 
 export async function listActiveSaasConnectors(pool, tenantId) {
-  const res = await pool.query(
-    `SELECT * FROM connectors
-     WHERE tenant_id=$1
-       AND provider = ANY($2::text[])
-       AND status IN ('active', 'error')`,
-    [tenantId, SAAS_PROVIDERS]
-  );
-  return res.rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    provider: row.provider,
-    environment: row.environment,
-    status: row.status,
-    config: row.config || {},
-    secrets: decryptJson(row.secrets_enc)
-  }));
+  return listActiveConnectorsByProviders(pool, tenantId, SAAS_PROVIDERS);
+}
+
+export async function listActiveK8sConnectors(pool, tenantId) {
+  return listActiveConnectorsByProviders(pool, tenantId, KUBERNETES_PROVIDERS);
+}
+
+export async function listActiveGitSourceConnectors(pool, tenantId) {
+  return listActiveConnectorsByProviders(pool, tenantId, GIT_PROVIDERS);
+}
+
+export async function listActiveIdentityConnectors(pool, tenantId) {
+  return listActiveConnectorsByProviders(pool, tenantId, ["entra_identity"]);
 }

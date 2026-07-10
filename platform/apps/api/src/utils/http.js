@@ -1,3 +1,5 @@
+import https from "https";
+
 /**
  * Outbound HTTP helpers: HTTPS-only, host allowlists, timeouts, no redirects.
  */
@@ -13,6 +15,23 @@ export const ALLOW = {
   },
   azureArm: {
     allowHosts: ["management.azure.com"]
+  },
+  aws: {
+    allowHostSuffixes: [".amazonaws.com"]
+  },
+  googleApis: {
+    allowHostSuffixes: [".googleapis.com"]
+  },
+  github: {
+    allowHosts: ["api.github.com", "github.com"],
+    allowHostSuffixes: [".github.com"]
+  },
+  gitlab: {
+    allowHosts: ["gitlab.com"],
+    allowHostSuffixes: [".gitlab.com"]
+  },
+  kubernetes: {
+    allowPrivate: true
   },
   crowdstrike: {
     allowHosts: [
@@ -77,7 +96,11 @@ export function assertAllowedUrl(input, policy = {}) {
   }
 
   const host = parsed.hostname.toLowerCase();
-  if (!host || PRIVATE_HOST_RE.test(host) || /^\d+\.\d+\.\d+\.\d+$/.test(host)) {
+  if (!host) {
+    throw new Error("Blocked outbound host: (empty)");
+  }
+  const ipOrPrivateHost = PRIVATE_HOST_RE.test(host) || /^\d+\.\d+\.\d+\.\d+$/.test(host);
+  if (!policy.allowPrivate && ipOrPrivateHost) {
     throw new Error(`Blocked outbound host: ${host || "(empty)"}`);
   }
 
@@ -86,6 +109,75 @@ export function assertAllowedUrl(input, policy = {}) {
   }
 
   return parsed;
+}
+
+function headersObject(headers = {}) {
+  if (headers instanceof Headers) return Object.fromEntries(headers.entries());
+  if (Array.isArray(headers)) return Object.fromEntries(headers);
+  return { ...headers };
+}
+
+function bodyToBuffer(body) {
+  if (body == null) return null;
+  if (Buffer.isBuffer(body)) return body;
+  if (body instanceof URLSearchParams) return Buffer.from(body.toString());
+  if (typeof body === "string") return Buffer.from(body);
+  if (body instanceof ArrayBuffer) return Buffer.from(body);
+  if (ArrayBuffer.isView(body)) return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  return Buffer.from(String(body));
+}
+
+function responseHeaders(rawHeaders = {}) {
+  const headers = {};
+  for (const [key, value] of Object.entries(rawHeaders)) {
+    if (value == null) continue;
+    headers[key] = Array.isArray(value) ? value.join(", ") : String(value);
+  }
+  return headers;
+}
+
+function fetchWithHttpsRequest(url, init, timeoutMs) {
+  const method = init.method || "GET";
+  const body = bodyToBuffer(init.body);
+  const headers = headersObject(init.headers);
+  if (body && headers["content-length"] == null && headers["Content-Length"] == null) {
+    headers["Content-Length"] = String(body.length);
+  }
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      url,
+      {
+        method,
+        headers,
+        rejectUnauthorized: init.skipTlsVerify ? false : undefined
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            reject(new Error(`Outbound redirects are not allowed (${url.hostname})`));
+            return;
+          }
+          resolve(
+            new Response(Buffer.concat(chunks), {
+              status: res.statusCode || 599,
+              statusText: res.statusMessage || "",
+              headers: responseHeaders(res.headers)
+            })
+          );
+        });
+      }
+    );
+    req.on("error", reject);
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Outbound request timed out after ${timeoutMs}ms (${url.hostname})`));
+    });
+    init.signal?.addEventListener("abort", () => req.destroy(new Error("Outbound request aborted")), { once: true });
+    if (body) req.write(body);
+    req.end();
+  });
 }
 
 /**
@@ -103,6 +195,9 @@ export async function safeFetch(input, init = {}, policy) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    if (rest.skipTlsVerify) {
+      return await fetchWithHttpsRequest(url, { ...rest, signal: rest.signal ?? controller.signal }, timeoutMs);
+    }
     const res = await fetch(url.href, {
       ...rest,
       redirect: rest.redirect ?? "error",

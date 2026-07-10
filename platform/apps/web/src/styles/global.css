@@ -872,3 +872,43 @@ tbody tr:hover {
   right: 20px;
   z-index: 2;
 }
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--panel-border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.status-pill.status-covered {
+  color: var(--good, #1f9d6c);
+  border-color: rgba(31, 157, 108, 0.35);
+  background: rgba(31, 157, 108, 0.1);
+}
+
+.status-pill.status-configured,
+.status-pill.status-available {
+  color: var(--brand);
+  border-color: color-mix(in srgb, var(--brand) 35%, transparent);
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+.status-pill.status-blind,
+.status-pill.status-idle,
+.status-pill.status-disabled {
+  color: var(--text-muted);
+}
+
+.status-pill.status-error,
+.status-pill.status-degraded {
+  color: var(--bad, #d64545);
+  border-color: rgba(214, 69, 69, 0.35);
+  background: rgba(214, 69, 69, 0.1);
+}

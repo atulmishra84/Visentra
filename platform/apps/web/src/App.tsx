@@ -14,6 +14,8 @@ import { TimelinePage } from "./pages/TimelinePage";
 import { TopologyMapPage } from "./pages/TopologyMapPage";
 import { ConnectorsPage } from "./pages/ConnectorsPage";
 import { ShadowAiPage } from "./pages/ShadowAiPage";
+import { CoveragePage } from "./pages/CoveragePage";
+import { AuditPage } from "./pages/AuditPage";
 import { UsageDashboardPage } from "./pages/UsageDashboardPage";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -48,6 +50,7 @@ export default function App() {
         <Route path="/shadow-ai" element={<ShadowAiPage />} />
         <Route path="/discovery" element={<DiscoveryDashboardPage />} />
         <Route path="/discovery/events" element={<DiscoveryEventsPage />} />
+        <Route path="/coverage" element={<CoveragePage />} />
         <Route path="/inventory" element={<InventoryPage title="Asset Inventory" />} />
         <Route path="/inventory/explorer" element={<InventoryPage title="Inventory Explorer" />} />
         <Route path="/agents/:id" element={<AgentDetailPage />} />
@@ -63,6 +66,7 @@ export default function App() {
         <Route path="/timeline" element={<TimelinePage />} />
         <Route path="/search" element={<SearchPage />} />
         <Route path="/settings/connectors" element={<ConnectorsPage />} />
+        <Route path="/settings/audit" element={<AuditPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/executive" replace />} />
     </Routes>
