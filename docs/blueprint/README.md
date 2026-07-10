@@ -61,3 +61,5 @@ docker compose up -d --build
 ```
 
 Default admin: `admin@agentradar.local` / `AgentRadar!dev`
+
+Local compose enables `DISCOVERY_DEMO_SEED=true` so the inventory boots with multi-category sample agents (IDE, framework, cloud, MCP, SaaS, local LLM). Production deploys must leave demo seed off.

@@ -4,7 +4,16 @@ import { DataTable, type Column } from "../components/DataTable";
 import { DetailDrawer } from "../components/DetailDrawer";
 import { apiRequest, compactDate, listFromPayload, numberAt, valueAt } from "../lib/api";
 
-const DEFAULT_COLLECTORS = ["cloud_stub", "edr", "saas_platform", "ide_filesystem", "process", "mcp"];
+const DEFAULT_COLLECTORS = [
+  "demo",
+  "cloud_stub",
+  "edr",
+  "saas_platform",
+  "ide_filesystem",
+  "process",
+  "mcp",
+  "ci_platform"
+];
 
 export function DiscoveryDashboardPage() {
   const [payload, setPayload] = useState<unknown>(null);

@@ -101,6 +101,23 @@ flowchart TD
 5. Roll back image if needed; schema changes must be compatible.
 6. Reindex/search and graph projection changes with blue-green aliases/projections.
 
+## Environment matrix
+
+| Environment | Topology | Data | Seed |
+|---|---|---|---|
+| Local compose | Single-node compose (api, web, discovery, relationship, pg, neo4j, redis, nats, opensearch) | Ephemeral volumes | `DISCOVERY_DEMO_SEED=true` |
+| Staging | Single-region K8s, managed PG/Redis | Non-prod connectors | Off |
+| Production SaaS | Multi-AZ K8s + managed data plane | Customer tenants | Off |
+| Production BYOC | Customer cloud account/subscription/project | Customer-owned stores | Off |
+
+## Capacity planning (starting point)
+
+| Tier | API replicas | Discovery workers | Postgres | OpenSearch |
+|---|---:|---:|---|---|
+| Eval / POC | 2 | 1–2 | 2 vCPU / 8 GB | 3× data nodes optional |
+| Standard | 3–6 | 3–8 | 4–8 vCPU / 32 GB | Multi-AZ |
+| Enterprise | 6–20 + HPA | Queue-driven | Aurora/HA + read replicas | Dedicated masters |
+
 ## Implementation checklist
 
 - Containerize every service with health/readiness endpoints.
