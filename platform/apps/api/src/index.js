@@ -7,6 +7,15 @@ import neo4j from "neo4j-driver";
 import { migrate } from "./migrate.js";
 import { runDiscoveryJob } from "./discovery/pipeline.js";
 import { DEFAULT_COLLECTORS, DEFAULT_COLLECTORS as COLLECTOR_IDS } from "./discovery/collectors.js";
+import {
+  PROVIDER_FIELDS,
+  listConnectors,
+  getConnector,
+  createConnector,
+  updateConnector,
+  deleteConnector,
+  testConnector
+} from "./services/connectors.js";
 
 const PORT = Number(process.env.PORT || 8080);
 const JWT_SECRET = process.env.JWT_SECRET || "agentradar-dev-secret-change-me";
@@ -550,6 +559,61 @@ app.get("/api/export/agents", auth, async (req, res) => {
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Content-Disposition", "attachment; filename=agentradar-agents.json");
   res.send(JSON.stringify({ agents: result.rows }, null, 2));
+});
+
+app.get("/api/connectors/schema", auth, (_req, res) => {
+  res.json({ providers: PROVIDER_FIELDS });
+});
+
+app.get("/api/connectors", auth, async (req, res) => {
+  const items = await listConnectors(pool, req.tenantId);
+  res.json({ connectors: items, items });
+});
+
+app.post("/api/connectors", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  try {
+    const connector = await createConnector(pool, req.tenantId, req.body || {}, req.user.email);
+    await pool.query(
+      `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+       VALUES ($1,'connector.created','info',$2,$3::jsonb)`,
+      [
+        req.tenantId,
+        `Connector created: ${connector.name}`,
+        JSON.stringify({ connectorId: connector.id, provider: connector.provider })
+      ]
+    );
+    res.status(201).json({ connector });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: { message: err.message } });
+  }
+});
+
+app.get("/api/connectors/:id", auth, async (req, res) => {
+  const connector = await getConnector(pool, req.tenantId, req.params.id);
+  if (!connector) return res.status(404).json({ error: { message: "Connector not found" } });
+  res.json({ connector });
+});
+
+app.put("/api/connectors/:id", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  try {
+    const connector = await updateConnector(pool, req.tenantId, req.params.id, req.body || {});
+    if (!connector) return res.status(404).json({ error: { message: "Connector not found" } });
+    res.json({ connector });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: { message: err.message } });
+  }
+});
+
+app.delete("/api/connectors/:id", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  const ok = await deleteConnector(pool, req.tenantId, req.params.id);
+  if (!ok) return res.status(404).json({ error: { message: "Connector not found" } });
+  res.status(204).end();
+});
+
+app.post("/api/connectors/:id/test", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  const result = await testConnector(pool, req.tenantId, req.params.id);
+  if (!result) return res.status(404).json({ error: { message: "Connector not found" } });
+  res.json(result);
 });
 
 async function boot() {

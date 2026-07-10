@@ -12,6 +12,7 @@ import { RelationshipExplorerPage } from "./pages/RelationshipExplorerPage";
 import { SearchPage } from "./pages/SearchPage";
 import { TimelinePage } from "./pages/TimelinePage";
 import { TopologyMapPage } from "./pages/TopologyMapPage";
+import { ConnectorsPage } from "./pages/ConnectorsPage";
 import { UsageDashboardPage } from "./pages/UsageDashboardPage";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -59,6 +60,7 @@ export default function App() {
         <Route path="/usage/ide" element={<UsageDashboardPage kind="ide" title="IDE Usage" />} />
         <Route path="/timeline" element={<TimelinePage />} />
         <Route path="/search" element={<SearchPage />} />
+        <Route path="/settings/connectors" element={<ConnectorsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/executive" replace />} />
     </Routes>

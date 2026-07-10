@@ -37,6 +37,10 @@ const sections = [
       { to: "/discovery/events", label: "Discovery Events" },
       { to: "/search", label: "Global Search" }
     ]
+  },
+  {
+    heading: "Settings",
+    items: [{ to: "/settings/connectors", label: "Connectors" }]
   }
 ];
 

@@ -232,7 +232,7 @@ export async function runDiscoveryJob(pool, neo4j, { tenantId, collectorIds, tri
   );
 
   try {
-    const observations = await runCollectors(collectors, { tenantId, ownerHint: triggeredBy });
+    const observations = await runCollectors(collectors, { tenantId, ownerHint: triggeredBy, pool });
     const agentsFound = await ingestObservations(
       pool,
       neo4j,

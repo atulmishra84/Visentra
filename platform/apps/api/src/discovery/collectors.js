@@ -161,38 +161,78 @@ export const collectors = {
 
   cloud_stub: {
     id: "cloud_stub",
-    async scan() {
-      // Live cloud calls require credentials; stub returns empty unless DEMO_CLOUD=true
-      if (process.env.DEMO_CLOUD === "true") {
-        return [
-          {
-            collector_id: "cloud_stub",
-            fingerprint: "cloud-stub:vertex:demo",
-            name: "Vertex AI Agent (stub)",
-            category: "cloud",
-            cloud_provider: "gcp",
-            region: "us-central1",
-            provider: "google",
-            model: "gemini-2.0-flash",
-            deployment_type: "cloud",
-            running_status: "unknown",
-            confidence_score: 0.55,
-            relationships: [
-              {
-                rel_type: "DEPLOYED_IN",
-                to_type: "CloudResource",
-                to_key: "vertex-demo",
-                to_name: "Vertex AI demo"
-              }
-            ]
+    async scan(ctx) {
+      const out = [];
+
+      // Prefer connectors saved in Settings → Connectors
+      if (ctx.pool && ctx.tenantId) {
+        try {
+          const { listActiveCloudConnectors } = await import("../services/connectors.js");
+          const connectors = await listActiveCloudConnectors(ctx.pool, ctx.tenantId);
+          for (const conn of connectors) {
+            out.push({
+              collector_id: "cloud_stub",
+              fingerprint: `cloud-connector:${conn.provider}:${conn.id}`,
+              name: `${conn.provider.toUpperCase()} connector — ${conn.name}`,
+              category: "cloud",
+              cloud_provider: conn.provider === "gcp" ? "gcp" : conn.provider,
+              region:
+                conn.config.region ||
+                (conn.provider === "azure" ? "global" : conn.provider === "aws" ? "us-east-1" : "us-central1"),
+              provider: conn.provider,
+              deployment_type: "cloud",
+              running_status: "unknown",
+              confidence_score: 0.7,
+              owner: ctx.ownerHint || null,
+              metadata: {
+                connectorId: conn.id,
+                connectorName: conn.name,
+                environment: conn.environment,
+                subscriptionId: conn.config.subscriptionId || null,
+                accountId: conn.config.accountId || null,
+                projectId: conn.config.projectId || null,
+                discoveryMode: "credentialed-connector"
+              },
+              relationships: [
+                {
+                  rel_type: "DEPLOYED_IN",
+                  to_type: "CloudResource",
+                  to_key: `${conn.provider}-${conn.id}`,
+                  to_name: `${conn.name} (${conn.provider})`
+                }
+              ]
+            });
           }
-        ];
+        } catch (err) {
+          console.warn("cloud connector scan:", err.message);
+        }
       }
-      if (process.env.AZURE_CLIENT_ID || process.env.AWS_ACCESS_KEY_ID || process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-        // Placeholder for live adapters — credentials present but adapters not fully wired in MVP
-        return [];
+
+      if (process.env.DEMO_CLOUD === "true" && !out.length) {
+        out.push({
+          collector_id: "cloud_stub",
+          fingerprint: "cloud-stub:vertex:demo",
+          name: "Vertex AI Agent (stub)",
+          category: "cloud",
+          cloud_provider: "gcp",
+          region: "us-central1",
+          provider: "google",
+          model: "gemini-2.0-flash",
+          deployment_type: "cloud",
+          running_status: "unknown",
+          confidence_score: 0.55,
+          relationships: [
+            {
+              rel_type: "DEPLOYED_IN",
+              to_type: "CloudResource",
+              to_key: "vertex-demo",
+              to_name: "Vertex AI demo"
+            }
+          ]
+        });
       }
-      return [];
+
+      return out;
     }
   },
 

@@ -184,3 +184,26 @@ CREATE TABLE IF NOT EXISTS visibility_activity (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_activity_tenant ON visibility_activity(tenant_id, created_at DESC);
+
+-- Cloud / environment connectors (encrypted credentials)
+CREATE TABLE IF NOT EXISTS connectors (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name            TEXT NOT NULL,
+  provider        TEXT NOT NULL
+                    CHECK (provider IN ('azure', 'aws', 'gcp')),
+  status          TEXT NOT NULL DEFAULT 'active'
+                    CHECK (status IN ('active', 'disabled', 'error')),
+  environment     TEXT NOT NULL DEFAULT 'production',
+  config          JSONB NOT NULL DEFAULT '{}',
+  secrets_enc     TEXT NOT NULL,
+  secret_fields   TEXT[] NOT NULL DEFAULT '{}',
+  last_tested_at  TIMESTAMPTZ,
+  last_error      TEXT,
+  created_by      TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_connectors_tenant ON connectors(tenant_id, provider);
+
