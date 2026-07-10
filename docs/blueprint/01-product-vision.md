@@ -8,10 +8,21 @@ The market is moving faster than enterprise visibility. Developers install codin
 
 The product positioning:
 
-- **CrowdStrike for AI Agents**: broad endpoint and runtime visibility into agent presence and activity.
+- **CrowdStrike for AI Agents**: enterprise-wide visibility into agent presence — **agentless first**, with optional **EDR integrations** for endpoint evidence (no AgentRadar client required on laptops).
 - **Wiz for AI**: cloud, identity, repository, model, framework, and topology intelligence across the AI attack surface.
 - **Datadog for AI Runtime**: timelines, events, activity streams, usage views, and operational visibility for agentic systems.
 - **ServiceNow CMDB for AI Assets**: authoritative asset inventory and relationship map for AI agents and AI-adjacent infrastructure.
+
+## Discovery posture (locked)
+
+**AgentRadar is an agentless platform.**
+
+| Principle | Meaning |
+|-----------|---------|
+| No proprietary endpoint agent required | Customers do **not** deploy an AgentRadar client/daemon on developer machines for core discovery. |
+| Agentless by default | Cloud APIs, Kubernetes APIs, SaaS APIs, CI/CD, git, logs, and identity integrations drive inventory. |
+| Endpoint coverage via EDR | When laptop/IDE/process visibility is needed, AgentRadar **pulls from existing EDR / endpoint management** (e.g. CrowdStrike, Microsoft Defender/Intune, Cortex XDR, Netskope) rather than installing its own agent. |
+| Optional future sensors | Any future lightweight sensor is non-default and never a prerequisite for cloud/SaaS discovery. |
 
 AgentRadar is not an agent governance product in V1/V2. It does not approve, block, remediate, quarantine, or enforce policy against agents. It discovers, normalizes, correlates, maps, searches, exports, and visualizes.
 

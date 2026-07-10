@@ -28,6 +28,7 @@ AgentRadar integrations support discovery intake, enrichment, export, and enterp
 - Kubernetes.
 - Okta, Entra ID.
 - ServiceNow, Salesforce, Slack/Microsoft 365 where APIs expose AI features.
+- **Microsoft 365 Copilot / Copilot Studio**, **Salesforce Agentforce**, **Workday Illuminate**, **ServiceNow Now Assist** via Settings → Connectors (API credentials + Test + Scan SaaS platforms).
 - EDR/MDM inventory providers.
 
 ### Outbound Visibility

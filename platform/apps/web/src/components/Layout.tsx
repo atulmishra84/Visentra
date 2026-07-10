@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { FormEvent, useEffect, useState } from "react";
 import { connectGraphStream } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { getPreferredTheme, toggleTheme, type ThemeMode } from "../lib/theme";
 
 const sections = [
   {
@@ -9,6 +10,7 @@ const sections = [
     items: [
       { to: "/executive", label: "Executive Overview" },
       { to: "/operations", label: "Operations Workbench" },
+      { to: "/shadow-ai", label: "Shadow AI" },
       { to: "/discovery", label: "Discovery" }
     ]
   },
@@ -37,6 +39,10 @@ const sections = [
       { to: "/discovery/events", label: "Discovery Events" },
       { to: "/search", label: "Global Search" }
     ]
+  },
+  {
+    heading: "Settings",
+    items: [{ to: "/settings/connectors", label: "Connectors" }]
   }
 ];
 
@@ -45,6 +51,7 @@ export function Layout() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [streamStatus, setStreamStatus] = useState<"connecting" | "live" | "error">("connecting");
+  const [theme, setTheme] = useState<ThemeMode>(() => getPreferredTheme());
 
   useEffect(() => {
     if (!token) {
@@ -112,6 +119,14 @@ export function Layout() {
           </form>
 
           <div className="toolbar">
+            <button
+              className="theme-toggle"
+              type="button"
+              aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+              onClick={() => setTheme(toggleTheme(theme))}
+            >
+              {theme === "light" ? "Dark" : "Light"}
+            </button>
             <span className="status-pill">
               <span
                 className={`status-dot ${

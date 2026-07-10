@@ -161,38 +161,129 @@ export const collectors = {
 
   cloud_stub: {
     id: "cloud_stub",
-    async scan() {
-      // Live cloud calls require credentials; stub returns empty unless DEMO_CLOUD=true
-      if (process.env.DEMO_CLOUD === "true") {
-        return [
-          {
-            collector_id: "cloud_stub",
-            fingerprint: "cloud-stub:vertex:demo",
-            name: "Vertex AI Agent (stub)",
-            category: "cloud",
-            cloud_provider: "gcp",
-            region: "us-central1",
-            provider: "google",
-            model: "gemini-2.0-flash",
-            deployment_type: "cloud",
-            running_status: "unknown",
-            confidence_score: 0.55,
-            relationships: [
-              {
-                rel_type: "DEPLOYED_IN",
-                to_type: "CloudResource",
-                to_key: "vertex-demo",
-                to_name: "Vertex AI demo"
+    async scan(ctx) {
+      const out = [];
+
+      if (ctx.pool && ctx.tenantId) {
+        try {
+          const { listActiveCloudConnectors } = await import("../services/connectors.js");
+          const { discoverAzureConnector } = await import("./azureArm.js");
+          const connectors = await listActiveCloudConnectors(ctx.pool, ctx.tenantId);
+
+          for (const conn of connectors) {
+            if (conn.provider === "azure") {
+              try {
+                const { observations, stats } = await discoverAzureConnector(conn);
+                out.push(...observations);
+                if (ctx.pool) {
+                  await ctx.pool.query(
+                    `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+                     VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
+                    [
+                      ctx.tenantId,
+                      `Azure connector "${conn.name}" scanned ${stats.totalResourcesScanned} resources — ingested ${stats.cloudResourcesIngested} cloud assets (${stats.aiRelevantResources} AI-relevant)`,
+                      JSON.stringify({
+                        connectorId: conn.id,
+                        provider: "azure",
+                        ...stats
+                      })
+                    ]
+                  );
+                  await ctx.pool.query(
+                    `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
+                     WHERE id=$1 AND tenant_id=$2`,
+                    [conn.id, ctx.tenantId]
+                  );
+                }
+              } catch (err) {
+                const message = err.message || String(err);
+                console.warn("Azure connector scan failed:", message);
+                if (ctx.pool) {
+                  await ctx.pool.query(
+                    `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
+                     WHERE id=$1 AND tenant_id=$2`,
+                    [conn.id, ctx.tenantId, message]
+                  );
+                  await ctx.pool.query(
+                    `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+                     VALUES ($1,'connector.scan.error','error',$2,$3::jsonb)`,
+                    [
+                      ctx.tenantId,
+                      `Azure connector "${conn.name}" failed: ${message}`,
+                      JSON.stringify({ connectorId: conn.id, provider: "azure" })
+                    ]
+                  );
+                }
+                out.push({
+                  collector_id: "cloud_stub",
+                  fingerprint: `azure-connector-error:${conn.id}`,
+                  name: `Azure connector error — ${conn.name}`,
+                  category: "cloud",
+                  cloud_provider: "azure",
+                  confidence_score: 0.2,
+                  running_status: "unknown",
+                  risk_indicators: ["connector_auth_failed"],
+                  metadata: {
+                    connectorId: conn.id,
+                    connectorName: conn.name,
+                    discoveryMode: "azure-arm-error",
+                    error: message
+                  }
+                });
               }
-            ]
+              continue;
+            }
+
+            // AWS/GCP: credentialed placeholder until live adapters land
+            out.push({
+              collector_id: "cloud_stub",
+              fingerprint: `cloud-connector:${conn.provider}:${conn.id}`,
+              name: `${conn.provider.toUpperCase()} connector — ${conn.name}`,
+              category: "cloud",
+              cloud_provider: conn.provider === "gcp" ? "gcp" : conn.provider,
+              region: conn.config.region || null,
+              provider: conn.provider,
+              deployment_type: "cloud",
+              running_status: "unknown",
+              confidence_score: 0.55,
+              metadata: {
+                connectorId: conn.id,
+                connectorName: conn.name,
+                discoveryMode: "credentialed-connector-pending-live-adapter",
+                environment: conn.environment
+              }
+            });
           }
-        ];
+        } catch (err) {
+          console.warn("cloud connector scan:", err.message);
+        }
       }
-      if (process.env.AZURE_CLIENT_ID || process.env.AWS_ACCESS_KEY_ID || process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-        // Placeholder for live adapters — credentials present but adapters not fully wired in MVP
-        return [];
+
+      if (process.env.DEMO_CLOUD === "true" && !out.length) {
+        out.push({
+          collector_id: "cloud_stub",
+          fingerprint: "cloud-stub:vertex:demo",
+          name: "Vertex AI Agent (stub)",
+          category: "cloud",
+          cloud_provider: "gcp",
+          region: "us-central1",
+          provider: "google",
+          model: "gemini-2.0-flash",
+          deployment_type: "cloud",
+          running_status: "unknown",
+          confidence_score: 0.55,
+          relationships: [
+            {
+              rel_type: "DEPLOYED_IN",
+              to_type: "CloudResource",
+              to_key: "vertex-demo",
+              to_name: "Vertex AI demo"
+            }
+          ]
+        });
       }
-      return [];
+
+      return out;
     }
   },
 
@@ -233,10 +324,212 @@ export const collectors = {
       }
       return out;
     }
+  },
+
+  edr: {
+    id: "edr",
+    async scan(ctx) {
+      const out = [];
+      if (!ctx.pool || !ctx.tenantId) return out;
+
+      try {
+        const { listActiveEdrConnectors } = await import("../services/connectors.js");
+        const { discoverEdrConnector } = await import("./edrIntegrations.js");
+        const connectors = await listActiveEdrConnectors(ctx.pool, ctx.tenantId);
+
+        for (const conn of connectors) {
+          const label =
+            {
+              crowdstrike: "CrowdStrike",
+              defender: "Microsoft Defender",
+              intune: "Microsoft Intune",
+              cortex: "Cortex XDR",
+              netskope: "Netskope"
+            }[conn.provider] || conn.provider;
+
+          try {
+            const { observations, stats } = await discoverEdrConnector(conn);
+            out.push(...observations);
+            if (ctx.pool) {
+              await ctx.pool.query(
+                `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
+                 WHERE id=$1 AND tenant_id=$2`,
+                [conn.id, ctx.tenantId]
+              );
+              await ctx.pool.query(
+                `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+                 VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
+                [
+                  ctx.tenantId,
+                  `EDR connector "${conn.name}" (${label}) discovered ${stats.devices || 0} endpoints — ${stats.message || "ok"}`,
+                  JSON.stringify({
+                    connectorId: conn.id,
+                    provider: conn.provider,
+                    category: "edr",
+                    ...stats
+                  })
+                ]
+              );
+            }
+          } catch (err) {
+            const message = err.message || String(err);
+            console.warn("EDR connector scan failed:", conn.provider, message);
+            if (ctx.pool) {
+              await ctx.pool.query(
+                `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
+                 WHERE id=$1 AND tenant_id=$2`,
+                [conn.id, ctx.tenantId, message]
+              );
+              await ctx.pool.query(
+                `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+                 VALUES ($1,'connector.scan.error','error',$2,$3::jsonb)`,
+                [
+                  ctx.tenantId,
+                  `EDR connector "${conn.name}" (${label}) failed: ${message}`,
+                  JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "edr" })
+                ]
+              );
+            }
+            out.push({
+              collector_id: "edr",
+              fingerprint: `edr-connector-error:${conn.provider}:${conn.id}`,
+              name: `${label} connector error — ${conn.name}`,
+              category: "endpoint",
+              provider: conn.provider,
+              confidence_score: 0.2,
+              running_status: "unknown",
+              risk_indicators: ["connector_auth_failed"],
+              metadata: {
+                connectorId: conn.id,
+                connectorName: conn.name,
+                discoveryMode: "edr-api-error",
+                inventoryClass: "edr_connector",
+                error: message
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("edr connector scan:", err.message);
+      }
+
+      return out;
+    }
+  },
+
+  saas_platform: {
+    id: "saas_platform",
+    async scan(ctx) {
+      const out = [];
+      if (!ctx.pool || !ctx.tenantId) return out;
+
+      try {
+        const { listActiveSaasConnectors } = await import("../services/connectors.js");
+        const { discoverSaasConnector } = await import("./saasPlatforms.js");
+        const connectors = await listActiveSaasConnectors(ctx.pool, ctx.tenantId);
+
+        for (const conn of connectors) {
+          const label =
+            {
+              m365_copilot: "Microsoft 365 Copilot",
+              salesforce: "Salesforce Agentforce",
+              workday: "Workday",
+              servicenow: "ServiceNow"
+            }[conn.provider] || conn.provider;
+
+          try {
+            const { observations, stats } = await discoverSaasConnector(conn);
+            out.push(...observations);
+            if (ctx.pool) {
+              await ctx.pool.query(
+                `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
+                 WHERE id=$1 AND tenant_id=$2`,
+                [conn.id, ctx.tenantId]
+              );
+              await ctx.pool.query(
+                `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+                 VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
+                [
+                  ctx.tenantId,
+                  `SaaS platform "${conn.name}" (${label}) discovered ${stats.agents || 0} agents — ${stats.message || "ok"}`,
+                  JSON.stringify({
+                    connectorId: conn.id,
+                    provider: conn.provider,
+                    category: "saas",
+                    ...stats
+                  })
+                ]
+              );
+            }
+          } catch (err) {
+            const message = err.message || String(err);
+            console.warn("SaaS platform scan failed:", conn.provider, message);
+            if (ctx.pool) {
+              await ctx.pool.query(
+                `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
+                 WHERE id=$1 AND tenant_id=$2`,
+                [conn.id, ctx.tenantId, message]
+              );
+              await ctx.pool.query(
+                `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+                 VALUES ($1,'connector.scan.error','error',$2,$3::jsonb)`,
+                [
+                  ctx.tenantId,
+                  `SaaS platform "${conn.name}" (${label}) failed: ${message}`,
+                  JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "saas" })
+                ]
+              );
+            }
+            out.push({
+              collector_id: "saas_platform",
+              fingerprint: `saas-connector-error:${conn.provider}:${conn.id}`,
+              name: `${label} connector error — ${conn.name}`,
+              category: "saas",
+              provider: conn.provider,
+              confidence_score: 0.2,
+              running_status: "unknown",
+              risk_indicators: ["connector_auth_failed"],
+              metadata: {
+                connectorId: conn.id,
+                connectorName: conn.name,
+                discoveryMode: "saas-platform-error",
+                inventoryClass: "saas_connector",
+                error: message
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("saas platform scan:", err.message);
+      }
+
+      return out;
+    }
   }
 };
 
-export const DEFAULT_COLLECTORS = ["demo", "ide_filesystem", "process", "mcp", "cloud_stub", "k8s_stub"];
+export const DEFAULT_COLLECTORS = [
+  "demo",
+  "ide_filesystem",
+  "process",
+  "mcp",
+  "cloud_stub",
+  "edr",
+  "saas_platform",
+  "k8s_stub"
+];
+
+/** Production-safe collectors (no demo / sample stubs) */
+export const PRODUCTION_COLLECTORS = [
+  "ide_filesystem",
+  "process",
+  "mcp",
+  "cloud_stub",
+  "edr",
+  "saas_platform"
+];
+
+export const ALL_COLLECTOR_IDS = Object.keys(collectors);
 
 export async function runCollectors(collectorIds, ctx) {
   const ids = collectorIds?.length ? collectorIds : DEFAULT_COLLECTORS;

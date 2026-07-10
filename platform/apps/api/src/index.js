@@ -2,20 +2,52 @@ import express from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import pg from "pg";
 import neo4j from "neo4j-driver";
 import { migrate } from "./migrate.js";
 import { runDiscoveryJob } from "./discovery/pipeline.js";
-import { DEFAULT_COLLECTORS, DEFAULT_COLLECTORS as COLLECTOR_IDS } from "./discovery/collectors.js";
+import {
+  DEFAULT_COLLECTORS,
+  PRODUCTION_COLLECTORS,
+  ALL_COLLECTOR_IDS
+} from "./discovery/collectors.js";
+import {
+  PROVIDER_FIELDS,
+  listConnectors,
+  getConnector,
+  createConnector,
+  updateConnector,
+  deleteConnector,
+  testConnector
+} from "./services/connectors.js";
+import { classifyShadowAi, summarizeShadowFindings } from "./services/shadowAi.js";
+import { migrateConnectorEncryption } from "./utils/crypto.js";
+import {
+  IS_PROD,
+  assertProductionConfig,
+  resolveJwtSecret,
+  resolveCorsOrigin,
+  allowDemoSeed,
+  sanitizeCollectors,
+  createRateLimiter
+} from "./config.js";
+
+assertProductionConfig();
 
 const PORT = Number(process.env.PORT || 8080);
-const JWT_SECRET = process.env.JWT_SECRET || "agentradar-dev-secret-change-me";
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
+const JWT_SECRET = resolveJwtSecret();
+const CORS_ORIGIN = resolveCorsOrigin();
+const JWT_TTL = process.env.JWT_TTL || (IS_PROD ? "8h" : "12h");
+const COLLECTOR_IDS = IS_PROD ? PRODUCTION_COLLECTORS : DEFAULT_COLLECTORS;
 
 const pool = new pg.Pool({ connectionString: process.env.POSTGRES_URL });
 let neo4jDriver = null;
 try {
   if (process.env.NEO4J_URI) {
+    if (IS_PROD && !process.env.NEO4J_PASSWORD) {
+      throw new Error("NEO4J_PASSWORD is required in production when NEO4J_URI is set");
+    }
     neo4jDriver = neo4j.driver(
       process.env.NEO4J_URI,
       neo4j.auth.basic(process.env.NEO4J_USER || "neo4j", process.env.NEO4J_PASSWORD || "agentradar")
@@ -23,6 +55,7 @@ try {
   }
 } catch (err) {
   console.warn("Neo4j driver init failed:", err.message);
+  if (IS_PROD) throw err;
 }
 
 /** @type {Map<string, Set<import('express').Response>>} */
@@ -45,14 +78,19 @@ function signToken(user) {
   return jwt.sign(
     { sub: user.id, tid: user.tenant_id, email: user.email, role: user.role, name: user.name },
     JWT_SECRET,
-    { expiresIn: "12h" }
+    { expiresIn: JWT_TTL }
   );
 }
 
 function auth(req, res, next) {
   const header = req.headers.authorization || "";
-  const queryToken = req.query.token;
-  const raw = header.startsWith("Bearer ") ? header.slice(7) : queryToken;
+  const bearer = header.startsWith("Bearer ") ? header.slice(7) : null;
+  // EventSource cannot set Authorization headers. Allow ?token= for SSE routes only in production.
+  const path = String(req.path || "");
+  const isSsePath = path.endsWith("/stream") || path.endsWith("/events");
+  const queryToken =
+    typeof req.query.token === "string" && (!IS_PROD || isSsePath) ? req.query.token : null;
+  const raw = bearer || queryToken;
   if (!raw) return res.status(401).json({ error: { message: "Unauthorized" } });
   try {
     req.user = jwt.verify(String(raw), JWT_SECRET);
@@ -118,7 +156,7 @@ function agentFilters(query, startIdx = 2) {
   }
   if (query.q) {
     clauses.push(
-      `AND (name ILIKE $${i} OR owner ILIKE $${i} OR hostname ILIKE $${i} OR model ILIKE $${i} OR framework ILIKE $${i} OR repository ILIKE $${i})`
+      `AND (name ILIKE $${i} OR owner ILIKE $${i} OR hostname ILIKE $${i} OR model ILIKE $${i} OR framework ILIKE $${i} OR repository ILIKE $${i} OR category ILIKE $${i} OR provider ILIKE $${i} OR cloud_provider ILIKE $${i} OR device ILIKE $${i})`
     );
     params.push(`%${query.q}%`);
     i += 1;
@@ -143,6 +181,19 @@ function agentFilters(query, startIdx = 2) {
     params.push(`%${query.prompt}%`);
     i += 1;
   }
+  if (query.shadow === "true" || query.shadow === true || query.shadowAi === "true") {
+    clauses.push(
+      `AND (
+         risk_indicators::text ILIKE '%shadow%'
+         OR risk_indicators::text ILIKE '%unmanaged%'
+         OR metadata->>'shadowAi' = 'true'
+         OR (owner IS NULL AND (
+           category IN ('ide','local_llm','browser','saas','mcp','framework','autonomous')
+           OR (category = 'cloud' AND (metadata->>'aiRelevant')::text = 'true')
+         ))
+       )`
+    );
+  }
   if (query.project) {
     clauses.push(`AND (repository ILIKE $${i} OR metadata::text ILIKE $${i})`);
     params.push(`%${query.project}%`);
@@ -151,18 +202,84 @@ function agentFilters(query, startIdx = 2) {
   return { clauses: clauses.join(" "), params, nextIdx: i };
 }
 
-async function graphFromSql(tenantId, { agentId, depth = 2 } = {}) {
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || "")
+  );
+}
+
+async function resolveSeedAgents(tenantId, seed) {
+  const q = String(seed || "").trim();
+  if (!q) return [];
+
+  if (isUuid(q)) {
+    const byId = await pool.query(`SELECT * FROM agents WHERE tenant_id=$1 AND id=$2`, [tenantId, q]);
+    if (byId.rows.length) return byId.rows;
+  }
+
+  const byKey = await pool.query(
+    `SELECT * FROM agents
+     WHERE tenant_id=$1
+       AND (fingerprint = $2 OR lower(name) = lower($2))
+     ORDER BY last_seen DESC
+     LIMIT 5`,
+    [tenantId, q]
+  );
+  if (byKey.rows.length) return byKey.rows;
+
+  const fuzzy = await pool.query(
+    `SELECT * FROM agents
+     WHERE tenant_id=$1
+       AND (name ILIKE $2 OR fingerprint ILIKE $2 OR framework ILIKE $2 OR category ILIKE $2)
+     ORDER BY last_seen DESC
+     LIMIT 12`,
+    [tenantId, `%${q}%`]
+  );
+  return fuzzy.rows;
+}
+
+async function graphFromSql(tenantId, { agentId, depth = 2, limit = 60 } = {}) {
   const nodes = new Map();
   const edges = [];
+  const maxNodes = Math.min(Math.max(Number(limit) || 60, 10), 200);
+  const hopDepth = Math.min(Math.max(Number(depth) || 2, 1), 3);
 
   let agents;
+  let seedMode = Boolean(agentId);
+
   if (agentId) {
-    agents = await pool.query(`SELECT * FROM agents WHERE tenant_id=$1 AND id=$2`, [tenantId, agentId]);
+    agents = { rows: await resolveSeedAgents(tenantId, agentId) };
+    if (!agents.rows.length) {
+      return {
+        nodes: [],
+        edges: [],
+        meta: {
+          seed: agentId,
+          matched: 0,
+          message: `No inventory match for "${agentId}". Try an agent UUID, fingerprint, or name from Inventory.`
+        }
+      };
+    }
   } else {
+    // Prefer agents that already have relationships so the explorer is never empty/sparse
     agents = await pool.query(
-      `SELECT * FROM agents WHERE tenant_id=$1 ORDER BY last_seen DESC LIMIT 100`,
-      [tenantId]
+      `SELECT a.*
+       FROM agents a
+       WHERE a.tenant_id=$1
+         AND EXISTS (
+           SELECT 1 FROM relationships r
+           WHERE r.tenant_id=a.tenant_id AND r.from_id=a.id
+         )
+       ORDER BY a.last_seen DESC
+       LIMIT $2`,
+      [tenantId, maxNodes]
     );
+    if (!agents.rows.length) {
+      agents = await pool.query(
+        `SELECT * FROM agents WHERE tenant_id=$1 ORDER BY last_seen DESC LIMIT $2`,
+        [tenantId, maxNodes]
+      );
+    }
   }
 
   for (const a of agents.rows) {
@@ -173,28 +290,35 @@ async function graphFromSql(tenantId, { agentId, depth = 2 } = {}) {
       name: a.name,
       category: a.category,
       framework: a.framework,
-      model: a.model
+      model: a.model,
+      provider: a.provider || a.cloud_provider
     });
   }
 
   const agentIds = agents.rows.map((a) => a.id);
-  if (!agentIds.length) return { nodes: [], edges: [] };
+  if (!agentIds.length) {
+    return { nodes: [], edges: [], meta: { matched: 0, message: "No inventory assets yet. Run discovery first." } };
+  }
 
   const rels = await pool.query(
     `SELECT r.*, a.name AS from_name, s.name AS to_name, s.asset_type
      FROM relationships r
      JOIN agents a ON a.id = r.from_id
      JOIN assets s ON s.id = r.to_id
-     WHERE r.tenant_id=$1 AND r.from_id = ANY($2::uuid[])`,
+     WHERE r.tenant_id=$1 AND r.from_id = ANY($2::uuid[])
+     ORDER BY r.last_seen DESC
+     LIMIT 500`,
     [tenantId, agentIds]
   );
 
   for (const r of rels.rows) {
+    if (nodes.size >= maxNodes * 2 && !nodes.has(r.to_id)) continue;
     nodes.set(r.to_id, {
       id: r.to_id,
-      type: r.to_type || r.asset_type,
+      type: r.to_type || r.asset_type || "Asset",
       label: r.to_name,
-      name: r.to_name
+      name: r.to_name,
+      category: r.asset_type || r.to_type
     });
     edges.push({
       id: r.id,
@@ -209,14 +333,14 @@ async function graphFromSql(tenantId, { agentId, depth = 2 } = {}) {
   }
 
   // Optional Neo4j enrichment (SQL graph is primary for MVP)
-  if (neo4jDriver && agentId && depth > 1) {
+  if (neo4jDriver && seedMode && hopDepth > 1 && agentIds.length === 1) {
     const session = neo4jDriver.session();
     try {
       await session.run(
         `MATCH (a:Agent {tenantId: $tenantId, id: $agentId})-[*1..2]-(n)
          WHERE n.tenantId = $tenantId
          RETURN count(n) AS c`,
-        { tenantId, agentId }
+        { tenantId, agentId: agentIds[0] }
       );
     } catch (err) {
       console.warn("Neo4j graph query:", err.message);
@@ -225,8 +349,19 @@ async function graphFromSql(tenantId, { agentId, depth = 2 } = {}) {
     }
   }
 
-  return { nodes: [...nodes.values()], edges };
+  return {
+    nodes: [...nodes.values()],
+    edges,
+    meta: {
+      seed: agentId || null,
+      matched: agents.rows.length,
+      nodeCount: nodes.size,
+      edgeCount: edges.length,
+      depth: hopDepth
+    }
+  };
 }
+
 
 async function usageBreakdown(tenantId, column) {
   const res = await pool.query(
@@ -239,19 +374,48 @@ async function usageBreakdown(tenantId, column) {
 }
 
 const app = express();
-app.use(cors({ origin: CORS_ORIGIN === "*" ? true : CORS_ORIGIN, credentials: true }));
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.use(express.json({ limit: "2mb" }));
+app.use((req, res, next) => {
+  req.requestId = req.headers["x-request-id"] || crypto.randomUUID();
+  res.setHeader("X-Request-Id", req.requestId);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  next();
+});
+
+const loginRateLimit = createRateLimiter({ windowMs: 60_000, max: IS_PROD ? 10 : 60 });
 
 app.get("/health", async (_req, res) => {
+  res.json({
+    status: "ok",
+    service: "agentradar-api",
+    env: IS_PROD ? "production" : "development",
+    neo4j: Boolean(neo4jDriver)
+  });
+});
+
+app.get("/ready", async (_req, res) => {
   try {
     await pool.query("SELECT 1");
-    res.json({ status: "ok", neo4j: Boolean(neo4jDriver), service: "agentradar-api" });
+    if (neo4jDriver) {
+      const session = neo4jDriver.session();
+      try {
+        await session.run("RETURN 1 AS ok");
+      } finally {
+        await session.close();
+      }
+    }
+    res.json({ status: "ready", postgres: true, neo4j: Boolean(neo4jDriver) });
   } catch (err) {
-    res.status(503).json({ status: "error", error: err.message });
+    res.status(503).json({ status: "not_ready", error: IS_PROD ? "dependency check failed" : err.message });
   }
 });
 
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", loginRateLimit, async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: { message: "email and password required" } });
   const result = await pool.query(
@@ -334,7 +498,19 @@ app.get("/api/agents/:id", auth, async (req, res) => {
      WHERE tenant_id=$1 AND agent_id=$2 ORDER BY observed_at DESC LIMIT 20`,
     [req.tenantId, req.params.id]
   );
-  res.json({ agent: agent.rows[0], relationships: rels.rows, observations: observations.rows });
+  const row = agent.rows[0];
+  const shadow = classifyShadowAi(row);
+  res.json({
+    agent: {
+      ...row,
+      shadowAi: shadow.isShadow,
+      shadowAiScore: shadow.score,
+      shadowAiReasons: shadow.reasons,
+      shadowAiTags: shadow.tags
+    },
+    relationships: rels.rows,
+    observations: observations.rows
+  });
 });
 
 app.get("/api/assets", auth, async (req, res) => {
@@ -350,9 +526,40 @@ app.get("/api/assets", auth, async (req, res) => {
 });
 
 app.get("/api/graph", auth, async (req, res) => {
-  const depth = Number(req.query.depth) || 2;
-  const graph = await graphFromSql(req.tenantId, { agentId: req.query.agentId, depth });
-  res.json(graph);
+  try {
+    const depth = Number(req.query.depth) || 2;
+    const limit = Number(req.query.limit) || 60;
+    const graph = await graphFromSql(req.tenantId, {
+      agentId: req.query.agentId || req.query.q || req.query.seed,
+      depth,
+      limit
+    });
+    res.json(graph);
+  } catch (err) {
+    console.error("graph query failed:", err);
+    res.status(500).json({ error: { message: err.message || "Graph query failed" }, nodes: [], edges: [] });
+  }
+});
+
+app.get("/api/graph/seeds", auth, async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    const params = [req.tenantId];
+    let sql = `
+      SELECT a.id, a.name, a.category, a.framework, a.fingerprint, a.cloud_provider, a.provider,
+             (SELECT COUNT(*)::int FROM relationships r WHERE r.from_id=a.id) AS edge_count
+      FROM agents a
+      WHERE a.tenant_id=$1`;
+    if (q) {
+      params.push(`%${q}%`);
+      sql += ` AND (a.name ILIKE $2 OR a.fingerprint ILIKE $2 OR a.category ILIKE $2 OR a.framework ILIKE $2)`;
+    }
+    sql += ` ORDER BY edge_count DESC, a.last_seen DESC LIMIT 40`;
+    const result = await pool.query(sql, params);
+    res.json({ seeds: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: { message: err.message }, seeds: [] });
+  }
 });
 
 app.get("/api/graph/stream", auth, (req, res) => {
@@ -416,8 +623,8 @@ app.get("/api/discovery/jobs", auth, async (req, res) => {
 });
 
 app.post("/api/discovery/jobs", auth, requireRole("platform_admin", "operator"), async (req, res) => {
-  const collectors = req.body?.collectors || DEFAULT_COLLECTORS;
-  res.status(202).json({ accepted: true, message: "Discovery job started" });
+  const collectors = sanitizeCollectors(req.body?.collectors, ALL_COLLECTOR_IDS);
+  res.status(202).json({ accepted: true, message: "Discovery job started", collectors });
   runDiscoveryJob(pool, neo4jDriver, {
     tenantId: req.tenantId,
     collectorIds: collectors,
@@ -432,6 +639,51 @@ app.get("/api/discovery/events", auth, async (req, res) => {
     [req.tenantId]
   );
   res.json({ events: result.rows, items: result.rows });
+});
+
+app.get("/api/shadow-ai", auth, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 200, 500);
+    // Prefer AI-ish inventory; classifier decides Shadow vs not
+    const result = await pool.query(
+      `SELECT * FROM agents
+       WHERE tenant_id=$1
+         AND (
+           category IN ('ide','local','local_llm','framework','mcp','browser','autonomous','saas','container')
+           OR model IS NOT NULL
+           OR framework IS NOT NULL
+           OR ide IS NOT NULL
+           OR (category = 'cloud' AND (
+             metadata->>'aiRelevant' = 'true'
+             OR model = 'ai-relevant'
+             OR name ILIKE '%(AI)%'
+             OR name ILIKE '%ai%'
+             OR name ILIKE '%openai%'
+             OR name ILIKE '%copilot%'
+           ))
+           OR risk_indicators::text ILIKE '%shadow%'
+           OR risk_indicators::text ILIKE '%unmanaged%'
+           OR metadata->>'shadowAi' = 'true'
+         )
+       ORDER BY last_seen DESC
+       LIMIT $2`,
+      [req.tenantId, limit]
+    );
+
+    const summary = summarizeShadowFindings(result.rows);
+    res.json({
+      total: summary.total,
+      byTag: summary.byTag,
+      findings: summary.findings,
+      items: summary.findings,
+      agents: summary.findings,
+      definition:
+        "Shadow AI = AI agents/tools discovered without clear ownership or outside managed/sanctioned posture (visibility only)."
+    });
+  } catch (err) {
+    console.error("shadow-ai query failed:", err);
+    res.status(500).json({ error: { message: err.message }, findings: [], total: 0 });
+  }
 });
 
 app.get("/api/dashboards/:name", auth, async (req, res) => {
@@ -449,6 +701,30 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
     `SELECT COALESCE(AVG(confidence_score),0)::float AS c FROM agents WHERE tenant_id=$1`,
     [req.tenantId]
   );
+  const ownerless = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM agents
+     WHERE tenant_id=$1 AND (owner IS NULL OR btrim(owner)='')`,
+    [req.tenantId]
+  );
+  const lowConfidence = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM agents WHERE tenant_id=$1 AND confidence_score < 0.55`,
+    [req.tenantId]
+  );
+  const shadowCandidates = await pool.query(
+    `SELECT * FROM agents
+     WHERE tenant_id=$1
+       AND (
+         category IN ('ide','local_llm','browser','saas','mcp','framework','autonomous')
+         OR model IS NOT NULL OR framework IS NOT NULL OR ide IS NOT NULL
+         OR risk_indicators::text ILIKE '%shadow%'
+         OR metadata->>'shadowAi' = 'true'
+         OR (category='cloud' AND metadata->>'aiRelevant'='true')
+       )
+     ORDER BY last_seen DESC LIMIT 300`,
+    [req.tenantId]
+  );
+  const shadowSummary = summarizeShadowFindings(shadowCandidates.rows);
+
   const categories = await usageBreakdown(req.tenantId, "category");
   const models = await usageBreakdown(req.tenantId, "model");
   const frameworks = await usageBreakdown(req.tenantId, "framework");
@@ -467,6 +743,13 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
     totalAgents: total.rows[0].c,
     runningAgents: running.rows[0].c,
     uniqueOwners: owners.rows[0].c,
+    ownerlessAgents: ownerless.rows[0].c,
+    ownerless: ownerless.rows[0].c,
+    lowConfidence: lowConfidence.rows[0].c,
+    lowConfidenceAgents: lowConfidence.rows[0].c,
+    shadowAiAgents: shadowSummary.total,
+    shadowAi: shadowSummary.total,
+    shadowAiByTag: shadowSummary.byTag,
     avgConfidence: Number(avgConf.rows[0].c.toFixed?.(3) ?? avgConf.rows[0].c),
     categories,
     agentsByCategory: categories,
@@ -487,9 +770,18 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
     });
   }
   if (name === "operations") {
+    const queue = shadowSummary.findings.slice(0, 50).map((f) => ({
+      ...f,
+      queue: "shadow_ai",
+      type: "shadow_ai",
+      title: f.name
+    }));
     return res.json({
       dashboard: {
         ...base,
+        queue,
+        items: queue,
+        newDiscoveries: queue.length,
         collectorHealth: COLLECTOR_IDS.map((id) => ({ name: id, status: "ready" })),
         openJobs: jobs.rows.filter((j) => j.status === "running").length
       }
@@ -552,6 +844,61 @@ app.get("/api/export/agents", auth, async (req, res) => {
   res.send(JSON.stringify({ agents: result.rows }, null, 2));
 });
 
+app.get("/api/connectors/schema", auth, (_req, res) => {
+  res.json({ providers: PROVIDER_FIELDS });
+});
+
+app.get("/api/connectors", auth, async (req, res) => {
+  const items = await listConnectors(pool, req.tenantId);
+  res.json({ connectors: items, items });
+});
+
+app.post("/api/connectors", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  try {
+    const connector = await createConnector(pool, req.tenantId, req.body || {}, req.user.email);
+    await pool.query(
+      `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+       VALUES ($1,'connector.created','info',$2,$3::jsonb)`,
+      [
+        req.tenantId,
+        `Connector created: ${connector.name}`,
+        JSON.stringify({ connectorId: connector.id, provider: connector.provider })
+      ]
+    );
+    res.status(201).json({ connector });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: { message: err.message } });
+  }
+});
+
+app.get("/api/connectors/:id", auth, async (req, res) => {
+  const connector = await getConnector(pool, req.tenantId, req.params.id);
+  if (!connector) return res.status(404).json({ error: { message: "Connector not found" } });
+  res.json({ connector });
+});
+
+app.put("/api/connectors/:id", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  try {
+    const connector = await updateConnector(pool, req.tenantId, req.params.id, req.body || {});
+    if (!connector) return res.status(404).json({ error: { message: "Connector not found" } });
+    res.json({ connector });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: { message: err.message } });
+  }
+});
+
+app.delete("/api/connectors/:id", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  const ok = await deleteConnector(pool, req.tenantId, req.params.id);
+  if (!ok) return res.status(404).json({ error: { message: "Connector not found" } });
+  res.status(204).end();
+});
+
+app.post("/api/connectors/:id/test", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  const result = await testConnector(pool, req.tenantId, req.params.id);
+  if (!result) return res.status(404).json({ error: { message: "Connector not found" } });
+  res.json(result);
+});
+
 async function boot() {
   for (let i = 0; i < 30; i++) {
     try {
@@ -563,21 +910,25 @@ async function boot() {
   }
 
   const tenantId = await migrate(pool);
+  await migrateConnectorEncryption(pool);
   await initNeo4jConstraints();
 
   const count = await pool.query(`SELECT COUNT(*)::int AS c FROM agents WHERE tenant_id=$1`, [tenantId]);
-  if (count.rows[0].c === 0 || process.env.SEED_ON_START === "true") {
-    console.log("Seeding discovery demo data...");
+  const shouldSeed = allowDemoSeed() || (!IS_PROD && count.rows[0].c === 0);
+  if (shouldSeed) {
+    console.log("Seeding discovery demo data (non-production / explicit allow)...");
     await runDiscoveryJob(pool, neo4jDriver, {
       tenantId,
       collectorIds: ["demo", "ide_filesystem", "process", "mcp"],
       triggeredBy: "bootstrap",
       broadcast
     });
+  } else if (IS_PROD) {
+    console.log("Production boot: demo seed disabled. Inventory starts empty until connectors/discovery run.");
   }
 
   app.listen(PORT, () => {
-    console.log(`AgentRadar API listening on :${PORT}`);
+    console.log(`AgentRadar API listening on :${PORT} (${IS_PROD ? "production" : "development"})`);
   });
 }
 

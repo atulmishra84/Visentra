@@ -11,22 +11,51 @@ export async function migrate(pool) {
   const sql = fs.readFileSync(schemaPath, "utf8");
   await pool.query(sql);
 
+  // Widen connectors.provider check for EDR integrations (idempotent)
+  await pool.query(`
+    DO $$
+    BEGIN
+      ALTER TABLE connectors DROP CONSTRAINT IF EXISTS connectors_provider_check;
+      ALTER TABLE connectors ADD CONSTRAINT connectors_provider_check
+        CHECK (provider IN (
+          'azure', 'aws', 'gcp',
+          'crowdstrike', 'defender', 'intune', 'cortex', 'netskope',
+          'm365_copilot', 'salesforce', 'workday', 'servicenow'
+        ));
+    EXCEPTION WHEN undefined_table THEN
+      NULL;
+    END $$;
+  `);
+
+  const isProd = process.env.NODE_ENV === "production";
   const email = process.env.BOOTSTRAP_ADMIN_EMAIL || "admin@agentradar.local";
-  const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || "AgentRadar!dev";
-  const hash = await bcrypt.hash(password, 10);
+  const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || (isProd ? null : "AgentRadar!dev");
+  if (!password) {
+    throw new Error("BOOTSTRAP_ADMIN_PASSWORD is required");
+  }
+  const hash = await bcrypt.hash(password, isProd ? 12 : 10);
+
+  // Keep default slug stable across envs so redeploys do not create a second tenant.
+  const tenantSettings = isProd ? '{"demo": false}' : '{"demo": true}';
+  const tenantName = process.env.BOOTSTRAP_TENANT_NAME || "Acme Corporation";
+  const tenantSlug = process.env.BOOTSTRAP_TENANT_SLUG || "acme";
 
   const tenant = await pool.query(
     `INSERT INTO tenants (name, slug, settings)
-     VALUES ('Acme Corporation', 'acme', '{"demo": true}')
-     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
-     RETURNING id`
+     VALUES ($1, $2, $3::jsonb)
+     ON CONFLICT (slug) DO UPDATE SET
+       name = EXCLUDED.name,
+       settings = tenants.settings || EXCLUDED.settings
+     RETURNING id`,
+    [tenantName, tenantSlug, tenantSettings]
   );
   const tenantId = tenant.rows[0].id;
 
+  // Insert-only for password: never overwrite an existing admin hash on restart
   await pool.query(
     `INSERT INTO users (tenant_id, email, name, role, password_hash)
      VALUES ($1, $2, 'Platform Admin', 'platform_admin', $3)
-     ON CONFLICT (tenant_id, email) DO UPDATE SET password_hash = EXCLUDED.password_hash, role = EXCLUDED.role`,
+     ON CONFLICT (tenant_id, email) DO UPDATE SET role = EXCLUDED.role`,
     [tenantId, email, hash]
   );
 

@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { runCollectors, DEFAULT_COLLECTORS } from "./collectors.js";
+import { applyShadowAiToObservation } from "../services/shadowAi.js";
 
 function asArray(v) {
   if (!v) return [];
@@ -68,7 +69,8 @@ export async function ingestObservations(pool, neo4j, tenantId, jobId, observati
   let agentsFound = 0;
   const client = await pool.connect();
   try {
-    for (const obs of observations) {
+    for (const rawObs of observations) {
+      const obs = applyShadowAiToObservation(rawObs);
       await client.query("BEGIN");
       try {
         const fingerprint = obs.fingerprint || `anon:${randomUUID()}`;
@@ -94,9 +96,15 @@ export async function ingestObservations(pool, neo4j, tenantId, jobId, observati
              name = EXCLUDED.name,
              owner = COALESCE(EXCLUDED.owner, agents.owner),
              hostname = COALESCE(EXCLUDED.hostname, agents.hostname),
+             device = COALESCE(EXCLUDED.device, agents.device),
+             operating_system = COALESCE(EXCLUDED.operating_system, agents.operating_system),
              framework = COALESCE(EXCLUDED.framework, agents.framework),
              model = COALESCE(EXCLUDED.model, agents.model),
              provider = COALESCE(EXCLUDED.provider, agents.provider),
+             deployment_type = COALESCE(EXCLUDED.deployment_type, agents.deployment_type),
+             cloud_provider = COALESCE(EXCLUDED.cloud_provider, agents.cloud_provider),
+             region = COALESCE(EXCLUDED.region, agents.region),
+             category = COALESCE(EXCLUDED.category, agents.category),
              last_seen = NOW(),
              running_status = EXCLUDED.running_status,
              tools = EXCLUDED.tools,
@@ -232,7 +240,7 @@ export async function runDiscoveryJob(pool, neo4j, { tenantId, collectorIds, tri
   );
 
   try {
-    const observations = await runCollectors(collectors, { tenantId, ownerHint: triggeredBy });
+    const observations = await runCollectors(collectors, { tenantId, ownerHint: triggeredBy, pool });
     const agentsFound = await ingestObservations(
       pool,
       neo4j,

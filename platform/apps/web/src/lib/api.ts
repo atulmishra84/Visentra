@@ -14,8 +14,12 @@ export type Agent = Record<string, unknown> & {
   cloud?: string;
   category?: string;
   department?: string;
-  confidence?: number;
+      confidence?: number;
   confidence_score?: number;
+  shadowAi?: boolean;
+  shadowAiScore?: number;
+  shadowAiReasons?: string[];
+  shadowAiTags?: string[];
   lastObservedAt?: string;
   last_seen?: string;
 };
@@ -44,6 +48,14 @@ export type GraphPayload = {
   relationships?: GraphEdge[];
   items?: unknown[];
   requestId?: string;
+  meta?: {
+    seed?: string | null;
+    matched?: number;
+    nodeCount?: number;
+    edgeCount?: number;
+    depth?: number;
+    message?: string;
+  };
 };
 
 const TOKEN_KEY = "agentradar.jwt";

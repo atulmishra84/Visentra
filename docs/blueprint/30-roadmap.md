@@ -39,18 +39,13 @@ V1 answers: **What AI agents exist in the enterprise, where are they, who owns t
 
 ### V1 Source Coverage
 
-V1 should include a practical subset of all discovery categories, with architecture ready for the full set:
+V1 is **agentless-first**, with architecture ready for the full category set:
 
-- IDE.
-- Local.
-- Framework.
-- Cloud.
-- Containers.
-- SaaS.
-- MCP.
-- Local LLM.
-- Browser.
-- Autonomous.
+- Cloud / containers / K8s (API connectors).
+- SaaS / MCP / LLM provider APIs.
+- Git / CI/CD / logs / identity.
+- Framework and autonomous agents visible via cloud, repo, and runtime signals.
+- **Endpoint / IDE / local LLM / browser** via **EDR integrations** (CrowdStrike, Defender/Intune, Cortex, Netskope, etc.) — not via an AgentRadar local client.
 
 ### V1 Success Criteria
 
@@ -69,6 +64,7 @@ V1 should include a practical subset of all discovery categories, with architect
 - Blocking or disabling tools.
 - Prompt/content governance.
 - Runtime kill switch.
+- **Deploying a proprietary AgentRadar endpoint agent / IDE plugin as a required install.**
 
 ## V2: Visibility Depth
 

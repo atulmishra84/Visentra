@@ -13,7 +13,42 @@ Greenfield implementation of the Discovery & Visibility track. See the engineeri
 | Neo4j | Topology graph projection |
 | Redis / NATS / OpenSearch | Provisioned in compose for production-parity; MVP search uses Postgres facets |
 
-## Quick start
+## Discovery posture
+
+**Agentless platform.** No AgentRadar client is required on endpoints.
+
+- **Default:** cloud / K8s / SaaS / git / CI / log / identity connectors (API credentials in Settings → Connectors).
+- **Endpoint / IDE visibility:** integrate with the customer’s **EDR** (CrowdStrike, Defender/Intune, Cortex XDR, Netskope, etc.) and pull process/device evidence — do not deploy a proprietary local agent.
+- **SaaS / platform agents:** connect Microsoft 365 Copilot, Salesforce Agentforce, Workday Illuminate, and ServiceNow Now Assist via Settings → Connectors, then **Scan SaaS platforms**.
+
+See [`docs/blueprint/01-product-vision.md`](../docs/blueprint/01-product-vision.md) and [`docs/blueprint/12-discovery-engine.md`](../docs/blueprint/12-discovery-engine.md).
+
+## Azure deploy (customer cloud — one click)
+
+Install AgentRadar into **your Azure subscription** (no local Docker required):
+
+```bash
+cd platform/cloud-deploy
+./install.sh
+```
+
+See [`platform/cloud-deploy/README.md`](./cloud-deploy/README.md).
+
+### Operator path (local Docker)
+
+```bash
+az login --use-device-code
+cd platform/infra/azure
+export BOOTSTRAP_ADMIN_PASSWORD='…strong…'
+export JWT_SECRET="$(openssl rand -hex 32)"
+export ENCRYPTION_KEY="$(openssl rand -hex 32)"
+export SEED_ON_START=false
+./deploy.sh
+```
+
+See [`platform/infra/azure/README.md`](./infra/azure/README.md) and [`PRODUCTION.md`](./PRODUCTION.md).
+
+## Quick start (local)
 
 ```bash
 cd platform/infra/compose
@@ -22,9 +57,19 @@ docker compose up -d --build
 
 - Web UI: http://localhost:5173
 - API health: http://localhost:8080/health
+- API ready: http://localhost:8080/ready
 - Neo4j browser: http://localhost:7474
 
-Login: `admin@agentradar.local` / `AgentRadar!dev`
+**Local/dev login:** `admin@agentradar.local` / `AgentRadar!dev`  
+**Production:** no demo seed; set secrets per [`PRODUCTION.md`](./PRODUCTION.md).
+
+### Production-like local stack
+
+```bash
+cd platform/infra/compose
+cp .env.example .env   # fill secrets
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
 
 ## Local API development
 

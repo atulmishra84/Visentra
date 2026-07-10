@@ -61,11 +61,30 @@ export function AgentDetailPage() {
         <KpiCard label="Framework" value={valueAt(agent, ["framework", "runtimeFramework"])} />
         <KpiCard label="Model" value={valueAt(agent, ["model", "primaryModel", "models"])} />
         <KpiCard
-          label="Confidence"
-          value={`${Math.round(numberAt(agent, ["confidence", "confidence_score"], 0) * 100)}%`}
-          tone="good"
+          label="Shadow AI"
+          value={agent.shadowAi ? `${Math.round(numberAt(agent, ["shadowAiScore"], 0) * 100)}%` : "No"}
+          tone={agent.shadowAi ? "warn" : "good"}
         />
       </section>
+
+      {agent.shadowAi ? (
+        <section className="panel" style={{ marginBottom: 16 }}>
+          <h2>Shadow AI signals</h2>
+          <p className="muted">
+            {((agent.shadowAiReasons as string[] | undefined) || []).join(" · ") || "Flagged as unmanaged / unsanctioned AI."}
+          </p>
+          <div className="toolbar" style={{ gap: 8, flexWrap: "wrap" }}>
+            {((agent.shadowAiTags as string[] | undefined) || []).map((tag) => (
+              <span className="badge" key={tag}>
+                {tag}
+              </span>
+            ))}
+            <Link className="button ghost" to="/shadow-ai">
+              View all Shadow AI
+            </Link>
+          </div>
+        </section>
+      ) : null}
 
       <section className="split-grid">
         <div className="panel">

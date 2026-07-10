@@ -1,6 +1,8 @@
 # 12. Discovery Engine
 
-The discovery engine converts signals from source code, runtime, infrastructure, networks, logs, IDEs, MCP servers, and LLM provider APIs into normalized observations that feed identity resolution, relationship inference, search, dashboards, and realtime UI. See [27-discovery-workflow.md](./27-discovery-workflow.md) for the end-to-end workflow.
+The discovery engine converts signals from cloud APIs, Kubernetes, SaaS, CI/CD, git, logs, identity, MCP/LLM provider APIs, and **optional EDR/endpoint-management integrations** into normalized observations that feed identity resolution, relationship inference, search, dashboards, and realtime UI. See [27-discovery-workflow.md](./27-discovery-workflow.md) for the end-to-end workflow.
+
+**Platform posture: agentless.** AgentRadar does not require a proprietary client on endpoints. Endpoint/IDE/process evidence is obtained by integrating with the customer’s existing EDR (or similar) systems when that coverage is needed.
 
 Related: [11-apis.md](./11-apis.md), [13-visibility-engine.md](./13-visibility-engine.md), [14-relationship-engine.md](./14-relationship-engine.md), [26-data-flow-diagrams.md](./26-data-flow-diagrams.md).
 
@@ -9,25 +11,22 @@ Related: [11-apis.md](./11-apis.md), [13-visibility-engine.md](./13-visibility-e
 ```mermaid
 flowchart LR
   subgraph Sources
-    A[Agent-based]
-    B[Agentless]
-    C[API / Cloud API]
-    D[Filesystem / Git / CI-CD]
-    E[Runtime / Network / Logs]
-    F[IDE Plugin]
-    G[Container / Process / K8s]
-    H[MCP / LLM API]
+    B[Agentless_Cloud_K8s_SaaS]
+    C[API_Integrations]
+    D[Git_CICD_Logs]
+    E[EDR_Endpoint_Integrations]
+    H[MCP_LLM_API]
   end
-  S[Scheduler] --> O[Discovery Orchestrator]
-  O --> W[Collector Workers]
+  S[Scheduler] --> O[Discovery_Orchestrator]
+  O --> W[Collector_Workers]
   Sources --> W
   W --> N[Normalizer]
-  N --> Q[(Observation Stream)]
-  Q --> OS[(Observation Store)]
-  Q --> R[Entity Resolution]
+  N --> Q[(Observation_Stream)]
+  Q --> OS[(Observation_Store)]
+  Q --> R[Entity_Resolution]
   R --> I[(Inventory)]
-  R --> E2[Relationship Engine]
-  E2 --> G2[(Graph Projection)]
+  R --> E2[Relationship_Engine]
+  E2 --> G2[(Graph_Projection)]
   I --> IDX[(Search)]
 ```
 
@@ -35,19 +34,20 @@ flowchart LR
 
 | Collector | Mode | Entities | Evidence |
 |---|---|---|---|
-| Agent-based | Daemon, sidecar, SDK | Processes, local agents, tool/model calls | PID, command, loaded packages, traces, DNS summaries. |
-| Agentless | Remote scanner | Hosts, workloads, resources | Cloud/K8s/SSH metadata, package manifests, file hashes. |
+| Agentless | Remote / API | Hosts, workloads, cloud AI resources | Cloud/K8s metadata, tags, resource IDs. |
 | API | SaaS/internal API poller | Apps, users, API keys, agents | Provider object IDs, owners, timestamps. |
-| Cloud API | AWS/Azure/GCP inventory | Compute, functions, IAM, DBs, queues, buckets | ARN/resource ID/self link, tags, policies, network metadata. |
-| Filesystem | Path scanner | Prompts, configs, notebooks, local MCP configs | Paths, hashes, AST snippets, manifests. |
-| Runtime | Instrumentation/traces | Agents, tools, model calls | Trace span, function/tool name, model parameters. |
-| Network | Flow/DNS/SNI | External APIs, model hosts, MCP endpoints | Host, IP, port, protocol, bytes, process/workload correlation. |
-| Log | Log query integration | Agents, tools, errors, model usage | Parsed fields, trace IDs, source stream. |
-| IDE plugin | Workstation extension | Developer, IDE, repo, local agent, MCP | Workspace, extension ID, repo remote, config path. |
-| Container | Registry/runtime | Images, packages, entrypoints | Digest, labels, SBOM, command. |
-| Process | Host inventory | Process, local runtime, ports | Command line, parent process, env key names, listening sockets. |
-| K8s | API/watch | Clusters, namespaces, workloads, pods | Owner refs, labels, images, service account refs. |
+| Cloud API | AWS/Azure/GCP inventory | Compute, functions, managed AI, IAM, DBs | ARN/resource ID, tags, policies, network metadata. |
+| EDR integration | Pull from CrowdStrike / Defender / Cortex / Intune / Netskope etc. | Devices, processes, IDE agents, local LLM runtimes | Process cmdline, detected apps, device owner, last seen. |
+| Runtime | Traces/logs (OTLP, APM) | Agents, tools, model calls | Trace span, tool name, model parameters. |
+| Network | Flow/DNS/SNI (via existing sensors) | External APIs, model hosts, MCP endpoints | Host, IP, port, protocol, correlation IDs. |
+| Log | SIEM / log query | Agents, tools, errors, model usage | Parsed fields, trace IDs, source stream. |
+| Container | Registry/runtime API | Images, packages, entrypoints | Digest, labels, SBOM, command. |
+| K8s | API/watch | Clusters, namespaces, workloads, pods | Owner refs, labels, images, service accounts. |
 | Git | SCM API/webhook | Repos, prompts, frameworks, code agents | Commit SHA, path, CODEOWNERS, AST matches. |
+| CI/CD | Pipeline API | Build agents, scheduled agents | Job defs, secrets refs (names only), runners. |
+| MCP / LLM API | Provider + config APIs | MCP servers, models, usage | Server URL, tool list, model IDs (no raw secrets). |
+
+**Explicitly out of default scope:** deploying an AgentRadar daemon, IDE plugin, or filesystem agent on employee laptops. Those signals come from **EDR / MDM / existing endpoint tooling** when the customer enables that connector.
 | CI/CD | Pipeline events | Builds, artifacts, deployments | Run ID, actor, image digest, target env. |
 | MCP | Protocol/config discovery | MCP servers, tools, resources | Server URL/command, tool schema, client config. |
 | LLM API | Provider telemetry | Models, deployments, usage | Model name, key alias, client library, caller metadata. |
