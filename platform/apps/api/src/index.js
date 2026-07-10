@@ -208,7 +208,7 @@ async function graphFromSql(tenantId, { agentId, depth = 2 } = {}) {
     });
   }
 
-  # Optional Neo4j enrichment (SQL graph is primary for MVP)
+  // Optional Neo4j enrichment (SQL graph is primary for MVP)
   if (neo4jDriver && agentId && depth > 1) {
     const session = neo4jDriver.session();
     try {
