@@ -1,0 +1,15 @@
+{
+  "name": "agentradar-platform",
+  "private": true,
+  "description": "AgentRadar Discovery & Visibility greenfield platform",
+  "workspaces": [
+    "apps/api",
+    "apps/discovery",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w apps/api",
+    "dev:discovery": "npm run dev -w apps/discovery",
+    "migrate": "npm run migrate -w apps/api"
+  }
+}

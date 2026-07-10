@@ -48,9 +48,9 @@ export type GraphPayload = {
 
 const TOKEN_KEY = "agentradar.jwt";
 
-export const API_BASE_URL =
-  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ||
-  "http://localhost:8080";
+export const API_BASE_URL = (
+  (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8080"
+).replace(/\/$/, "");
 
 export function getAuthToken(): string | null {
   return window.localStorage.getItem(TOKEN_KEY);
@@ -66,7 +66,13 @@ export function setAuthToken(token: string | null): void {
 
 export function buildApiUrl(path: string, query?: Record<string, unknown>): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const url = new URL(`${API_BASE_URL}${normalizedPath}`);
+  const base =
+    API_BASE_URL.length > 0
+      ? API_BASE_URL
+      : typeof window !== "undefined"
+        ? window.location.origin
+        : "http://localhost:8080";
+  const url = new URL(`${base}${normalizedPath}`);
 
   Object.entries(query ?? {}).forEach(([key, value]) => {
     if (value === undefined || value === null || value === "") {
