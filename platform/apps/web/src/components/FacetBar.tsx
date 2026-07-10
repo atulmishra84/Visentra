@@ -6,6 +6,8 @@ export type Facets = {
   cloud?: string;
   category?: string;
   department?: string;
+  evidenceClass?: string;
+  agentStatus?: string;
 };
 
 type FacetBarProps = {
@@ -16,6 +18,8 @@ type FacetBarProps = {
 
 const facetFields: Array<keyof Facets> = [
   "category",
+  "evidenceClass",
+  "agentStatus",
   "cloud",
   "owner",
   "framework",
@@ -28,6 +32,8 @@ function labelFor(key: keyof Facets): string {
   if (key === "cloud") return "Provider";
   if (key === "category") return "Category";
   if (key === "framework") return "Type / framework";
+  if (key === "evidenceClass") return "Evidence";
+  if (key === "agentStatus") return "Status";
   return key[0].toUpperCase() + key.slice(1);
 }
 

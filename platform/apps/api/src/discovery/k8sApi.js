@@ -115,6 +115,8 @@ function workloadObservation(conn, workload, kind, clusterKey) {
       connectorName: conn.name,
       discoveryMode: "kubernetes-api-live",
       inventoryClass: "kubernetes_workload",
+      evidenceClass: "cloud_ai_runtime",
+      agentStatus: "candidate",
       apiServer: conn.config.apiServer,
       namespace,
       kind,

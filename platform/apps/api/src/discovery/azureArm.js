@@ -99,6 +99,16 @@ function resourceToObservation(resource, conn, aiRelevant) {
       resourceGroup: (resource.id || "").split("/")[4] || null,
       aiRelevant,
       inventoryClass: aiRelevant ? "ai_cloud_resource" : "cloud_resource",
+      evidenceClass: aiRelevant ? "cloud_ai_runtime" : null,
+      agentStatus: aiRelevant
+        ? /Microsoft\.(CognitiveServices|MachineLearningServices|BotService|Search)\//i.test(type) ||
+          /openai|bot/i.test(String(resource.kind || ""))
+          ? "confirmed"
+          : "candidate"
+        : null,
+      managedCloudAgent:
+        /Microsoft\.(CognitiveServices|MachineLearningServices|BotService)\//i.test(type) ||
+        /openai/i.test(String(resource.kind || "")),
       tags
     },
     relationships: [

@@ -42,6 +42,7 @@ NODE_ENV=production
 DATA_PLANE_MODE=production   # or eval for POC-only
 # Discovery ingests AI agents / AI workloads only (default). Set false to also keep non-AI cloud/EDR inventory.
 DISCOVERY_AI_ONLY=true
+# Each inventory row is classified with metadata.evidenceClass + metadata.agentStatus (confirmed|candidate).
 ```
 
 Optional Entra SSO:

@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { runCollectors, DEFAULT_COLLECTORS } from "./collectors.js";
 import { applyShadowAiToObservation } from "../services/shadowAi.js";
+import { enrichObservationWithEvidence } from "./agentEvidence.js";
 
 function asArray(v) {
   if (!v) return [];
@@ -100,7 +101,9 @@ export async function ingestObservations(pool, neo4j, tenantId, jobId, observati
         // Scan/health evidence stays in discovery_events from collectors — do not invent fake agents.
         continue;
       }
-      const obs = applyShadowAiToObservation(rawObs);
+      const evidenced = enrichObservationWithEvidence(rawObs);
+      if (evidenced.__skipIngest) continue;
+      const obs = applyShadowAiToObservation(evidenced);
       await client.query("BEGIN");
       try {
         const fingerprint = obs.fingerprint || `anon:${randomUUID()}`;

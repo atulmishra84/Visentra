@@ -174,6 +174,13 @@ function awsObservation({ conn, id, name, awsType, service, region, aiRelevant =
       awsService: service,
       aiRelevant,
       inventoryClass: aiRelevant ? "ai_cloud_resource" : "cloud_resource",
+      evidenceClass: aiRelevant ? "cloud_ai_runtime" : null,
+      agentStatus: aiRelevant
+        ? /BedrockAgent|SageMakerEndpoint/i.test(awsType)
+          ? "confirmed"
+          : "candidate"
+        : null,
+      managedCloudAgent: /BedrockAgent/i.test(awsType),
       environment: conn.environment,
       ...extra
     },

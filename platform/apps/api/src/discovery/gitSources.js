@@ -82,6 +82,8 @@ function repoObservation({ provider, conn, id, name, fullName, webUrl, owner, la
       connectorName: conn.name,
       discoveryMode: `${provider}-api-live`,
       inventoryClass: "source_repository",
+      evidenceClass: "repo_candidate",
+      agentStatus: "candidate",
       provider,
       aiRelevant: true,
       webUrl,

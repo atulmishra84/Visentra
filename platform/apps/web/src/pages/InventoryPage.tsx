@@ -25,6 +25,21 @@ function uniqueOptions(rows: Agent[], key: string): string[] {
   return [...values].sort((left, right) => left.localeCompare(right));
 }
 
+function metaAt(agent: Agent, key: string, fallback = ""): string {
+  const meta = (agent.metadata || {}) as Record<string, unknown>;
+  const value = meta[key];
+  return value == null ? fallback : String(value);
+}
+
+function uniqueMetaOptions(rows: Agent[], key: string): string[] {
+  const values = new Set<string>();
+  rows.forEach((row) => {
+    const value = metaAt(row, key);
+    if (value) values.add(value);
+  });
+  return [...values].sort((left, right) => left.localeCompare(right));
+}
+
 function categoryBadge(category: string) {
   const c = category.toLowerCase();
   if (c === "cloud") return "cloud";
@@ -87,7 +102,9 @@ export function InventoryPage({ title }: { title: string }) {
       framework: uniqueOptions(agents, "framework"),
       cloud: uniqueOptions(agents, "cloud"),
       category: uniqueOptions(agents, "category"),
-      department: uniqueOptions(agents, "department")
+      department: uniqueOptions(agents, "department"),
+      evidenceClass: uniqueMetaOptions(agents, "evidenceClass"),
+      agentStatus: uniqueMetaOptions(agents, "agentStatus")
     }),
     [agents]
   );
@@ -105,7 +122,11 @@ export function InventoryPage({ title }: { title: string }) {
   };
 
   const setCategoryQuick = (category?: string) => {
-    setFacets((prev) => ({ ...prev, category: category || undefined }));
+    setFacets((prev) => ({ ...prev, category: category || undefined, agentStatus: undefined }));
+  };
+
+  const setStatusQuick = (agentStatus?: string) => {
+    setFacets((prev) => ({ ...prev, agentStatus: agentStatus || undefined }));
   };
 
   const columns: Array<Column<Agent>> = [
@@ -114,6 +135,24 @@ export function InventoryPage({ title }: { title: string }) {
       header: "Name",
       render: (agent) => <strong>{valueAt(agent, ["name", "displayName", "id"], "Unnamed asset")}</strong>,
       sortValue: (agent) => valueAt(agent, ["name", "displayName", "id"])
+    },
+    {
+      key: "evidence",
+      header: "Evidence",
+      render: (agent) => {
+        const evidence = metaAt(agent, "evidenceClass", "—");
+        return <span className="badge">{evidence.replace(/_/g, " ")}</span>;
+      },
+      sortValue: (agent) => metaAt(agent, "evidenceClass")
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (agent) => {
+        const status = metaAt(agent, "agentStatus", "—");
+        return <span className={`status-pill ${status === "confirmed" ? "ok" : ""}`}>{status}</span>;
+      },
+      sortValue: (agent) => metaAt(agent, "agentStatus")
     },
     {
       key: "category",
@@ -172,7 +211,7 @@ export function InventoryPage({ title }: { title: string }) {
           <p className="page-description">
             {shadowOnly
               ? "Filtered to Shadow AI candidates (ownerless / unmanaged / unsanctioned AI signals)."
-              : "Unified inventory from discovery: AI agents, cloud resources, and EDR endpoints. Filter by category to focus."}
+              : "AI agent inventory classified by evidence (platform, cloud runtime, IDE, process, repo) and confirmed vs candidate status."}
           </p>
         </div>
         <div className="toolbar">
@@ -186,8 +225,22 @@ export function InventoryPage({ title }: { title: string }) {
       </header>
 
       <div className="toolbar" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <button className={`button ${!facets.category ? "primary" : "ghost"}`} type="button" onClick={() => setCategoryQuick()}>
+        <button className={`button ${!facets.category && !facets.agentStatus ? "primary" : "ghost"}`} type="button" onClick={() => setFacets({})}>
           All
+        </button>
+        <button
+          className={`button ${facets.agentStatus === "confirmed" ? "primary" : "ghost"}`}
+          type="button"
+          onClick={() => setStatusQuick("confirmed")}
+        >
+          Confirmed
+        </button>
+        <button
+          className={`button ${facets.agentStatus === "candidate" ? "primary" : "ghost"}`}
+          type="button"
+          onClick={() => setStatusQuick("candidate")}
+        >
+          Candidates
         </button>
         <button
           className={`button ${facets.category === "cloud" ? "primary" : "ghost"}`}

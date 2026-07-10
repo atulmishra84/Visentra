@@ -72,6 +72,8 @@ function identityObservation({ conn, kind, obj, tenantId }) {
       connectorName: conn.name,
       discoveryMode: "entra-graph-live",
       inventoryClass: "identity_application",
+      evidenceClass: "repo_candidate",
+      agentStatus: "candidate",
       tenantId,
       objectKind: kind,
       objectId: obj.id || null,

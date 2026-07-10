@@ -85,6 +85,8 @@ export const collectors = {
             config_path: file,
             aiRelevant: true,
             inventoryClass: "ide_ai_agent",
+            evidenceClass: "ide_agent",
+            agentStatus: mcpNames.length ? "confirmed" : "candidate",
             mcpServerCount: mcpNames.length
           }
         });
@@ -137,7 +139,10 @@ export const collectors = {
               pid,
               cmdline: cmdline.slice(0, 500),
               aiRelevant: true,
-              inventoryClass: "process_ai_agent"
+              inventoryClass: "process_ai_agent",
+              evidenceClass: "process_agent",
+              agentStatus: "confirmed",
+              processEvidence: cmdline.slice(0, 300)
             },
             relationships: [
               { rel_type: "RUNS_ON", to_type: "Device", to_key: os.hostname(), to_name: os.hostname() }
@@ -172,7 +177,12 @@ export const collectors = {
             running_status: "unknown",
             confidence_score: 0.78,
             model: "mcp",
-            metadata: { aiRelevant: true, inventoryClass: "mcp_server" },
+            metadata: {
+              aiRelevant: true,
+              inventoryClass: "mcp_server",
+              evidenceClass: "ide_agent",
+              agentStatus: "confirmed"
+            },
             relationships: [
               {
                 rel_type: "CONNECTS_MCP",

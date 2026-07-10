@@ -208,6 +208,16 @@ function agentFilters(query, startIdx = 2) {
     params.push(`%${query.project}%`);
     i += 1;
   }
+  if (query.evidenceClass || query.evidence) {
+    clauses.push(`AND metadata->>'evidenceClass' = $${i}`);
+    params.push(String(query.evidenceClass || query.evidence));
+    i += 1;
+  }
+  if (query.agentStatus || query.status) {
+    clauses.push(`AND metadata->>'agentStatus' = $${i}`);
+    params.push(String(query.agentStatus || query.status));
+    i += 1;
+  }
   return { clauses: clauses.join(" "), params, nextIdx: i };
 }
 
