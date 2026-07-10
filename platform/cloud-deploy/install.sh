@@ -106,16 +106,45 @@ ADMIN_PASSWORD="${BOOTSTRAP_ADMIN_PASSWORD:-}"
 prompt LOCATION "Azure region" "eastus"
 prompt RG "Resource group name" "rg-agentradar"
 prompt PREFIX "Resource name prefix" "agentradar"
-prompt ADMIN_EMAIL "Admin email" "admin@agentradar.local"
+prompt ADMIN_EMAIL "Admin email" "admin@yourcompany.com"
 prompt_secret ADMIN_PASSWORD "Admin password"
 
-if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
-  ADMIN_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-16)Aa1!"
-  echo "==> Generated admin password (shown once at the end)"
+# Detect upgrade of an existing AgentRadar RG (do not auto-rotate secrets).
+EXISTING_DEPLOY=false
+if az group show --name "${RG:-}" >/dev/null 2>&1; then
+  if az containerapp list -g "$RG" --query "[?contains(name, 'api-')].name" -o tsv 2>/dev/null | grep -q .; then
+    EXISTING_DEPLOY=true
+  fi
+fi
+
+if [[ "$EXISTING_DEPLOY" == "true" ]]; then
+  echo "==> Existing AgentRadar deployment detected in '$RG' (upgrade mode)"
+  echo "    JWT_SECRET, ENCRYPTION_KEY, POSTGRES_PASSWORD, and BOOTSTRAP_ADMIN_PASSWORD"
+  echo "    must be supplied explicitly so connectors and login stay intact."
+  missing=()
+  [[ -z "${JWT_SECRET:-}" ]] && missing+=("JWT_SECRET")
+  [[ -z "${ENCRYPTION_KEY:-}" ]] && missing+=("ENCRYPTION_KEY")
+  [[ -z "${POSTGRES_PASSWORD:-}" ]] && missing+=("POSTGRES_PASSWORD")
+  [[ -z "${ADMIN_PASSWORD:-}" && -z "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]] && missing+=("BOOTSTRAP_ADMIN_PASSWORD")
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "ERROR: Upgrade requires: ${missing[*]}" >&2
+    echo "  Export the same values used on the original install, then re-run." >&2
+    exit 1
+  fi
+  ADMIN_PASSWORD="${BOOTSTRAP_ADMIN_PASSWORD:-$ADMIN_PASSWORD}"
+else
+  if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
+    ADMIN_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-16)Aa1!"
+    echo "==> Generated admin password (shown once at the end)"
+  fi
 fi
 
 JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
 ENCRYPTION_KEY="${ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
+if [[ ! "$ENCRYPTION_KEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  echo "ERROR: ENCRYPTION_KEY must be a 64-char hex string (openssl rand -hex 32)" >&2
+  exit 1
+fi
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)Aa1}"
 SEED_ON_START="${SEED_ON_START:-false}"
 ALLOW_DEMO_SEED="${ALLOW_DEMO_SEED:-false}"
@@ -123,10 +152,13 @@ TAG="${IMAGE_TAG:-$(date +%Y%m%d%H%M%S)}"
 
 echo ""
 echo "============================================"
-echo " AgentRadar will deploy:"
+echo " AgentRadar cloud deploy (EVAL / POC path)"
+echo "  Data plane uses containerized Postgres/Neo4j"
+echo "  — not durable HA. See README for production."
 echo "  Subscription : $SUB_NAME"
 echo "  Resource group: $RG ($LOCATION)"
 echo "  Prefix       : $PREFIX"
+echo "  Mode         : $([[ "$EXISTING_DEPLOY" == "true" ]] && echo upgrade || echo fresh)"
 echo "  Admin email  : $ADMIN_EMAIL"
 echo "  Seed demo    : $SEED_ON_START"
 echo "============================================"

@@ -1,5 +1,11 @@
 # AgentRadar Cloud Deploy Package
 
+> **Evaluation / POC path.** This installer deploys Postgres, Redis, and Neo4j as
+> Container Apps **without persistent volumes or managed backups**. Inventory and
+> connector secrets metadata can be lost on reschedule. For production, use Azure
+> Database for PostgreSQL Flexible Server (+ backups), Key Vault, and Entra ID SSO
+> — see [`../PRODUCTION.md`](../PRODUCTION.md).
+
 One-click install of **AgentRadar Discovery & Visibility** into **your Azure subscription** (customer cloud / BYOC).
 
 ## What you get
@@ -66,7 +72,15 @@ Production checklist: [`../PRODUCTION.md`](../PRODUCTION.md)
 
 ## Upgrade / redeploy
 
-Re-run `./install.sh` against the same resource group (or set `RG=...`). New images are built and Container Apps are updated. Secrets are refreshed from the run — prefer setting `JWT_SECRET` / `ENCRYPTION_KEY` / `BOOTSTRAP_ADMIN_PASSWORD` explicitly on upgrades so connectors and login stay stable.
+Re-run `./install.sh` against the same resource group **only after exporting the
+original secrets**. Upgrade mode refuses to auto-generate `JWT_SECRET`,
+`ENCRYPTION_KEY`, `POSTGRES_PASSWORD`, or `BOOTSTRAP_ADMIN_PASSWORD` when an API
+app already exists in the RG — this prevents bricking connectors and login.
+
+```bash
+export JWT_SECRET='…' ENCRYPTION_KEY='…' POSTGRES_PASSWORD='…' BOOTSTRAP_ADMIN_PASSWORD='…'
+./install.sh --yes
+```
 
 ## Teardown
 
@@ -86,10 +100,11 @@ export BOOTSTRAP_ADMIN_PASSWORD='…'
 
 ## Security notes
 
-- `ENCRYPTION_KEY` and `JWT_SECRET` are generated per install unless you supply them  
-- Admin password is **not** written to `out/last-deploy.env`  
-- Demo seed is **off** by default (`SEED_ON_START=false`)  
-- For durable production: move Postgres to Flexible Server and secrets to Key Vault (see PRODUCTION.md)
+- **Eval data plane:** containerized Postgres/Neo4j are not durable — plan Flexible Server + backups before production traffic.
+- `ENCRYPTION_KEY` and `JWT_SECRET` are generated per **fresh** install unless you supply them; upgrades require the originals.
+- Admin password is **not** written to `out/last-deploy.env`
+- Demo seed is **off** by default (`SEED_ON_START=false`)
+- Store secrets in Azure Key Vault / your secret manager — not git.
 
 ## Support layout
 

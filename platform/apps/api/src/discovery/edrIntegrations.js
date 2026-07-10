@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { safeFetch, assertAllowedUrl, assertDnsLabel, ALLOW } from "../utils/http.js";
 
 const EDR_DEVICE_LIMIT = Number(process.env.EDR_DISCOVERY_MAX_DEVICES || 100);
 
@@ -22,11 +23,15 @@ async function azureAppToken(tenantId, clientId, clientSecret, scope) {
     client_secret: clientSecret,
     scope
   });
-  const res = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body
-  });
+  const res = await safeFetch(
+    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body
+    },
+    ALLOW.microsoftLogin
+  );
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(json.error_description || json.error || `Token request failed (${res.status})`);
@@ -92,6 +97,7 @@ function endpointObservation({
 
 export async function validateCrowdstrike({ config, secrets }) {
   const base = (config.baseUrl || "https://api.crowdstrike.com").replace(/\/$/, "");
+  assertAllowedUrl(base, ALLOW.crowdstrike);
   const clientId = config.clientId;
   const clientSecret = secrets.clientSecret;
   if (!clientId || !clientSecret) throw new Error("CrowdStrike clientId and clientSecret are required");
@@ -100,19 +106,23 @@ export async function validateCrowdstrike({ config, secrets }) {
     client_id: clientId,
     client_secret: clientSecret
   });
-  const tokenRes = await fetch(`${base}/oauth2/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-    body
-  });
+  const tokenRes = await safeFetch(
+    `${base}/oauth2/token`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body
+    },
+    ALLOW.crowdstrike
+  );
   const tokenJson = await tokenRes.json().catch(() => ({}));
   if (!tokenRes.ok) {
     throw new Error(tokenJson.errors?.[0]?.message || tokenJson.message || `CrowdStrike auth failed (${tokenRes.status})`);
   }
 
-  const probe = await fetch(`${base}/devices/queries/devices/v1?limit=1`, {
+  const probe = await safeFetch(`${base}/devices/queries/devices/v1?limit=1`, {
     headers: { Authorization: `Bearer ${tokenJson.access_token}`, Accept: "application/json" }
-  });
+  }, ALLOW.crowdstrike);
   if (!probe.ok && probe.status !== 403) {
     const err = await probe.json().catch(() => ({}));
     throw new Error(err.errors?.[0]?.message || `CrowdStrike device query failed (${probe.status})`);
@@ -170,9 +180,14 @@ export async function discoverCrowdstrike(conn) {
   }
 
   const base = result.base;
-  const idsRes = await fetch(`${base}/devices/queries/devices/v1?limit=${EDR_DEVICE_LIMIT}`, {
-    headers: { Authorization: `Bearer ${result.accessToken}`, Accept: "application/json" }
-  });
+  assertAllowedUrl(base, ALLOW.crowdstrike);
+  const idsRes = await safeFetch(
+    `${base}/devices/queries/devices/v1?limit=${EDR_DEVICE_LIMIT}`,
+    {
+      headers: { Authorization: `Bearer ${result.accessToken}`, Accept: "application/json" }
+    },
+    ALLOW.crowdstrike
+  );
   if (!idsRes.ok) {
     return { observations, stats: { devices: 0, message: result.message } };
   }
@@ -180,15 +195,19 @@ export async function discoverCrowdstrike(conn) {
   const ids = Array.isArray(idsJson.resources) ? idsJson.resources.slice(0, EDR_DEVICE_LIMIT) : [];
   if (!ids.length) return { observations, stats: { devices: 0, message: result.message } };
 
-  const detailRes = await fetch(`${base}/devices/entities/devices/v2`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${result.accessToken}`,
-      Accept: "application/json",
-      "Content-Type": "application/json"
+  const detailRes = await safeFetch(
+    `${base}/devices/entities/devices/v2`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${result.accessToken}`,
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ ids })
     },
-    body: JSON.stringify({ ids })
-  });
+    ALLOW.crowdstrike
+  );
   const detailJson = await detailRes.json().catch(() => ({}));
   const devices = Array.isArray(detailJson.resources) ? detailJson.resources : [];
   for (const d of devices) {
@@ -223,9 +242,13 @@ export async function validateDefender({ config, secrets }) {
     clientSecret,
     "https://api.securitycenter.microsoft.com/.default"
   );
-  const res = await fetch("https://api.securitycenter.microsoft.com/api/machines?$top=1", {
-    headers: { Authorization: `Bearer ${token}` }
-  });
+  const res = await safeFetch(
+    "https://api.securitycenter.microsoft.com/api/machines?$top=1",
+    {
+      headers: { Authorization: `Bearer ${token}` }
+    },
+    ALLOW.defender
+  );
   if (!res.ok && res.status !== 403) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error?.message || `Defender API failed (${res.status})`);
@@ -279,10 +302,10 @@ export async function discoverDefender(conn) {
   ];
   if (!result.accessToken) return { observations, stats: { devices: 0, message: result.message } };
 
-  const res = await fetch(
+  const res = await safeFetch(
     `https://api.securitycenter.microsoft.com/api/machines?$top=${EDR_DEVICE_LIMIT}`,
     { headers: { Authorization: `Bearer ${result.accessToken}` } }
-  );
+  , ALLOW.defender);
   if (!res.ok) return { observations, stats: { devices: 0, message: result.message } };
   const json = await res.json().catch(() => ({}));
   const machines = Array.isArray(json.value) ? json.value : [];
@@ -313,9 +336,9 @@ export async function validateIntune({ config, secrets }) {
     throw new Error("Intune requires tenantId, clientId, and clientSecret");
   }
   const token = await azureAppToken(tenantId, clientId, clientSecret, "https://graph.microsoft.com/.default");
-  const res = await fetch("https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=1", {
+  const res = await safeFetch("https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=1", {
     headers: { Authorization: `Bearer ${token}` }
-  });
+  }, ALLOW.graphMicrosoft);
   if (!res.ok && res.status !== 403) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error?.message || `Intune/Graph failed (${res.status})`);
@@ -369,10 +392,10 @@ export async function discoverIntune(conn) {
   ];
   if (!result.accessToken) return { observations, stats: { devices: 0, message: result.message } };
 
-  const res = await fetch(
+  const res = await safeFetch(
     `https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=${EDR_DEVICE_LIMIT}`,
     { headers: { Authorization: `Bearer ${result.accessToken}` } }
-  );
+  , ALLOW.graphMicrosoft);
   if (!res.ok) return { observations, stats: { devices: 0, message: result.message } };
   const json = await res.json().catch(() => ({}));
   const devices = Array.isArray(json.value) ? json.value : [];
@@ -396,24 +419,29 @@ export async function discoverIntune(conn) {
 }
 
 export async function validateCortex({ config, secrets }) {
-  const fqdn = config.fqdn;
+  const fqdn = assertDnsLabel(config.fqdn, "fqdn");
   const apiKeyId = config.apiKeyId;
   const apiKey = secrets.apiKey;
-  const region = config.region || "us";
-  if (!fqdn || !apiKeyId || !apiKey) throw new Error("Cortex requires fqdn, apiKeyId, and apiKey");
+  const region = assertDnsLabel(config.region || "us", "region");
+  if (!apiKeyId || !apiKey) throw new Error("Cortex requires fqdn, apiKeyId, and apiKey");
 
   const baseUrl = `https://api-${fqdn}.xdr.${region}.paloaltonetworks.com/public_api/v1`;
-  const res = await fetch(`${baseUrl}/endpoints/get_endpoints/`, {
-    method: "POST",
-    headers: cortexAuthHeaders(apiKey, apiKeyId),
-    body: JSON.stringify({
-      request_data: {
-        filters: [{ field: "endpoint_status", operator: "in", value: ["CONNECTED", "connected"] }],
-        search_from: 0,
-        search_to: 1
-      }
-    })
-  });
+  assertAllowedUrl(baseUrl, ALLOW.cortex);
+  const res = await safeFetch(
+    `${baseUrl}/endpoints/get_endpoints/`,
+    {
+      method: "POST",
+      headers: cortexAuthHeaders(apiKey, apiKeyId),
+      body: JSON.stringify({
+        request_data: {
+          filters: [{ field: "endpoint_status", operator: "in", value: ["CONNECTED", "connected"] }],
+          search_from: 0,
+          search_to: 1
+        }
+      })
+    },
+    ALLOW.cortex
+  );
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(json.reply?.err_msg || json.err_msg || `Cortex XDR failed (${res.status})`);
@@ -461,7 +489,7 @@ export async function discoverCortex(conn) {
     }
   ];
 
-  const res = await fetch(`${result.baseUrl}/endpoints/get_endpoints/`, {
+  const res = await safeFetch(`${result.baseUrl}/endpoints/get_endpoints/`, {
     method: "POST",
     headers: cortexAuthHeaders(result.apiKey, result.apiKeyId),
     body: JSON.stringify({
@@ -470,7 +498,7 @@ export async function discoverCortex(conn) {
         search_to: EDR_DEVICE_LIMIT
       }
     })
-  });
+  }, ALLOW.cortex);
   const json = await res.json().catch(() => ({}));
   const endpoints = json.reply?.endpoints || [];
   if (Array.isArray(endpoints)) {
@@ -498,19 +526,27 @@ export async function discoverCortex(conn) {
 }
 
 export async function validateNetskope({ config, secrets }) {
-  const tenant = String(config.tenant || "")
-    .replace(/^https?:\/\//, "")
-    .replace(/\.goskope\.com.*$/, "")
-    .replace(/\/$/, "");
+  const tenant = assertDnsLabel(
+    String(config.tenant || "")
+      .replace(/^https?:\/\//, "")
+      .replace(/\.goskope\.com.*$/, "")
+      .replace(/\/$/, ""),
+    "tenant"
+  );
   const token = secrets.apiToken;
-  if (!tenant || !token) throw new Error("Netskope requires tenant (e.g. acme) and apiToken");
+  if (!token) throw new Error("Netskope requires tenant (e.g. acme) and apiToken");
 
   const base = `https://${tenant}.goskope.com`;
+  assertAllowedUrl(base, ALLOW.netskope);
   let v2;
   try {
-    v2 = await fetch(`${base}/api/v2/services/npa/publishers`, {
-      headers: { "Netskope-Api-Token": token, Accept: "application/json" }
-    });
+    v2 = await safeFetch(
+      `${base}/api/v2/services/npa/publishers`,
+      {
+        headers: { "Netskope-Api-Token": token, Accept: "application/json" }
+      },
+      ALLOW.netskope
+    );
   } catch (err) {
     throw new Error(
       `Netskope unreachable at ${tenant}.goskope.com (${err.message}). Check tenant name and network egress.`
@@ -529,9 +565,23 @@ export async function validateNetskope({ config, secrets }) {
   let v1;
   let v1Json = {};
   try {
-    v1 = await fetch(`${base}/api/v1/clients?token=${encodeURIComponent(token)}&limit=1`, {
-      headers: { Accept: "application/json" }
-    });
+    // Prefer header auth; keep v1 path without token-in-query when possible.
+    v1 = await safeFetch(
+      `${base}/api/v1/clients?limit=1`,
+      {
+        headers: { Accept: "application/json", "Netskope-Api-Token": token }
+      },
+      ALLOW.netskope
+    );
+    if (!v1.ok) {
+      v1 = await safeFetch(
+        `${base}/api/v1/clients?token=${encodeURIComponent(token)}&limit=1`,
+        {
+          headers: { Accept: "application/json" }
+        },
+        ALLOW.netskope
+      );
+    }
     v1Json = await v1.json().catch(() => ({}));
   } catch (err) {
     throw new Error(
@@ -586,10 +636,10 @@ export async function discoverNetskope(conn) {
     }
   ];
 
-  const clientsRes = await fetch(
+  const clientsRes = await safeFetch(
     `${result.base}/api/v1/clients?token=${encodeURIComponent(result.token)}&limit=${EDR_DEVICE_LIMIT}`,
     { headers: { Accept: "application/json" } }
-  ).catch(() => null);
+  , ALLOW.netskope).catch(() => null);
 
   if (clientsRes?.ok) {
     const json = await clientsRes.json().catch(() => ({}));

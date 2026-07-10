@@ -1,3 +1,5 @@
+import { safeFetch, assertAllowedUrl, assertDnsLabel, ALLOW } from "../utils/http.js";
+
 /**
  * SaaS / platform agent discovery adapters.
  * Discovers Copilot, Salesforce Agentforce, Workday, and ServiceNow AI agents
@@ -18,11 +20,11 @@ async function azureAppToken(tenantId, clientId, clientSecret, scope) {
     client_secret: clientSecret,
     scope
   });
-  const res = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+  const res = await safeFetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body
-  });
+  }, ALLOW.microsoftLogin);
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(json.error_description || json.error || `Token request failed (${res.status})`);
@@ -123,9 +125,9 @@ export async function validateM365Copilot({ config, secrets }) {
   const token = await azureAppToken(tenantId, clientId, clientSecret, "https://graph.microsoft.com/.default");
 
   // Org profile proves Graph auth; Copilot inventory needs Reports.Read.All / app catalog scopes
-  const org = await fetch("https://graph.microsoft.com/v1.0/organization?$select=id,displayName", {
+  const org = await safeFetch("https://graph.microsoft.com/v1.0/organization?$select=id,displayName", {
     headers: { Authorization: `Bearer ${token}` }
-  });
+  }, ALLOW.graphMicrosoft);
   if (!org.ok && org.status !== 403) {
     const err = await org.json().catch(() => ({}));
     throw new Error(err.error?.message || `Graph organization probe failed (${org.status})`);
@@ -150,10 +152,10 @@ export async function discoverM365Copilot(conn) {
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
 
   // Service principals that look like Copilot / Copilot Studio / Power Virtual Agents
-  const sp = await fetch(
+  const sp = await safeFetch(
     "https://graph.microsoft.com/v1.0/servicePrincipals?$top=50&$select=id,displayName,appId,servicePrincipalType,tags",
     { headers }
-  );
+  , ALLOW.graphMicrosoft);
   if (sp.ok) {
     const json = await sp.json().catch(() => ({}));
     const apps = (json.value || []).filter((a) =>
@@ -176,10 +178,10 @@ export async function discoverM365Copilot(conn) {
   }
 
   // Teams apps (often include Copilot plugins)
-  const teamsApps = await fetch(
+  const teamsApps = await safeFetch(
     "https://graph.microsoft.com/v1.0/appCatalogs/teamsApps?$top=50&$select=id,displayName,distributionMethod",
     { headers }
-  );
+  , ALLOW.graphMicrosoft);
   if (teamsApps.ok) {
     const json = await teamsApps.json().catch(() => ({}));
     for (const app of json.value || []) {
@@ -228,6 +230,7 @@ export async function discoverM365Copilot(conn) {
 
 export async function validateSalesforce({ config, secrets }) {
   const loginUrl = (config.loginUrl || "https://login.salesforce.com").replace(/\/$/, "");
+  assertAllowedUrl(loginUrl, ALLOW.salesforce);
   const clientId = config.clientId;
   const clientSecret = secrets.clientSecret;
   const username = config.username;
@@ -247,11 +250,15 @@ export async function validateSalesforce({ config, secrets }) {
       username,
       password: `${password}${securityToken}`
     });
-    const res = await fetch(`${loginUrl}/services/oauth2/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body
-    });
+    const res = await safeFetch(
+      `${loginUrl}/services/oauth2/token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body
+      },
+      ALLOW.salesforce
+    );
     tokenJson = await res.json().catch(() => ({}));
     if (!res.ok) {
       throw new Error(tokenJson.error_description || tokenJson.error || `Salesforce auth failed (${res.status})`);
@@ -262,11 +269,15 @@ export async function validateSalesforce({ config, secrets }) {
       client_id: clientId,
       client_secret: clientSecret
     });
-    const res = await fetch(`${loginUrl}/services/oauth2/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body
-    });
+    const res = await safeFetch(
+      `${loginUrl}/services/oauth2/token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body
+      },
+      ALLOW.salesforce
+    );
     tokenJson = await res.json().catch(() => ({}));
     if (!res.ok) {
       throw new Error(
@@ -277,11 +288,13 @@ export async function validateSalesforce({ config, secrets }) {
     }
   }
 
+  const instanceUrl = (tokenJson.instance_url || config.instanceUrl || "").replace(/\/$/, "");
+  if (instanceUrl) assertAllowedUrl(instanceUrl, ALLOW.salesforce);
   return {
     ok: true,
-    message: `Salesforce authenticated (${tokenJson.instance_url || loginUrl}).`,
+    message: `Salesforce authenticated (${instanceUrl || loginUrl}).`,
     accessToken: tokenJson.access_token,
-    instanceUrl: (tokenJson.instance_url || config.instanceUrl || "").replace(/\/$/, "")
+    instanceUrl
   };
 }
 
@@ -297,15 +310,16 @@ export async function discoverSalesforce(conn) {
     Accept: "application/json"
   };
   const base = result.instanceUrl;
+  assertAllowedUrl(base, ALLOW.salesforce);
   const apiVersion = conn.config.apiVersion || "v59.0";
 
   // BotDefinition (Einstein Bots / legacy)
-  const bots = await fetch(
+  const bots = await safeFetch(
     `${base}/services/data/${apiVersion}/query?q=${encodeURIComponent(
       "SELECT Id, MasterLabel, DeveloperName, Active, BotType FROM BotDefinition LIMIT 50"
     )}`,
     { headers }
-  );
+  , ALLOW.salesforce);
   if (bots.ok) {
     const json = await bots.json().catch(() => ({}));
     for (const bot of json.records || []) {
@@ -325,12 +339,12 @@ export async function discoverSalesforce(conn) {
   }
 
   // GenAiPromptTemplate (Agentforce / Einstein generative)
-  const prompts = await fetch(
+  const prompts = await safeFetch(
     `${base}/services/data/${apiVersion}/query?q=${encodeURIComponent(
       "SELECT Id, MasterLabel, DeveloperName FROM GenAiPromptTemplate LIMIT 50"
     )}`,
     { headers }
-  );
+  , ALLOW.salesforce);
   if (prompts.ok) {
     const json = await prompts.json().catch(() => ({}));
     for (const row of json.records || []) {
@@ -350,7 +364,7 @@ export async function discoverSalesforce(conn) {
   }
 
   // Connect bots API (when available)
-  const connectBots = await fetch(`${base}/services/data/${apiVersion}/connect/bots`, { headers });
+  const connectBots = await safeFetch(`${base}/services/data/${apiVersion}/connect/bots`, { headers }, ALLOW.salesforce);
   if (connectBots.ok) {
     const json = await connectBots.json().catch(() => ({}));
     const list = json.bots || json.records || (Array.isArray(json) ? json : []);
@@ -399,10 +413,13 @@ export async function discoverSalesforce(conn) {
 /* ---------------- Workday ---------------- */
 
 export async function validateWorkday({ config, secrets }) {
-  const tenant = String(config.tenant || "")
-    .replace(/^https?:\/\//, "")
-    .replace(/\.workday\.com.*$/, "")
-    .replace(/\/$/, "");
+  const tenant = assertDnsLabel(
+    String(config.tenant || "")
+      .replace(/^https?:\/\//, "")
+      .replace(/\.workday\.com.*$/, "")
+      .replace(/\/$/, ""),
+    "tenant"
+  );
   const clientId = config.clientId;
   const clientSecret = secrets.clientSecret;
   const refreshToken = secrets.refreshToken;
@@ -420,11 +437,11 @@ export async function validateWorkday({ config, secrets }) {
       client_id: clientId,
       client_secret: clientSecret
     });
-    const res = await fetch(tokenUrl, {
+    const res = await safeFetch(tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body
-    });
+    }, ALLOW.workday);
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
       throw new Error(json.error_description || json.error || `Workday OAuth failed (${res.status})`);
@@ -441,12 +458,12 @@ export async function validateWorkday({ config, secrets }) {
   // Fallback: REST basic auth probe against common workers endpoint
   if (username && password) {
     const url = `https://${tenant}.workday.com/ccx/api/v1/${tenant}/workers?limit=1`;
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       headers: {
         Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`,
         Accept: "application/json"
       }
-    });
+    }, ALLOW.workday);
     if (!res.ok && res.status !== 403) {
       const text = await res.text().catch(() => "");
       throw new Error(`Workday basic auth failed (${res.status}). ${text.slice(0, 160)}`);
@@ -478,10 +495,10 @@ export async function discoverWorkday(conn) {
   }
 
   // Integration Systems often host AI/automation extensions
-  const integrations = await fetch(
+  const integrations = await safeFetch(
     `https://${tenant}.workday.com/ccx/api/v1/${tenant}/integrationSystems?limit=50`,
     { headers }
-  ).catch(() => null);
+  , ALLOW.workday).catch(() => null);
 
   if (integrations?.ok) {
     const json = await integrations.json().catch(() => ({}));
@@ -530,10 +547,13 @@ export async function discoverWorkday(conn) {
 /* ---------------- ServiceNow ---------------- */
 
 export async function validateServiceNow({ config, secrets }) {
-  const instance = String(config.instance || "")
-    .replace(/^https?:\/\//, "")
-    .replace(/\.service-now\.com.*$/, "")
-    .replace(/\/$/, "");
+  const instance = assertDnsLabel(
+    String(config.instance || "")
+      .replace(/^https?:\/\//, "")
+      .replace(/\.service-now\.com.*$/, "")
+      .replace(/\/$/, ""),
+    "instance"
+  );
   const username = config.username;
   const password = secrets.password;
   const clientId = config.clientId;
@@ -553,11 +573,11 @@ export async function validateServiceNow({ config, secrets }) {
     if (!username || !password) {
       throw new Error("ServiceNow OAuth password grant requires username and password");
     }
-    const tokenRes = await fetch(`https://${instance}.service-now.com/oauth_token.do`, {
+    const tokenRes = await safeFetch(`https://${instance}.service-now.com/oauth_token.do`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body
-    });
+    }, ALLOW.servicenow);
     const tokenJson = await tokenRes.json().catch(() => ({}));
     if (!tokenRes.ok) {
       throw new Error(tokenJson.error_description || tokenJson.error || `ServiceNow OAuth failed (${tokenRes.status})`);
@@ -569,10 +589,10 @@ export async function validateServiceNow({ config, secrets }) {
     throw new Error("ServiceNow requires username/password (and optional OAuth clientId/clientSecret)");
   }
 
-  const probe = await fetch(
+  const probe = await safeFetch(
     `https://${instance}.service-now.com/api/now/table/sys_user?sysparm_limit=1&sysparm_fields=sys_id`,
     { headers: { Authorization: authHeader, Accept: "application/json" } }
-  );
+  , ALLOW.servicenow);
   if (!probe.ok && probe.status !== 403) {
     const err = await probe.json().catch(() => ({}));
     throw new Error(err.error?.message || `ServiceNow probe failed (${probe.status})`);
@@ -605,10 +625,10 @@ export async function discoverServiceNow(conn) {
   ];
 
   for (const spec of tables) {
-    const res = await fetch(
+    const res = await safeFetch(
       `${base}/${spec.table}?sysparm_limit=40&sysparm_fields=sys_id,${spec.labelField},active`,
       { headers }
-    ).catch(() => null);
+    , ALLOW.servicenow).catch(() => null);
     if (!res?.ok) continue;
     const json = await res.json().catch(() => ({}));
     for (const row of json.result || []) {

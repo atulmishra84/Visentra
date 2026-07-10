@@ -6,7 +6,7 @@ import crypto from "crypto";
 import pg from "pg";
 import neo4j from "neo4j-driver";
 import { migrate } from "./migrate.js";
-import { runDiscoveryJob } from "./discovery/pipeline.js";
+import { claimDiscoveryJob, executeDiscoveryJob, runDiscoveryJob } from "./discovery/pipeline.js";
 import {
   DEFAULT_COLLECTORS,
   PRODUCTION_COLLECTORS,
@@ -23,6 +23,7 @@ import {
 } from "./services/connectors.js";
 import { classifyShadowAi, summarizeShadowFindings } from "./services/shadowAi.js";
 import { migrateConnectorEncryption } from "./utils/crypto.js";
+import { publicErrorMessage } from "./utils/http.js";
 import {
   IS_PROD,
   assertProductionConfig,
@@ -85,11 +86,10 @@ function signToken(user) {
 function auth(req, res, next) {
   const header = req.headers.authorization || "";
   const bearer = header.startsWith("Bearer ") ? header.slice(7) : null;
-  // EventSource cannot set Authorization headers. Allow ?token= for SSE routes only in production.
-  const path = String(req.path || "");
-  const isSsePath = path.endsWith("/stream") || path.endsWith("/events");
+  // EventSource cannot set Authorization headers. Allow ?token= only for the graph SSE route.
+  const isGraphStream = req.path === "/api/graph/stream" || req.path === "/graph/stream";
   const queryToken =
-    typeof req.query.token === "string" && (!IS_PROD || isSsePath) ? req.query.token : null;
+    typeof req.query.token === "string" && isGraphStream ? req.query.token : null;
   const raw = bearer || queryToken;
   if (!raw) return res.status(401).json({ error: { message: "Unauthorized" } });
   try {
@@ -537,7 +537,11 @@ app.get("/api/graph", auth, async (req, res) => {
     res.json(graph);
   } catch (err) {
     console.error("graph query failed:", err);
-    res.status(500).json({ error: { message: err.message || "Graph query failed" }, nodes: [], edges: [] });
+    res.status(500).json({
+      error: { message: publicErrorMessage(err, "Graph query failed") },
+      nodes: [],
+      edges: []
+    });
   }
 });
 
@@ -558,7 +562,11 @@ app.get("/api/graph/seeds", auth, async (req, res) => {
     const result = await pool.query(sql, params);
     res.json({ seeds: result.rows });
   } catch (err) {
-    res.status(500).json({ error: { message: err.message }, seeds: [] });
+    console.error("graph seeds failed:", err);
+    res.status(500).json({
+      error: { message: publicErrorMessage(err, "Failed to load graph seeds") },
+      seeds: []
+    });
   }
 });
 
@@ -624,10 +632,32 @@ app.get("/api/discovery/jobs", auth, async (req, res) => {
 
 app.post("/api/discovery/jobs", auth, requireRole("platform_admin", "operator"), async (req, res) => {
   const collectors = sanitizeCollectors(req.body?.collectors, ALL_COLLECTOR_IDS);
-  res.status(202).json({ accepted: true, message: "Discovery job started", collectors });
-  runDiscoveryJob(pool, neo4jDriver, {
+  let job;
+  try {
+    job = await claimDiscoveryJob(pool, {
+      tenantId: req.tenantId,
+      collectorIds: collectors,
+      triggeredBy: req.user.email
+    });
+  } catch (err) {
+    if (err.status === 409) {
+      return res.status(409).json({
+        error: { message: err.message },
+        jobId: err.jobId
+      });
+    }
+    return res.status(500).json({
+      error: { message: publicErrorMessage(err, "Failed to start discovery job") }
+    });
+  }
+  res.status(202).json({
+    accepted: true,
+    message: "Discovery job started",
+    jobId: job.id,
+    collectors: job.collector_ids || collectors
+  });
+  executeDiscoveryJob(pool, neo4jDriver, job, {
     tenantId: req.tenantId,
-    collectorIds: collectors,
     triggeredBy: req.user.email,
     broadcast
   }).catch((err) => console.error("Discovery job failed:", err));
@@ -682,7 +712,11 @@ app.get("/api/shadow-ai", auth, async (req, res) => {
     });
   } catch (err) {
     console.error("shadow-ai query failed:", err);
-    res.status(500).json({ error: { message: err.message }, findings: [], total: 0 });
+    res.status(500).json({
+      error: { message: publicErrorMessage(err, "Shadow AI query failed") },
+      findings: [],
+      total: 0
+    });
   }
 });
 
@@ -867,7 +901,9 @@ app.post("/api/connectors", auth, requireRole("platform_admin", "operator"), asy
     );
     res.status(201).json({ connector });
   } catch (err) {
-    res.status(err.status || 500).json({ error: { message: err.message } });
+    res.status(err.status || 500).json({
+      error: { message: publicErrorMessage(err, "Unable to create connector") }
+    });
   }
 });
 
@@ -883,7 +919,9 @@ app.put("/api/connectors/:id", auth, requireRole("platform_admin", "operator"), 
     if (!connector) return res.status(404).json({ error: { message: "Connector not found" } });
     res.json({ connector });
   } catch (err) {
-    res.status(err.status || 500).json({ error: { message: err.message } });
+    res.status(err.status || 500).json({
+      error: { message: publicErrorMessage(err, "Unable to update connector") }
+    });
   }
 });
 
@@ -900,13 +938,18 @@ app.post("/api/connectors/:id/test", auth, requireRole("platform_admin", "operat
 });
 
 async function boot() {
+  let postgresReady = false;
   for (let i = 0; i < 30; i++) {
     try {
       await pool.query("SELECT 1");
+      postgresReady = true;
       break;
     } catch {
       await new Promise((r) => setTimeout(r, 2000));
     }
+  }
+  if (!postgresReady) {
+    throw new Error("Postgres unavailable after 60s — refusing to start");
   }
 
   const tenantId = await migrate(pool);
