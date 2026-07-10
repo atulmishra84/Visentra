@@ -254,6 +254,17 @@ export async function claimDiscoveryJob(pool, { tenantId, collectorIds, triggere
     return jobRes.rows[0];
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
+    // Unique partial index race (concurrent claim across API replicas)
+    if (err?.code === "23505") {
+      const running = await pool.query(
+        `SELECT id FROM discovery_jobs WHERE tenant_id=$1 AND status='running' ORDER BY created_at DESC LIMIT 1`,
+        [tenantId]
+      );
+      const conflict = new Error("A discovery job is already running for this tenant");
+      conflict.status = 409;
+      conflict.jobId = running.rows[0]?.id;
+      throw conflict;
+    }
     throw err;
   } finally {
     client.release();
@@ -262,6 +273,11 @@ export async function claimDiscoveryJob(pool, { tenantId, collectorIds, triggere
 
 export async function executeDiscoveryJob(pool, neo4j, job, { tenantId, triggeredBy, broadcast }) {
   const collectors = job.collector_ids || DEFAULT_COLLECTORS;
+  // Brief hold so concurrent claims observe status='running' (unique index is the hard guard).
+  const startDelayMs = Number(process.env.DISCOVERY_JOB_START_DELAY_MS || 250);
+  if (startDelayMs > 0) {
+    await new Promise((r) => setTimeout(r, startDelayMs));
+  }
   await pool.query(
     `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
      VALUES ($1,'job.started','info',$2,$3::jsonb)`,

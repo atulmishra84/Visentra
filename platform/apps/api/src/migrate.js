@@ -11,6 +11,21 @@ export async function migrate(pool) {
   const sql = fs.readFileSync(schemaPath, "utf8");
   await pool.query(sql);
 
+  // At most one running discovery job per tenant (P1 concurrency)
+  await pool.query(`
+    UPDATE discovery_jobs SET status='error', error='superseded by concurrency guard', finished_at=NOW()
+    WHERE id IN (
+      SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (PARTITION BY tenant_id ORDER BY started_at DESC NULLS LAST, created_at DESC) AS rn
+        FROM discovery_jobs WHERE status='running'
+      ) ranked WHERE rn > 1
+    )
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS discovery_jobs_one_running_per_tenant
+      ON discovery_jobs (tenant_id) WHERE (status = 'running')
+  `);
+
   // Widen connectors.provider check for EDR integrations (idempotent)
   await pool.query(`
     DO $$
