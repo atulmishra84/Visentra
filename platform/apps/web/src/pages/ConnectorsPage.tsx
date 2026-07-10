@@ -169,7 +169,6 @@ export function ConnectorsPage() {
       apiVersion: config.apiVersion || "v59.0",
       instance: config.instance || "",
       organizationId: config.organizationId || "",
-      projectId: config.projectId || "",
       orgOrUser: config.orgOrUser || "",
       apiBase: config.apiBase || "https://api.github.com",
       host: config.host || "gitlab.com",
