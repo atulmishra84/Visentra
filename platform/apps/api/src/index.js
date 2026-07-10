@@ -686,7 +686,30 @@ app.get("/api/agents", auth, async (req, res) => {
     `SELECT COUNT(*)::int AS total FROM agents WHERE tenant_id=$1 ${clauses}`,
     [req.tenantId, ...params]
   );
-  res.json({ agents: result.rows, items: result.rows, total: count.rows[0].total, limit, offset });
+  // Surface depth fields even when metadata was written before depth enrichment existed.
+  const agents = result.rows.map((row) => {
+    const depth = summarizeAgentDepth(row);
+    const meta = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+    return {
+      ...row,
+      metadata: {
+        ...meta,
+        agentConfig: meta.agentConfig || depth.agentConfig,
+        agentAccess: meta.agentAccess || depth.agentAccess,
+        howIdentified: meta.howIdentified || depth.howIdentified,
+        evidenceClass: meta.evidenceClass || depth.evidenceClass,
+        agentStatus: meta.agentStatus || depth.agentStatus,
+        accessGrantCount: meta.accessGrantCount ?? depth.agentAccess.grantCount,
+        accessSensitivity: meta.accessSensitivity || depth.agentAccess.sensitivity,
+        configToolCount: meta.configToolCount ?? depth.agentConfig.tools.length,
+        configMcpCount: meta.configMcpCount ?? depth.agentConfig.mcpServers.length,
+        hasInstructions: meta.hasInstructions ?? depth.agentConfig.instructionsPresent,
+        overPermissioned: meta.overPermissioned ?? depth.agentAccess.overPermissioned
+      },
+      ...depth
+    };
+  });
+  res.json({ agents, items: agents, total: count.rows[0].total, limit, offset });
 });
 
 app.get("/api/agents/:id", auth, async (req, res) => {
@@ -1550,10 +1573,13 @@ async function boot() {
   await migrateConnectorEncryption(pool);
   await initNeo4jConstraints();
 
-  // Demo seed is for local compose MVP only. Production never seeds.
+  // Demo seed: local compose default, or explicit DISCOVERY_DEMO_SEED=true on eval/demo Azure.
+  // Production installs should leave the flag unset/false so inventory is connector-only.
   const { demoSeedEnabled } = await import("./discovery/demoSeed.js");
-  if (demoSeedEnabled() && !IS_PROD) {
-    console.log("DISCOVERY_DEMO_SEED=true — loading demo inventory for local MVP");
+  if (demoSeedEnabled()) {
+    console.log(
+      `DISCOVERY_DEMO_SEED=true — loading demo inventory (${IS_PROD ? "production eval" : "local MVP"})`
+    );
     const { DEMO_MVP_COLLECTORS } = await import("./discovery/collectors.js");
     setImmediate(async () => {
       try {
@@ -1576,7 +1602,7 @@ async function boot() {
         }
       }
     });
-    console.log("Boot complete. Demo seed enabled for local MVP.");
+    console.log("Boot complete. Demo seed enabled.");
   } else {
     await purgeDemoInventory(pool, neo4jDriver, tenantId);
     await purgeNonAiInventory(pool, neo4jDriver, tenantId);

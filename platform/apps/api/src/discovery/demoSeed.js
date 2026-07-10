@@ -1,6 +1,7 @@
 /**
  * Demo / seed collector — rich multi-category inventory for local MVP UX.
- * Enabled only when DISCOVERY_DEMO_SEED=true (compose default). Never on in production.
+ * Enabled when DISCOVERY_DEMO_SEED=true (compose default; optional on eval Azure).
+ * Leave unset/false for real production so inventory is connector/discovery only.
  */
 
 export function demoSeedEnabled() {

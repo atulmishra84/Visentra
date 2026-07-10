@@ -11,7 +11,8 @@ const sections = [
       { to: "/executive", label: "Executive Overview" },
       { to: "/operations", label: "Operations Workbench" },
       { to: "/shadow-ai", label: "Shadow AI" },
-      { to: "/discovery", label: "Discovery" }
+      { to: "/discovery", label: "Discovery" },
+      { to: "/discovery/changes", label: "Change Intelligence" }
     ]
   },
   {
