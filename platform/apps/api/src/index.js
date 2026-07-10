@@ -30,7 +30,8 @@ import {
   exportUsageCsv,
   fetchProviderUsage,
   evidenceMix,
-  discoveryTrends
+  discoveryTrends,
+  buildExecutiveInsights
 } from "./services/usageAnalytics.js";
 import {
   entraEnabled,
@@ -990,9 +991,24 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
   };
 
   if (name === "executive") {
+    const insights = await buildExecutiveInsights(pool, req.tenantId);
+    const dashboard = {
+      ...base,
+      ...insights,
+      // Prefer funnel-enriched counts; keep shadow from base summary
+      shadowAiAgents: base.shadowAiAgents,
+      shadowAi: base.shadowAi,
+      shadowAiByTag: base.shadowAiByTag,
+      models: insights.models.length ? insights.models : models,
+      modelUsage: insights.models.length ? insights.models : models,
+      categories: insights.categories.length ? insights.categories : categories,
+      agentsByCategory: insights.categories.length ? insights.categories : categories,
+      frameworks: insights.frameworks.length ? insights.frameworks : frameworks,
+      cloud: insights.cloud.length ? insights.cloud : cloud
+    };
     return res.json({
-      dashboard: base,
-      ...base
+      dashboard,
+      ...dashboard
     });
   }
   if (name === "operations") {
