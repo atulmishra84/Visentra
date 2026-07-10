@@ -10,8 +10,8 @@ export function LoginPage() {
   const { isAuthenticated, login, loading, error } = useAuth();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const [email, setEmail] = useState(isProdBuild ? "" : "admin@agentradar.local");
-  const [password, setPassword] = useState(isProdBuild ? "" : "AgentRadar!dev");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeMode>(() => getPreferredTheme());
   const [entraEnabled, setEntraEnabled] = useState(false);
@@ -139,13 +139,6 @@ export function LoginPage() {
             <p className="muted">
               API base: <span className="mono">{API_BASE_URL}</span>
             </p>
-          ) : null}
-
-          {!isProdBuild ? (
-            <div className="hint">
-              Dev login hint: <span className="mono">admin@agentradar.local</span> /
-              <span className="mono"> AgentRadar!dev</span>
-            </div>
           ) : null}
 
           {entraEnabled ? (

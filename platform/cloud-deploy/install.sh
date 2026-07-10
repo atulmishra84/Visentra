@@ -28,7 +28,6 @@ Environment (optional overrides):
   JWT_SECRET               JWT signing secret (generated if unset)
   ENCRYPTION_KEY           64-char hex (generated if unset)
   DATA_PLANE_MODE          production|eval (default: production)
-  SEED_ON_START            true|false (default: false)
   IMAGE_TAG                Image tag (default: timestamp)
   ENTRA_TENANT_ID          Optional Entra tenant for SSO
   ENTRA_CLIENT_ID          Optional Entra app client ID
@@ -150,8 +149,6 @@ if [[ ! "$ENCRYPTION_KEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
   exit 1
 fi
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)Aa1}"
-SEED_ON_START="${SEED_ON_START:-false}"
-ALLOW_DEMO_SEED="${ALLOW_DEMO_SEED:-false}"
 DATA_PLANE_MODE="${DATA_PLANE_MODE:-production}"
 TAG="${IMAGE_TAG:-$(date +%Y%m%d%H%M%S)}"
 
@@ -169,7 +166,6 @@ echo "  Resource group: $RG ($LOCATION)"
 echo "  Prefix       : $PREFIX"
 echo "  Mode         : $([[ "$EXISTING_DEPLOY" == "true" ]] && echo upgrade || echo fresh)"
 echo "  Admin email  : $ADMIN_EMAIL"
-echo "  Seed demo    : $SEED_ON_START"
 echo "============================================"
 if [[ "$YES" != "true" ]]; then
   read -r -p "Continue? [Y/n] " confirm || true
@@ -280,8 +276,6 @@ az containerapp create \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
     BOOTSTRAP_ADMIN_PASSWORD=secretref:bootstrap-password \
     CORS_ORIGIN="https://placeholder.local" \
-    SEED_ON_START="$SEED_ON_START" \
-    ALLOW_DEMO_SEED="$ALLOW_DEMO_SEED" \
   -o none 2>/dev/null || \
 az containerapp update \
   --name "api-$NAME" \
@@ -299,8 +293,6 @@ az containerapp update \
     ENCRYPTION_KEY=secretref:encryption-key \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
     BOOTSTRAP_ADMIN_PASSWORD=secretref:bootstrap-password \
-    SEED_ON_START="$SEED_ON_START" \
-    ALLOW_DEMO_SEED="$ALLOW_DEMO_SEED" \
   -o none
 
 az containerapp secret set \
@@ -390,7 +382,6 @@ DISCOVERY_IMAGE=$DISCOVERY_IMAGE
 WEB_URL=https://$WEB_FQDN
 ADMIN_EMAIL=$ADMIN_EMAIL
 NAME_PREFIX=$NAME
-SEED_ON_START=$SEED_ON_START
 DATA_PLANE_MODE=$DP_MODE
 KEY_VAULT_NAME=$KV_NAME
 DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)

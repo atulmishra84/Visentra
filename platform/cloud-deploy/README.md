@@ -90,7 +90,7 @@ export JWT_SECRET='…' ENCRYPTION_KEY='…' POSTGRES_PASSWORD='…' BOOTSTRAP_A
 - Prefer `DATA_PLANE_MODE=production` for any durable inventory.
 - `ENCRYPTION_KEY` and `JWT_SECRET` are generated per **fresh** install unless you supply them; upgrades require the originals.
 - Admin password is **not** written to `out/last-deploy.env`
-- Demo seed is **off** by default (`SEED_ON_START=false`)
+- Inventory is never demo-seeded — it starts empty until connectors/discovery run.
 - Store secrets in Azure Key Vault — production installs write them there automatically.
 
 ## Support layout

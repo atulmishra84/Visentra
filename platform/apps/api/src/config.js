@@ -56,29 +56,14 @@ export function resolveCorsOrigin() {
   };
 }
 
-export function allowDemoSeed() {
-  if (process.env.SEED_ON_START === "true") {
-    if (IS_PROD && process.env.ALLOW_DEMO_SEED !== "true") {
-      console.warn("[config] Ignoring SEED_ON_START in production (set ALLOW_DEMO_SEED=true to force)");
-      return false;
-    }
-    return true;
-  }
-  return false;
-}
-
 export function productionCollectors(defaultList) {
-  if (!IS_PROD) return defaultList;
-  return defaultList.filter((id) => id !== "demo" && id !== "k8s_stub");
+  return defaultList;
 }
 
 export function sanitizeCollectors(requested, allowed) {
   const allow = new Set(allowed);
-  if (IS_PROD) {
-    allow.delete("demo");
-  }
   const list = (requested || []).filter((id) => allow.has(id));
-  return list.length ? list : productionCollectors([...allow]);
+  return list.length ? list : [...allow];
 }
 
 /** Simple in-memory login rate limiter */

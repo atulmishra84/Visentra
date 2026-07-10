@@ -1,4 +1,4 @@
-# Production overlay — no published DB ports, env-file secrets, no demo seed
+# Production overlay — no published DB ports, env-file secrets
 services:
   postgres:
     ports: []
@@ -29,8 +29,6 @@ services:
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@agentradar.local}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?set BOOTSTRAP_ADMIN_PASSWORD}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
-      SEED_ON_START: "false"
-      ALLOW_DEMO_SEED: "false"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ready || exit 1"]
       interval: 10s

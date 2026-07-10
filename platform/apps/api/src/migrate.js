@@ -73,7 +73,7 @@ export async function migrate(pool) {
   const hash = await bcrypt.hash(password, isProd ? 12 : 10);
 
   // Keep default slug stable across envs so redeploys do not create a second tenant.
-  const tenantSettings = isProd ? '{"demo": false}' : '{"demo": true}';
+  const tenantSettings = "{}";
   const tenantName = process.env.BOOTSTRAP_TENANT_NAME || "Acme Corporation";
   const tenantSlug = process.env.BOOTSTRAP_TENANT_SLUG || "acme";
 

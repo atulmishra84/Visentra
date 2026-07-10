@@ -6,7 +6,7 @@ import crypto from "crypto";
 import pg from "pg";
 import neo4j from "neo4j-driver";
 import { migrate } from "./migrate.js";
-import { claimDiscoveryJob, executeDiscoveryJob, runDiscoveryJob } from "./discovery/pipeline.js";
+import { claimDiscoveryJob, executeDiscoveryJob } from "./discovery/pipeline.js";
 import {
   DEFAULT_COLLECTORS,
   PRODUCTION_COLLECTORS,
@@ -39,7 +39,6 @@ import {
   assertProductionConfig,
   resolveJwtSecret,
   resolveCorsOrigin,
-  allowDemoSeed,
   sanitizeCollectors,
   createRateLimiter
 } from "./config.js";
@@ -1123,6 +1122,73 @@ app.post("/api/connectors/:id/test", auth, requireRole("platform_admin", "operat
   res.json(result);
 });
 
+/**
+ * Remove demo-seeded inventory and related graph nodes (idempotent).
+ * Keeps connector-discovered / live collector data.
+ */
+async function purgeDemoInventory(pool, neo4jDriver, tenantId) {
+  const demoAgents = await pool.query(
+    `SELECT id FROM agents
+     WHERE tenant_id=$1
+       AND (
+         'demo' = ANY(source_collectors)
+         OR 'k8s_stub' = ANY(source_collectors)
+         OR fingerprint LIKE 'cloud-stub:vertex:demo%'
+         OR fingerprint LIKE 'saas:%:tenant-demo%'
+         OR fingerprint LIKE 'k8s-manifest:%'
+         OR metadata->>'discoveryMode' = 'credentialed-connector-pending-live-adapter'
+       )`,
+    [tenantId]
+  );
+  const ids = demoAgents.rows.map((r) => r.id);
+  if (ids.length) {
+    await pool.query(`DELETE FROM relationships WHERE tenant_id=$1 AND (from_id = ANY($2::uuid[]) OR to_id = ANY($2::uuid[]))`, [
+      tenantId,
+      ids
+    ]);
+    await pool.query(`DELETE FROM agent_observations WHERE tenant_id=$1 AND agent_id = ANY($2::uuid[])`, [tenantId, ids]);
+    await pool.query(`DELETE FROM agents WHERE tenant_id=$1 AND id = ANY($2::uuid[])`, [tenantId, ids]);
+    console.log(`Purged ${ids.length} demo/stub agent(s) from inventory`);
+  }
+
+  await pool.query(
+    `DELETE FROM agent_observations
+     WHERE tenant_id=$1 AND (collector_id IN ('demo','k8s_stub') OR fingerprint_hint LIKE 'cloud-stub:vertex:demo%')`,
+    [tenantId]
+  );
+  await pool.query(
+    `DELETE FROM discovery_events
+     WHERE tenant_id=$1 AND (
+       event_type LIKE 'demo.%'
+       OR message ILIKE '%demo seed%'
+       OR payload->>'collector' = 'demo'
+     )`,
+    [tenantId]
+  );
+  // Drop jobs that only ran the demo collector
+  await pool.query(
+    `DELETE FROM discovery_jobs
+     WHERE tenant_id=$1 AND collector_ids = ARRAY['demo']::text[]`,
+    [tenantId]
+  );
+
+  if (neo4jDriver && ids.length) {
+    const session = neo4jDriver.session();
+    try {
+      await session.run(
+        `MATCH (a:Agent {tenantId: $tenantId})
+         WHERE a.id IN $ids
+         DETACH DELETE a`,
+        { tenantId, ids }
+      );
+    } catch (err) {
+      console.warn("Neo4j demo purge:", err.message);
+    } finally {
+      await session.close();
+    }
+  }
+}
+
 async function boot() {
   let postgresReady = false;
   for (let i = 0; i < 30; i++) {
@@ -1142,19 +1208,10 @@ async function boot() {
   await migrateConnectorEncryption(pool);
   await initNeo4jConstraints();
 
-  const count = await pool.query(`SELECT COUNT(*)::int AS c FROM agents WHERE tenant_id=$1`, [tenantId]);
-  const shouldSeed = allowDemoSeed() || (!IS_PROD && count.rows[0].c === 0);
-  if (shouldSeed) {
-    console.log("Seeding discovery demo data (non-production / explicit allow)...");
-    await runDiscoveryJob(pool, neo4jDriver, {
-      tenantId,
-      collectorIds: ["demo", "ide_filesystem", "process", "mcp"],
-      triggeredBy: "bootstrap",
-      broadcast
-    });
-  } else if (IS_PROD) {
-    console.log("Production boot: demo seed disabled. Inventory starts empty until connectors/discovery run.");
-  }
+  // Purge any leftover demo-seeded inventory (idempotent)
+  await purgeDemoInventory(pool, neo4jDriver, tenantId);
+
+  console.log("Boot complete. Inventory starts from connectors/discovery only (no demo seed).");
 
   app.listen(PORT, () => {
     console.log(`AgentRadar API listening on :${PORT} (${IS_PROD ? "production" : "development"})`);

@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { demoObservations } from "./demoData.js";
 
 function readJsonSafe(filePath) {
   try {
@@ -15,13 +14,6 @@ function readJsonSafe(filePath) {
 /** @typedef {{ id: string, scan: (ctx: object) => Promise<object[]> }} Collector */
 
 export const collectors = {
-  demo: {
-    id: "demo",
-    async scan(ctx) {
-      return demoObservations(ctx.tenantId);
-    }
-  },
-
   ide_filesystem: {
     id: "ide_filesystem",
     async scan(ctx) {
@@ -249,69 +241,6 @@ export const collectors = {
         }
       }
 
-      if (process.env.DEMO_CLOUD === "true" && !out.length) {
-        out.push({
-          collector_id: "cloud_stub",
-          fingerprint: "cloud-stub:vertex:demo",
-          name: "Vertex AI Agent (stub)",
-          category: "cloud",
-          cloud_provider: "gcp",
-          region: "us-central1",
-          provider: "google",
-          model: "gemini-2.0-flash",
-          deployment_type: "cloud",
-          running_status: "unknown",
-          confidence_score: 0.55,
-          relationships: [
-            {
-              rel_type: "DEPLOYED_IN",
-              to_type: "CloudResource",
-              to_key: "vertex-demo",
-              to_name: "Vertex AI demo"
-            }
-          ]
-        });
-      }
-
-      return out;
-    }
-  },
-
-  k8s_stub: {
-    id: "k8s_stub",
-    async scan() {
-      const manifestDir = process.env.K8S_SAMPLE_DIR || path.join(process.cwd(), "sample-manifests");
-      const out = [];
-      try {
-        if (!fs.existsSync(manifestDir)) return out;
-        for (const file of fs.readdirSync(manifestDir)) {
-          if (!file.endsWith(".json") && !file.endsWith(".yaml") && !file.endsWith(".yml")) continue;
-          const raw = fs.readFileSync(path.join(manifestDir, file), "utf8");
-          const lower = raw.toLowerCase();
-          if (!/(ai|llm|agent|langchain|bedrock|openai|anthropic)/.test(lower)) continue;
-          out.push({
-            collector_id: "k8s_stub",
-            fingerprint: `k8s-manifest:${file}`,
-            name: `K8s AI workload — ${file}`,
-            category: "container",
-            deployment_type: "container",
-            container: file,
-            running_status: "unknown",
-            confidence_score: 0.6,
-            metadata: { manifest: file },
-            relationships: [
-              {
-                rel_type: "DEPLOYED_IN",
-                to_type: "CloudResource",
-                to_key: `k8s-${file}`,
-                to_name: file
-              }
-            ]
-          });
-        }
-      } catch {
-        /* ignore */
-      }
       return out;
     }
   },
@@ -720,7 +649,6 @@ export const collectors = {
 };
 
 export const DEFAULT_COLLECTORS = [
-  "demo",
   "ide_filesystem",
   "process",
   "mcp",
@@ -732,18 +660,8 @@ export const DEFAULT_COLLECTORS = [
   "saas_platform"
 ];
 
-/** Production-safe collectors (no demo / sample stubs) */
-export const PRODUCTION_COLLECTORS = [
-  "ide_filesystem",
-  "process",
-  "mcp",
-  "cloud_stub",
-  "k8s_api",
-  "git_sources",
-  "identity_entra",
-  "edr",
-  "saas_platform"
-];
+/** @deprecated Use DEFAULT_COLLECTORS — kept for import compatibility */
+export const PRODUCTION_COLLECTORS = DEFAULT_COLLECTORS;
 
 export const ALL_COLLECTOR_IDS = Object.keys(collectors);
 

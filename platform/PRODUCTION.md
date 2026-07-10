@@ -40,8 +40,6 @@ openssl rand -base64 24
 ```bash
 NODE_ENV=production
 DATA_PLANE_MODE=production   # or eval for POC-only
-SEED_ON_START=false
-ALLOW_DEMO_SEED=false
 ```
 
 Optional Entra SSO:
@@ -76,7 +74,6 @@ export BOOTSTRAP_ADMIN_PASSWORD='…'
 export JWT_SECRET="$(openssl rand -hex 32)"
 export ENCRYPTION_KEY="$(openssl rand -hex 32)"
 export DATA_PLANE_MODE=production
-export SEED_ON_START=false
 ./deploy.sh
 ```
 

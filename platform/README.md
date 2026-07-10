@@ -42,7 +42,6 @@ cd platform/infra/azure
 export BOOTSTRAP_ADMIN_PASSWORD='…strong…'
 export JWT_SECRET="$(openssl rand -hex 32)"
 export ENCRYPTION_KEY="$(openssl rand -hex 32)"
-export SEED_ON_START=false
 ./deploy.sh
 ```
 
@@ -60,8 +59,8 @@ docker compose up -d --build
 - API ready: http://localhost:8080/ready
 - Neo4j browser: http://localhost:7474
 
-**Local/dev login:** `admin@agentradar.local` / `AgentRadar!dev`  
-**Production:** no demo seed; set secrets per [`PRODUCTION.md`](./PRODUCTION.md).
+**Local/dev login:** set `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` (defaults in compose).  
+**Production:** inventory is never seeded — set secrets per [`PRODUCTION.md`](./PRODUCTION.md).
 
 ### Production-like local stack
 
@@ -78,20 +77,21 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 cd platform/infra/compose && docker compose up -d postgres neo4j redis nats
 
 cd platform/apps/api
-cp ../../schemas/postgres.sql ./schemas/postgres.sql   # already present
 POSTGRES_URL=postgres://agentradar:agentradar@localhost:5433/agentradar \
 NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=agentradar \
 JWT_SECRET=dev npm run dev
 ```
 
-## Collectors (MVP)
+## Collectors
 
-- `demo` — rich multi-category seed inventory
 - `ide_filesystem` — Cursor / Claude Desktop / Continue MCP configs
 - `process` — Linux `/proc` heuristics (Ollama, LangGraph, CrewAI, …)
 - `mcp` — MCP servers derived from IDE configs
-- `cloud_stub` — optional stub (`DEMO_CLOUD=true`)
-- `k8s_stub` — sample manifest directory scan
+- `cloud_stub` — live Azure/AWS/GCP via Settings → Connectors
+- `k8s_api` — live Kubernetes API via connector
+- `git_sources` — GitHub / GitLab
+- `identity_entra` — Entra ID enrichment
+- `edr` / `saas_platform` — EDR and SaaS platform connectors
 
 ## Schemas
 

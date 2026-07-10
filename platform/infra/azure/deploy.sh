@@ -11,8 +11,6 @@ PREFIX="${PREFIX:-agentradar}"
 RG="${RG:-rg-${PREFIX}-discovery}"
 ADMIN_EMAIL="${BOOTSTRAP_ADMIN_EMAIL:-admin@agentradar.local}"
 DATA_PLANE_MODE="${DATA_PLANE_MODE:-production}" # production | eval
-SEED_ON_START="${SEED_ON_START:-false}"
-ALLOW_DEMO_SEED="${ALLOW_DEMO_SEED:-false}"
 
 # Optional Entra ID SSO (OIDC)
 ENTRA_TENANT_ID="${ENTRA_TENANT_ID:-}"
@@ -183,8 +181,6 @@ az containerapp create \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
     BOOTSTRAP_ADMIN_PASSWORD=secretref:bootstrap-password \
     CORS_ORIGIN="https://placeholder.local" \
-    SEED_ON_START="$SEED_ON_START" \
-    ALLOW_DEMO_SEED="$ALLOW_DEMO_SEED" \
     ${ENTRA_TENANT_ID:+ENTRA_TENANT_ID="$ENTRA_TENANT_ID"} \
     ${ENTRA_CLIENT_ID:+ENTRA_CLIENT_ID="$ENTRA_CLIENT_ID"} \
     ${ENTRA_CLIENT_SECRET:+ENTRA_CLIENT_SECRET=secretref:entra-client-secret} \
@@ -207,8 +203,6 @@ az containerapp update \
     ENCRYPTION_KEY=secretref:encryption-key \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
     BOOTSTRAP_ADMIN_PASSWORD=secretref:bootstrap-password \
-    SEED_ON_START="$SEED_ON_START" \
-    ALLOW_DEMO_SEED="$ALLOW_DEMO_SEED" \
     ${ENTRA_TENANT_ID:+ENTRA_TENANT_ID="$ENTRA_TENANT_ID"} \
     ${ENTRA_CLIENT_ID:+ENTRA_CLIENT_ID="$ENTRA_CLIENT_ID"} \
     ${KV_URI:+KEY_VAULT_URI="$KV_URI"} \
@@ -308,7 +302,6 @@ ADMIN_EMAIL=$ADMIN_EMAIL
 POSTGRES_APP=$PG_APP
 POSTGRES_HOST=$PG_HOST
 NAME_PREFIX=$NAME
-SEED_ON_START=$SEED_ON_START
 DATA_PLANE_MODE=$DP_MODE
 KEY_VAULT_NAME=$KV_NAME
 ENCRYPTION_KEY_SET=true
@@ -329,5 +322,4 @@ if [[ -n "$ENTRA_TENANT_ID" ]]; then
   echo " Entra SSO: enabled (tenant $ENTRA_TENANT_ID)"
 fi
 echo " (Password is NOT written to .last-deploy.env — store in Key Vault / secret manager)"
-echo " SEED_ON_START=$SEED_ON_START"
 echo "============================================"
