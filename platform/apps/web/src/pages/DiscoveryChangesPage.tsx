@@ -5,13 +5,14 @@ import { KpiCard } from "../components/KpiCard";
 import { apiRequest, compactDate, listFromPayload, numberAt, valueAt } from "../lib/api";
 
 type ChangeRow = Record<string, unknown>;
+type ChangeTab = "new" | "updated" | "drift" | "disappeared" | "owners";
 
 export function DiscoveryChangesPage() {
   const navigate = useNavigate();
   const [payload, setPayload] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"new" | "updated" | "drift">("drift");
+  const [tab, setTab] = useState<ChangeTab>("disappeared");
 
   useEffect(() => {
     let mounted = true;
@@ -39,8 +40,25 @@ export function DiscoveryChangesPage() {
     () => listFromPayload<ChangeRow>(payload, ["configDrift", "drift"]),
     [payload]
   );
+  const disappeared = useMemo(
+    () => listFromPayload<ChangeRow>(payload, ["disappeared", "gone"]),
+    [payload]
+  );
+  const ownerChanges = useMemo(
+    () => listFromPayload<ChangeRow>(payload, ["ownerChanges", "owners"]),
+    [payload]
+  );
 
-  const rows = tab === "new" ? newlyDiscovered : tab === "updated" ? updated : configDrift;
+  const rows =
+    tab === "new"
+      ? newlyDiscovered
+      : tab === "updated"
+        ? updated
+        : tab === "disappeared"
+          ? disappeared
+          : tab === "owners"
+            ? ownerChanges
+            : configDrift;
 
   const columns: Array<Column<ChangeRow>> = [
     {
@@ -51,7 +69,7 @@ export function DiscoveryChangesPage() {
     },
     {
       key: "owner",
-      header: "Owner",
+      header: tab === "owners" ? "New owner" : "Owner",
       render: (row) => valueAt(row, ["owner", "team"]),
       sortValue: (row) => valueAt(row, ["owner", "team"])
     },
@@ -63,7 +81,7 @@ export function DiscoveryChangesPage() {
     },
     {
       key: "detail",
-      header: tab === "drift" ? "Drift" : "Detail",
+      header: tab === "drift" ? "Drift" : tab === "owners" ? "Change" : "Detail",
       render: (row) => {
         if (tab === "drift") {
           const changes = (row.changes as Array<Record<string, unknown>> | undefined) || [];
@@ -73,6 +91,9 @@ export function DiscoveryChangesPage() {
             .map((c) => `${valueAt(c, ["op"])} ${valueAt(c, ["field"])}:${valueAt(c, ["value"])}`)
             .join(" · ");
         }
+        if (tab === "owners") {
+          return valueAt(row, ["summary"], `${valueAt(row, ["previousOwner"], "(none)")} → ${valueAt(row, ["owner"], "(none)")}`);
+        }
         return valueAt(row, ["summary", "howIdentified", "evidenceClass"], "—");
       },
       sortValue: (row) => valueAt(row, ["summary", "detail", "name"])
@@ -80,9 +101,10 @@ export function DiscoveryChangesPage() {
     {
       key: "when",
       header: "When",
-      render: (row) => compactDate(row.changedAt ?? row.firstDiscovered ?? row.last_seen ?? row.observedAt),
+      render: (row) =>
+        compactDate(row.changedAt ?? row.lastSeen ?? row.firstDiscovered ?? row.last_seen ?? row.observedAt),
       sortValue: (row) =>
-        String(row.changedAt ?? row.firstDiscovered ?? row.last_seen ?? row.observedAt ?? "")
+        String(row.changedAt ?? row.lastSeen ?? row.firstDiscovered ?? row.last_seen ?? row.observedAt ?? "")
     }
   ];
 
@@ -109,7 +131,7 @@ export function DiscoveryChangesPage() {
           <p className="eyebrow">Discovery</p>
           <h1>Change intelligence</h1>
           <p className="page-description">
-            New agents, observation updates, and configuration drift over the last 7 days (visibility only).
+            New, updated, disappeared, owner-changed, and configuration drift over the last 7 days.
           </p>
         </div>
         <Link className="button" to="/operations">
@@ -123,34 +145,41 @@ export function DiscoveryChangesPage() {
           value={numberAt(summary, ["newAgents", "newlyDiscovered", "new"], newlyDiscovered.length)}
         />
         <KpiCard
-          label="Updated"
-          value={numberAt(summary, ["updatedAgents", "updated", "updates"], updated.length)}
+          label="Disappeared"
+          value={numberAt(summary, ["disappearedAgents", "disappeared"], disappeared.length)}
+          tone="warn"
+        />
+        <KpiCard
+          label="Owner changes"
+          value={numberAt(summary, ["ownerChanges"], ownerChanges.length)}
+          tone="warn"
         />
         <KpiCard
           label="Config drift"
           value={numberAt(summary, ["configDrift", "drift"], configDrift.length)}
           tone="warn"
         />
-        <KpiCard
-          label="Changed relationships"
-          value={numberAt(payload || {}, ["changedRelationships"], numberAt(summary, ["changedRelationships"], 0))}
-        />
       </section>
 
       <div className="toolbar" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <button className={`button ${tab === "drift" ? "primary" : "ghost"}`} type="button" onClick={() => setTab("drift")}>
-          Config drift
-        </button>
-        <button className={`button ${tab === "new" ? "primary" : "ghost"}`} type="button" onClick={() => setTab("new")}>
-          Newly discovered
-        </button>
-        <button
-          className={`button ${tab === "updated" ? "primary" : "ghost"}`}
-          type="button"
-          onClick={() => setTab("updated")}
-        >
-          Updated
-        </button>
+        {(
+          [
+            ["disappeared", "Disappeared"],
+            ["owners", "Owner changes"],
+            ["drift", "Config drift"],
+            ["new", "Newly discovered"],
+            ["updated", "Updated"]
+          ] as Array<[ChangeTab, string]>
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            className={`button ${tab === id ? "primary" : "ghost"}`}
+            type="button"
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <section className="panel">

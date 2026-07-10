@@ -5,7 +5,7 @@ import { DetailDrawer } from "../components/DetailDrawer";
 import { KpiCard } from "../components/KpiCard";
 import { apiRequest, compactDate, listFromPayload, numberAt, valueAt } from "../lib/api";
 
-type QueueFilter = "all" | "config_drift" | "blast_radius" | "shadow_ai";
+type QueueFilter = "all" | "config_drift" | "blast_radius" | "shadow_ai" | "disappeared" | "owner_changed";
 
 export function OperationsDashboardPage() {
   const navigate = useNavigate();
@@ -49,7 +49,8 @@ export function OperationsDashboardPage() {
       header: "Queue",
       render: (row) => {
         const q = valueAt(row, ["queue", "type", "status"], "triage");
-        const tone = q === "blast_radius" || q === "config_drift" ? "bad" : "";
+        const tone =
+          q === "blast_radius" || q === "config_drift" || q === "disappeared" || q === "owner_changed" ? "bad" : "";
         return <span className={`badge ${tone}`}>{q.replace(/_/g, " ")}</span>;
       },
       sortValue: (row) => valueAt(row, ["queue", "type", "status"])
@@ -95,7 +96,7 @@ export function OperationsDashboardPage() {
           <p className="eyebrow">Operations</p>
           <h1>Analyst Workbench</h1>
           <p className="page-description">
-            Config drift, high blast-radius agents, Shadow AI candidates, and ownerless / low-confidence findings.
+            Config drift, disappeared agents, owner changes, high blast-radius, and Shadow AI findings.
           </p>
         </div>
         <div className="toolbar">
@@ -109,18 +110,20 @@ export function OperationsDashboardPage() {
       </header>
 
       <section className="card-grid">
+        <KpiCard label="Disappeared" value={numberAt(dashboard, ["disappearedAgents"], 0)} tone="warn" />
+        <KpiCard label="Owner changes" value={numberAt(dashboard, ["ownerChanges"], 0)} tone="warn" />
         <KpiCard label="Config drift" value={numberAt(dashboard, ["configDrift"], 0)} tone="warn" />
         <KpiCard label="High blast radius" value={numberAt(dashboard, ["highBlastRadius"], 0)} tone="warn" />
         <KpiCard label="Shadow AI" value={numberAt(dashboard, ["shadowAiAgents", "shadowAi"], 0)} tone="warn" />
         <KpiCard label="Ownerless" value={numberAt(dashboard, ["ownerlessAgents", "ownerless"], 0)} tone="warn" />
-        <KpiCard label="New discoveries" value={numberAt(dashboard, ["newDiscoveries"], 0)} />
-        <KpiCard label="Changed edges" value={numberAt(dashboard, ["changedRelationships", "changedEdges"], 0)} />
       </section>
 
       <div className="toolbar" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         {(
           [
             ["all", "All"],
+            ["disappeared", "Disappeared"],
+            ["owner_changed", "Owner changes"],
             ["config_drift", "Config drift"],
             ["blast_radius", "Blast radius"],
             ["shadow_ai", "Shadow AI"]

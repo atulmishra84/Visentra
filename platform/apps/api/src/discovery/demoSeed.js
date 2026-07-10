@@ -213,7 +213,9 @@ export function buildDemoObservations() {
       email_access: true,
       relationships: [
         { rel_type: "INVOKES_MODEL", to_type: "Model", to_key: "copilot-gpt", to_name: "gpt-4o" },
-        { rel_type: "ACCESSES", to_type: "ExternalService", to_key: "m365", to_name: "Microsoft 365" }
+        { rel_type: "ACCESSES", to_type: "ExternalService", to_key: "m365", to_name: "Microsoft 365" },
+        { rel_type: "OWNS", to_type: "Developer", to_key: "it-admin", to_name: "it-admin@example.com" },
+        { rel_type: "USES_IDENTITY", to_type: "ServicePrincipal", to_key: "copilot-sp", to_name: "Copilot-ServicePrincipal" }
       ],
       metadata: {
         aiRelevant: true,
@@ -227,16 +229,29 @@ export function buildDemoObservations() {
           tools: ["draft_email", "summarize", "search_files"],
           knowledgeSources: ["SharePoint", "OneDrive", "Outlook"],
           triggers: ["user_prompt"],
+          channels: ["Teams", "Outlook", "Word"],
+          authMode: "entra_sso",
+          platform: "m365_copilot",
           instructionsPresent: true,
           instructionSource: "copilot_studio",
           howConfigured: "M365 Copilot tenant config"
         },
         agentAccess: {
           scopes: { email: true, sharepoint: true, internet: true, identity: true, calendar: true },
-          identities: ["it-admin@example.com"],
+          identities: ["it-admin@example.com", "Copilot-ServicePrincipal"],
           dataStores: ["SharePoint", "OneDrive"],
           connectedApps: ["Microsoft 365"]
-        }
+        },
+        ownership: {
+          owner: "it-admin@example.com",
+          identities: ["it-admin@example.com", "Copilot-ServicePrincipal"],
+          identityProvider: "entra",
+          ownershipStatus: "owned",
+          team: "IT"
+        },
+        ownershipStatus: "owned",
+        authMode: "entra_sso",
+        channels: ["Teams", "Outlook", "Word"]
       },
       last_seen: now
     },
@@ -256,16 +271,86 @@ export function buildDemoObservations() {
       internet_access: true,
       relationships: [
         { rel_type: "INVOKES_MODEL", to_type: "Model", to_key: "chatgpt-gpt4o", to_name: "gpt-4o" },
-        { rel_type: "PROVIDED_BY", to_type: "Provider", to_key: "openai", to_name: "OpenAI" }
+        { rel_type: "PROVIDED_BY", to_type: "Provider", to_key: "openai", to_name: "OpenAI" },
+        { rel_type: "OWNS", to_type: "Developer", to_key: "marketing", to_name: "marketing@example.com" }
       ],
       metadata: {
         aiRelevant: true,
         inventoryClass: "saas_browser_agent",
         evidenceClass: "platform_agent",
         agentStatus: "candidate",
-        demoSeed: true
+        demoSeed: true,
+        howIdentified: "Demo seed — ChatGPT Enterprise",
+        agentConfig: {
+          tools: ["browse", "analyze", "generate"],
+          knowledgeSources: ["uploaded_files"],
+          channels: ["web"],
+          authMode: "workspace_sso",
+          platform: "openai",
+          instructionsPresent: false,
+          howConfigured: "ChatGPT Enterprise workspace"
+        },
+        agentAccess: {
+          scopes: { internet: true, identity: true },
+          identities: ["marketing@example.com"],
+          connectedApps: ["ChatGPT Enterprise"]
+        },
+        ownership: {
+          owner: "marketing@example.com",
+          ownershipStatus: "owned",
+          identityProvider: "openai",
+          team: "Marketing"
+        },
+        ownershipStatus: "owned"
       },
       last_seen: now
+    },
+    {
+      collector_id: "demo",
+      fingerprint: "demo:saas:stale-shadow-bot",
+      name: "Shadow Slack Bot — Sales Autopilot (stale)",
+      category: "saas",
+      owner: null,
+      department: "Sales",
+      provider: "slack",
+      model: "gpt-4o-mini",
+      framework: "custom-bot",
+      deployment_type: "saas",
+      running_status: "unknown",
+      confidence_score: 0.62,
+      internet_access: true,
+      relationships: [
+        { rel_type: "ACCESSES", to_type: "ExternalService", to_key: "slack", to_name: "Slack" },
+        { rel_type: "INVOKES_MODEL", to_type: "Model", to_key: "gpt-4o-mini", to_name: "gpt-4o-mini" }
+      ],
+      metadata: {
+        aiRelevant: true,
+        inventoryClass: "saas_platform_agent",
+        evidenceClass: "platform_agent",
+        agentStatus: "candidate",
+        demoSeed: true,
+        shadowAi: true,
+        howIdentified: "Demo seed — stale unsanctioned Slack bot",
+        agentConfig: {
+          tools: ["post_message", "read_channel"],
+          channels: ["#sales-autopilot"],
+          authMode: "bot_token",
+          platform: "slack",
+          instructionsPresent: true,
+          instructionSource: "bot_manifest",
+          howConfigured: "Unofficial Slack bot"
+        },
+        agentAccess: {
+          scopes: { internet: true, slack: true },
+          identities: [],
+          connectedApps: ["Slack"]
+        },
+        ownership: { owner: null, ownershipStatus: "ownerless", team: "Sales" },
+        ownershipStatus: "ownerless"
+      },
+      // Stale last_seen so Change Intelligence marks it disappeared in a 7-day window
+      last_seen: new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString(),
+      first_discovered: new Date(Date.now() - 40 * 24 * 3600 * 1000).toISOString()
     },
     {
       collector_id: "demo",

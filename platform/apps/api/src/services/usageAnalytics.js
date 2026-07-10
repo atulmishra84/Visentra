@@ -538,7 +538,15 @@ export async function buildExecutiveInsights(pool, tenantId) {
          COALESCE(AVG(confidence_score),0)::float AS avg_confidence,
          COUNT(*) FILTER (WHERE metadata->>'overPermissioned' = 'true')::int AS over_permissioned,
          COUNT(*) FILTER (WHERE metadata->>'hasInstructions' = 'true')::int AS has_instructions,
-         COUNT(*) FILTER (WHERE metadata->>'accessSensitivity' IN ('high','critical'))::int AS high_access_sensitivity
+         COUNT(*) FILTER (WHERE metadata->>'accessSensitivity' IN ('high','critical'))::int AS high_access_sensitivity,
+         COUNT(*) FILTER (
+           WHERE owner IS NOT NULL AND btrim(owner) <> ''
+             AND (
+               identity_used IS NOT NULL
+               OR metadata->'ownership'->>'identityProvider' IS NOT NULL
+               OR metadata->'agentAccess'->'scopes'->>'identity' = 'true'
+             )
+         )::int AS identity_attributed
        FROM agents WHERE tenant_id=$1`,
       [tenantId]
     ),
@@ -594,7 +602,9 @@ export async function buildExecutiveInsights(pool, tenantId) {
     overPermissionedAgents: c.over_permissioned,
     overPermissioned: c.over_permissioned,
     hasInstructionsAgents: c.has_instructions,
-    highAccessSensitivity: c.high_access_sensitivity
+    highAccessSensitivity: c.high_access_sensitivity,
+    identityAttributedAgents: c.identity_attributed,
+    identityAttributed: c.identity_attributed
   };
 }
 

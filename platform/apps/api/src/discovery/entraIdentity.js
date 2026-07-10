@@ -56,6 +56,10 @@ function isAiIdentity(obj) {
 
 function identityObservation({ conn, kind, obj, tenantId }) {
   const displayName = obj.displayName || obj.appId || obj.id;
+  const owners = Array.isArray(obj.owners)
+    ? obj.owners.map((o) => o.userPrincipalName || o.mail || o.displayName).filter(Boolean)
+    : [];
+  const owner = owners[0] || null;
   return {
     collector_id: "identity_entra",
     fingerprint: `entra:${kind}:${obj.id || obj.appId}`,
@@ -64,6 +68,7 @@ function identityObservation({ conn, kind, obj, tenantId }) {
     provider: "entra_identity",
     deployment_type: "identity",
     identity_used: displayName,
+    owner,
     running_status: obj.accountEnabled === false ? "disabled" : "unknown",
     confidence_score: 0.82,
     framework: kind,
@@ -78,9 +83,23 @@ function identityObservation({ conn, kind, obj, tenantId }) {
       objectKind: kind,
       objectId: obj.id || null,
       appId: obj.appId || null,
+      identityProvider: "entra",
+      owners,
+      ownershipStatus: owner ? "owned" : "ownerless",
+      ownership: {
+        owner,
+        identities: uniq([displayName, ...owners]),
+        identityUsed: displayName,
+        identityProvider: "entra",
+        ownershipStatus: owner ? "owned" : "ownerless",
+        objectId: obj.id || null,
+        appId: obj.appId || null,
+        tenantId
+      },
       tags: obj.tags || [],
       aiRelevant: true,
-      environment: conn.environment
+      environment: conn.environment,
+      howIdentified: `Entra ${kind} with AI-relevant name/tags`
     },
     relationships: [
       {
@@ -100,9 +119,19 @@ function identityObservation({ conn, kind, obj, tenantId }) {
         to_type: kind,
         to_key: obj.id || obj.appId,
         to_name: displayName
-      }
+      },
+      ...owners.slice(0, 3).map((o) => ({
+        rel_type: "OWNS",
+        to_type: "Developer",
+        to_key: String(o).toLowerCase(),
+        to_name: o
+      }))
     ]
   };
+}
+
+function uniq(list) {
+  return [...new Set((list || []).filter(Boolean).map(String))];
 }
 
 export async function validateEntra(conn) {
@@ -169,15 +198,39 @@ export async function discoverEntra(conn) {
 
   let servicePrincipalsScanned = 0;
   let applicationsScanned = 0;
+  const aiObjects = [];
   for (const sp of spJson?.value || []) {
     servicePrincipalsScanned += 1;
     if (!isAiIdentity(sp)) continue;
-    observations.push(identityObservation({ conn, kind: "ServicePrincipal", obj: sp, tenantId: cfg.tenantId }));
+    aiObjects.push({ kind: "ServicePrincipal", obj: sp });
   }
   for (const app of appJson?.value || []) {
     applicationsScanned += 1;
     if (!isAiIdentity(app)) continue;
-    observations.push(identityObservation({ conn, kind: "Application", obj: app, tenantId: cfg.tenantId }));
+    aiObjects.push({ kind: "Application", obj: app });
+  }
+
+  // Best-effort owner enrichment for a small set of AI identities
+  for (const item of aiObjects.slice(0, 25)) {
+    const id = item.obj.id;
+    if (!id) {
+      observations.push(identityObservation({ conn, kind: item.kind, obj: item.obj, tenantId: cfg.tenantId }));
+      continue;
+    }
+    const path =
+      item.kind === "ServicePrincipal"
+        ? `/servicePrincipals/${encodeURIComponent(id)}/owners?$select=id,displayName,userPrincipalName,mail&$top=5`
+        : `/applications/${encodeURIComponent(id)}/owners?$select=id,displayName,userPrincipalName,mail&$top=5`;
+    const ownersJson = await graphJson(path, token, { optional: true }).catch(() => null);
+    const owners = ownersJson?.value || [];
+    observations.push(
+      identityObservation({
+        conn,
+        kind: item.kind,
+        obj: { ...item.obj, owners },
+        tenantId: cfg.tenantId
+      })
+    );
   }
 
   return {

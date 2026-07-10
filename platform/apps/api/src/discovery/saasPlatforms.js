@@ -58,6 +58,9 @@ function platformObservation({
     mcpServers: Array.isArray(extra.mcpServers) ? extra.mcpServers : [],
     knowledgeSources,
     triggers,
+    channels: Array.isArray(extra.channels) ? extra.channels : extra.channel ? [extra.channel] : [],
+    authMode: extra.authMode || extra.authenticationMode || (provider === "m365_copilot" ? "entra_sso" : "api_key"),
+    platform: provider,
     memoryStores: extra.memoryStore ? [extra.memoryStore] : [],
     vectorStores: extra.vectorStore ? [extra.vectorStore] : [],
     models: model ? [model] : [],
@@ -73,6 +76,7 @@ function platformObservation({
       internet: true,
       email: provider === "m365_copilot",
       sharepoint: provider === "m365_copilot",
+      calendar: provider === "m365_copilot",
       crm: provider === "salesforce",
       identity: true,
       ...(extra.accessScopes || {})
@@ -82,6 +86,13 @@ function platformObservation({
     connectedApps: [label],
     permissions: Array.isArray(extra.permissions) ? extra.permissions : [],
     ...(extra.agentAccess || {})
+  };
+  const ownership = {
+    owner: owner || null,
+    identities: owner ? [owner] : [],
+    ownershipStatus: owner ? "owned" : "ownerless",
+    identityProvider: provider === "m365_copilot" ? "entra" : provider,
+    team: conn.environment || null
   };
 
   return {
@@ -115,7 +126,11 @@ function platformObservation({
       howIdentified: `${label} registered agent`,
       agentConfig,
       agentAccess,
+      ownership,
+      ownershipStatus: ownership.ownershipStatus,
       hasInstructions: agentConfig.instructionsPresent,
+      authMode: agentConfig.authMode,
+      channels: agentConfig.channels,
       ...extra
     },
     relationships: [
@@ -124,7 +139,17 @@ function platformObservation({
         to_type: "SaaSPlatform",
         to_key: `saas-${provider}`,
         to_name: label
-      }
+      },
+      ...(owner
+        ? [
+            {
+              rel_type: "OWNS",
+              to_type: "Developer",
+              to_key: String(owner).toLowerCase(),
+              to_name: owner
+            }
+          ]
+        : [])
     ]
   };
 }
@@ -222,7 +247,15 @@ export async function discoverM365Copilot(conn) {
           framework: "Microsoft Copilot / PVA",
           model: "microsoft-copilot",
           status: "running",
-          extra: { appId: app.appId, servicePrincipalType: app.servicePrincipalType, source: "graph-servicePrincipals" }
+          extra: {
+            appId: app.appId,
+            servicePrincipalType: app.servicePrincipalType,
+            source: "graph-servicePrincipals",
+            channels: ["Teams", "Outlook", "Microsoft 365"],
+            authMode: "entra_sso",
+            hasInstructions: true,
+            instructionSource: "copilot_studio"
+          }
         })
       );
     }
