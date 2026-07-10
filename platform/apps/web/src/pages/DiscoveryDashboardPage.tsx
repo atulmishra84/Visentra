@@ -139,9 +139,14 @@ export function DiscoveryDashboardPage() {
             API credentials and surface endpoint visibility sources.
           </p>
         </div>
-        <button className="button primary" disabled={running} type="button" onClick={() => void triggerDiscovery()}>
-          {running ? "Starting scan..." : "Run discovery scan"}
-        </button>
+        <div className="toolbar">
+          <Link className="button" to="/discovery/changes">
+            Change Intelligence
+          </Link>
+          <button className="button primary" disabled={running} type="button" onClick={() => void triggerDiscovery()}>
+            {running ? "Starting scan..." : "Run discovery scan"}
+          </button>
+        </div>
       </header>
 
       {error ? <div className="error-state">{error}</div> : null}

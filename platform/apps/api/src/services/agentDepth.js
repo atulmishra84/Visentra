@@ -386,10 +386,13 @@ export async function computeDiscoveryChanges(pool, tenantId, { sinceHours = 168
             a.metadata->>'configToolCount' AS config_tool_count
      FROM agents a
      WHERE a.tenant_id=$1
-       AND a.updated_at >= NOW() - ($2::int * INTERVAL '1 hour')
+       AND (
+         a.updated_at >= NOW() - ($2::int * INTERVAL '1 hour')
+         OR a.last_seen >= NOW() - ($2::int * INTERVAL '1 hour')
+       )
        AND a.first_discovered < NOW() - ($2::int * INTERVAL '1 hour')
        ${agentClause}
-     ORDER BY a.updated_at DESC
+     ORDER BY COALESCE(a.updated_at, a.last_seen) DESC
      LIMIT ${Math.min(limit, 200)}`,
     params
   );
