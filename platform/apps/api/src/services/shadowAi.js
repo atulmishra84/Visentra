@@ -46,6 +46,15 @@ function asArray(value) {
 }
 
 function textBlob(agent) {
+  const meta = agent.metadata || {};
+  const metaBits = [
+    meta.azureType,
+    meta.azureKind,
+    meta.connectorName,
+    meta.discoveryMode,
+    meta.inventoryClass,
+    meta.testMessage
+  ];
   return [
     agent.name,
     agent.fingerprint,
@@ -56,9 +65,9 @@ function textBlob(agent) {
     agent.cloud_provider,
     agent.ide,
     agent.endpoint,
-    JSON.stringify(agent.metadata || {}),
-    JSON.stringify(agent.connected_applications || []),
-    JSON.stringify(agent.tools || [])
+    ...metaBits,
+    ...(Array.isArray(agent.connected_applications) ? agent.connected_applications : []),
+    ...(Array.isArray(agent.tools) ? agent.tools : [])
   ]
     .filter(Boolean)
     .join(" ")
@@ -68,10 +77,13 @@ function textBlob(agent) {
 function isAiAsset(agent) {
   const category = String(agent.category || "").toLowerCase();
   if (AI_CATEGORIES.has(category)) return true;
-  if (category === "cloud" && (agent.metadata?.aiRelevant || agent.model === "ai-relevant")) return true;
-  if (agent.model || agent.framework || agent.ide) return true;
+  if (category === "cloud" && (agent.metadata?.aiRelevant === true || agent.model === "ai-relevant")) return true;
+  if (agent.model && agent.model !== "ai-relevant") return true;
+  if (agent.framework || agent.ide) return true;
   const blob = textBlob(agent);
-  return /ai|llm|agent|copilot|openai|anthropic|ollama|langchain|crewai|mcp|gpt|claude|gemini/.test(blob);
+  return /\b(llm|agent|copilot|openai|anthropic|ollama|langchain|crewai|mcp|gpt|claude|gemini|foundry)\b/.test(
+    blob
+  );
 }
 
 /**
