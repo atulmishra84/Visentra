@@ -177,6 +177,22 @@ export function ConnectorsPage() {
     }
   };
 
+  const scanNow = async () => {
+    setError(null);
+    setMessage(null);
+    try {
+      await apiRequest("/api/discovery/jobs", {
+        method: "POST",
+        body: JSON.stringify({ collectors: ["cloud_stub"] })
+      });
+      setMessage(
+        "Cloud discovery started. Open Discovery Dashboard or Inventory in ~10s to see Azure scan results (look for “Azure scan — …” and AI resources)."
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start cloud discovery.");
+    }
+  };
+
   return (
     <div className="page">
       <header className="page-header">
@@ -185,8 +201,12 @@ export function ConnectorsPage() {
           <h1>Connectors</h1>
           <p className="page-description">
             Add cloud environment credentials for Azure, AWS, and GCP. Secrets are encrypted and never shown again.
+            After saving Azure, click <strong>Test</strong> then <strong>Scan cloud now</strong> to discover resources.
           </p>
         </div>
+        <button className="button primary" type="button" onClick={() => void scanNow()}>
+          Scan cloud now
+        </button>
       </header>
 
       {error ? <div className="error-state">{error}</div> : null}

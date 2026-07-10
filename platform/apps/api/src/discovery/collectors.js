@@ -164,43 +164,94 @@ export const collectors = {
     async scan(ctx) {
       const out = [];
 
-      // Prefer connectors saved in Settings → Connectors
       if (ctx.pool && ctx.tenantId) {
         try {
           const { listActiveCloudConnectors } = await import("../services/connectors.js");
+          const { discoverAzureConnector } = await import("./azureArm.js");
           const connectors = await listActiveCloudConnectors(ctx.pool, ctx.tenantId);
+
           for (const conn of connectors) {
+            if (conn.provider === "azure") {
+              try {
+                const { observations, stats } = await discoverAzureConnector(conn);
+                out.push(...observations);
+                if (ctx.pool) {
+                  await ctx.pool.query(
+                    `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+                     VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
+                    [
+                      ctx.tenantId,
+                      `Azure connector "${conn.name}" scanned ${stats.totalResourcesScanned} resources, found ${stats.aiRelevantResources} AI-relevant`,
+                      JSON.stringify({
+                        connectorId: conn.id,
+                        provider: "azure",
+                        ...stats
+                      })
+                    ]
+                  );
+                  await ctx.pool.query(
+                    `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
+                     WHERE id=$1 AND tenant_id=$2`,
+                    [conn.id, ctx.tenantId]
+                  );
+                }
+              } catch (err) {
+                const message = err.message || String(err);
+                console.warn("Azure connector scan failed:", message);
+                if (ctx.pool) {
+                  await ctx.pool.query(
+                    `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
+                     WHERE id=$1 AND tenant_id=$2`,
+                    [conn.id, ctx.tenantId, message]
+                  );
+                  await ctx.pool.query(
+                    `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+                     VALUES ($1,'connector.scan.error','error',$2,$3::jsonb)`,
+                    [
+                      ctx.tenantId,
+                      `Azure connector "${conn.name}" failed: ${message}`,
+                      JSON.stringify({ connectorId: conn.id, provider: "azure" })
+                    ]
+                  );
+                }
+                out.push({
+                  collector_id: "cloud_stub",
+                  fingerprint: `azure-connector-error:${conn.id}`,
+                  name: `Azure connector error — ${conn.name}`,
+                  category: "cloud",
+                  cloud_provider: "azure",
+                  confidence_score: 0.2,
+                  running_status: "unknown",
+                  risk_indicators: ["connector_auth_failed"],
+                  metadata: {
+                    connectorId: conn.id,
+                    connectorName: conn.name,
+                    discoveryMode: "azure-arm-error",
+                    error: message
+                  }
+                });
+              }
+              continue;
+            }
+
+            // AWS/GCP: credentialed placeholder until live adapters land
             out.push({
               collector_id: "cloud_stub",
               fingerprint: `cloud-connector:${conn.provider}:${conn.id}`,
               name: `${conn.provider.toUpperCase()} connector — ${conn.name}`,
               category: "cloud",
               cloud_provider: conn.provider === "gcp" ? "gcp" : conn.provider,
-              region:
-                conn.config.region ||
-                (conn.provider === "azure" ? "global" : conn.provider === "aws" ? "us-east-1" : "us-central1"),
+              region: conn.config.region || null,
               provider: conn.provider,
               deployment_type: "cloud",
               running_status: "unknown",
-              confidence_score: 0.7,
-              owner: ctx.ownerHint || null,
+              confidence_score: 0.55,
               metadata: {
                 connectorId: conn.id,
                 connectorName: conn.name,
-                environment: conn.environment,
-                subscriptionId: conn.config.subscriptionId || null,
-                accountId: conn.config.accountId || null,
-                projectId: conn.config.projectId || null,
-                discoveryMode: "credentialed-connector"
-              },
-              relationships: [
-                {
-                  rel_type: "DEPLOYED_IN",
-                  to_type: "CloudResource",
-                  to_key: `${conn.provider}-${conn.id}`,
-                  to_name: `${conn.name} (${conn.provider})`
-                }
-              ]
+                discoveryMode: "credentialed-connector-pending-live-adapter",
+                environment: conn.environment
+              }
             });
           }
         } catch (err) {

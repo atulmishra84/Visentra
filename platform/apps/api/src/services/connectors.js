@@ -209,19 +209,24 @@ export async function testConnector(pool, tenantId, id) {
 
   try {
     if (row.provider === "azure") {
-      ok = Boolean(config.tenantId && config.clientId && secrets.clientSecret);
-      message = ok
-        ? "Azure credentials present. Live ARM validation will run on next discovery job."
-        : "Missing Azure tenantId, clientId, or clientSecret.";
+      const { validateAzureConnector } = await import("../discovery/azureArm.js");
+      const result = await validateAzureConnector({
+        id: row.id,
+        name: row.name,
+        config,
+        secrets
+      });
+      ok = result.ok;
+      message = result.message;
     } else if (row.provider === "aws") {
       ok = Boolean(config.accessKeyId && secrets.secretAccessKey);
       message = ok
-        ? "AWS credentials present. Live discovery will use them on next cloud scan."
+        ? "AWS credentials present. Live discovery adapter is limited in this release."
         : "Missing AWS accessKeyId or secretAccessKey.";
     } else if (row.provider === "gcp") {
       ok = Boolean(config.projectId && (config.clientEmail || secrets.privateKey));
       message = ok
-        ? "GCP credentials present. Live discovery will use them on next cloud scan."
+        ? "GCP credentials present. Live discovery adapter is limited in this release."
         : "Missing GCP projectId or service account material.";
     }
   } catch (err) {
@@ -240,7 +245,10 @@ export async function testConnector(pool, tenantId, id) {
 
 export async function listActiveCloudConnectors(pool, tenantId) {
   const res = await pool.query(
-    `SELECT * FROM connectors WHERE tenant_id=$1 AND status='active' AND provider IN ('azure','aws','gcp')`,
+    `SELECT * FROM connectors
+     WHERE tenant_id=$1
+       AND provider IN ('azure','aws','gcp')
+       AND status IN ('active', 'error')`,
     [tenantId]
   );
   return res.rows.map((row) => ({
@@ -248,6 +256,7 @@ export async function listActiveCloudConnectors(pool, tenantId) {
     name: row.name,
     provider: row.provider,
     environment: row.environment,
+    status: row.status,
     config: row.config || {},
     secrets: decryptJson(row.secrets_enc)
   }));
