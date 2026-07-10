@@ -8,7 +8,7 @@ Fastest path to a public Azure URL for the Discovery & Visibility MVP.
 |-----------|---------------|
 | Web / API / Discovery / Redis / Neo4j | Azure Container Apps |
 | Images | Azure Container Registry |
-| Database | Azure Database for PostgreSQL Flexible Server |
+| Database | Postgres container in Container Apps (MVP). Upgrade to Flexible Server when subscription quota allows — see blueprint `21-azure.md`. |
 | Logs | Log Analytics |
 
 Full enterprise AKS reference remains in [`docs/blueprint/21-azure.md`](../../../docs/blueprint/21-azure.md) and root `terraform/` / `bicep/` (legacy stack).
@@ -36,7 +36,7 @@ Optional env overrides:
 
 | Variable | Default |
 |----------|---------|
-| `LOCATION` | `eastus` |
+| `LOCATION` | `westus2` |
 | `RG` | `rg-agentradar-discovery` |
 | `PREFIX` | `agentradar` |
 | `BOOTSTRAP_ADMIN_EMAIL` | `admin@agentradar.local` |

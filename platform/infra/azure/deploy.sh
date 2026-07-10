@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 PLATFORM="$ROOT/platform"
 AZURE_DIR="$PLATFORM/infra/azure"
 
-LOCATION="${LOCATION:-eastus}"
+LOCATION="${LOCATION:-westus2}"
 PREFIX="${PREFIX:-agentradar}"
 RG="${RG:-rg-${PREFIX}-discovery}"
 ADMIN_EMAIL="${BOOTSTRAP_ADMIN_EMAIL:-admin@agentradar.local}"
@@ -27,12 +27,11 @@ DEPLOY_OUT=$(az deployment group create \
     jwtSecret="$JWT_SECRET" \
     bootstrapAdminPassword="$ADMIN_PASSWORD" \
     bootstrapAdminEmail="$ADMIN_EMAIL" \
-    deployApps=false \
   --query properties.outputs -o json)
 
 ACR_NAME=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["acrName"]["value"])')
 ACR_LOGIN=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["acrLoginServer"]["value"])')
-PG_FQDN=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["postgresFqdn"]["value"])')
+PG_APP=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["postgresAppName"]["value"])')
 CAE=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["containerAppsEnvName"]["value"])')
 NAME=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["namePrefix"]["value"])')
 NEO4J_PASSWORD=$(echo "$DEPLOY_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["neo4jPassword"]["value"])')
@@ -54,7 +53,8 @@ docker push "$API_IMAGE"
 docker push "$WEB_IMAGE"
 docker push "$DISCOVERY_IMAGE"
 
-POSTGRES_URL="postgres://agentradar:${POSTGRES_PASSWORD}@${PG_FQDN}:5432/agentradar?sslmode=require"
+# Container Apps TCP ingress: connect via app name on target port
+POSTGRES_URL="postgres://agentradar:${POSTGRES_PASSWORD}@${PG_APP}:5432/agentradar"
 
 echo "==> Creating/updating API container app..."
 ACR_USER=$(az acr credential show -n "$ACR_NAME" --query username -o tsv)
@@ -185,7 +185,7 @@ WEB_URL=https://$WEB_FQDN
 API_URL=$API_FQDN
 ADMIN_EMAIL=$ADMIN_EMAIL
 ADMIN_PASSWORD=$ADMIN_PASSWORD
-POSTGRES_FQDN=$PG_FQDN
+POSTGRES_APP=$PG_APP
 NAME_PREFIX=$NAME
 EOF
 

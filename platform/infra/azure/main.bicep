@@ -8,16 +8,16 @@ param prefix string = 'agentradar'
 param uniqueSuffix string = uniqueString(resourceGroup().id)
 
 @secure()
-@description('PostgreSQL admin password')
+@description('PostgreSQL password')
 param postgresPassword string
 
 @secure()
-@description('JWT signing secret (reserved for app deploy step)')
-param jwtSecret string = 'unused-in-infra-phase'
+@description('JWT signing secret (used by deploy.sh)')
+param jwtSecret string = ''
 
 @secure()
-@description('Bootstrap admin password (reserved for app deploy step)')
-param bootstrapAdminPassword string = 'unused-in-infra-phase'
+@description('Bootstrap admin password (used by deploy.sh)')
+param bootstrapAdminPassword string = ''
 
 @description('Bootstrap admin email')
 param bootstrapAdminEmail string = 'admin@agentradar.local'
@@ -35,47 +35,12 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
 }
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
-  name: 'acr${take(name, 40)}'
+  name: 'acr${take(replace(name, '-', ''), 40)}'
   location: location
   sku: { name: 'Basic' }
   properties: {
     adminUserEnabled: true
     publicNetworkAccess: 'Enabled'
-  }
-}
-
-resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01-preview' = {
-  name: 'psql-${name}'
-  location: location
-  sku: {
-    name: 'Standard_B2s'
-    tier: 'Burstable'
-  }
-  properties: {
-    version: '16'
-    administratorLogin: 'agentradar'
-    administratorLoginPassword: postgresPassword
-    storage: { storageSizeGB: 32 }
-    backup: { backupRetentionDays: 7 }
-    highAvailability: { mode: 'Disabled' }
-  }
-}
-
-resource postgresDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-12-01-preview' = {
-  parent: postgres
-  name: 'agentradar'
-  properties: {
-    charset: 'UTF8'
-    collation: 'en_US.utf8'
-  }
-}
-
-resource postgresFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-12-01-preview' = {
-  parent: postgres
-  name: 'AllowAzureServices'
-  properties: {
-    startIpAddress: '0.0.0.0'
-    endIpAddress: '0.0.0.0'
   }
 }
 
@@ -93,6 +58,37 @@ resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
   }
 }
 
+resource postgres 'Microsoft.App/containerApps@2024-03-01' = {
+  name: 'postgres-${name}'
+  location: location
+  properties: {
+    managedEnvironmentId: cae.id
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        external: false
+        targetPort: 5432
+        transport: 'tcp'
+      }
+    }
+    template: {
+      containers: [
+        {
+          name: 'postgres'
+          image: 'postgres:16-alpine'
+          env: [
+            { name: 'POSTGRES_USER', value: 'agentradar' }
+            { name: 'POSTGRES_PASSWORD', value: postgresPassword }
+            { name: 'POSTGRES_DB', value: 'agentradar' }
+          ]
+          resources: { cpu: json('0.5'), memory: '1Gi' }
+        }
+      ]
+      scale: { minReplicas: 1, maxReplicas: 1 }
+    }
+  }
+}
+
 resource redis 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'redis-${name}'
   location: location
@@ -104,7 +100,6 @@ resource redis 'Microsoft.App/containerApps@2024-03-01' = {
         external: false
         targetPort: 6379
         transport: 'tcp'
-        allowInsecure: true
       }
     }
     template: {
@@ -131,7 +126,6 @@ resource neo4j 'Microsoft.App/containerApps@2024-03-01' = {
         external: false
         targetPort: 7687
         transport: 'tcp'
-        allowInsecure: true
       }
     }
     template: {
@@ -156,8 +150,8 @@ output resourceGroupName string = resourceGroup().name
 output location string = location
 output acrName string = acr.name
 output acrLoginServer string = acr.properties.loginServer
-output postgresFqdn string = postgres.properties.fullyQualifiedDomainName
 output containerAppsEnvName string = cae.name
+output postgresAppName string = postgres.name
 output redisAppName string = redis.name
 output neo4jAppName string = neo4j.name
 output neo4jPassword string = neo4jPassword
