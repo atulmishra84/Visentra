@@ -1058,7 +1058,7 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
     const dashboard = {
       ...base,
       ...insights,
-      // Prefer funnel-enriched counts; keep shadow from base summary
+      // Prefer insight-enriched counts; keep shadow from base summary
       shadowAiAgents: base.shadowAiAgents,
       shadowAi: base.shadowAi,
       shadowAiByTag: base.shadowAiByTag,

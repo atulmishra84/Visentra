@@ -3,16 +3,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { KpiCard } from "../components/KpiCard";
 import { apiRequest, listFromPayload, numberAt, valueAt } from "../lib/api";
 
-type FunnelStage = {
-  id: string;
-  label: string;
-  description?: string;
-  count: number;
-  href?: string;
-  conversionFromPrev?: number;
-  pctOfTotal?: number;
-};
-
 type DistRow = Record<string, unknown> & {
   name?: string;
   count?: number;
@@ -38,138 +28,6 @@ function inventoryPath(query: Record<string, string | undefined> = {}) {
   });
   const qs = params.toString();
   return qs ? `/inventory?${qs}` : "/inventory";
-}
-
-function VisibilityFunnel({
-  stages,
-  onSelect
-}: {
-  stages: FunnelStage[];
-  onSelect: (stage: FunnelStage) => void;
-}) {
-  if (!stages.length) {
-    return <div className="empty-state">No funnel stages available.</div>;
-  }
-
-  const max = Math.max(1, ...stages.map((s) => s.count), stages[0]?.count || 0);
-  const width = 720;
-  const height = 420;
-  const padX = 48;
-  const padY = 12;
-  const gap = 6;
-  const stageH = (height - padY * 2 - gap * (stages.length - 1)) / stages.length;
-  const centerX = width / 2;
-  const minWidth = width * 0.22;
-  const maxWidth = width - padX * 2;
-
-  const palette = [
-    "var(--brand)",
-    "color-mix(in srgb, var(--brand) 70%, var(--blue))",
-    "var(--blue)",
-    "color-mix(in srgb, var(--blue) 65%, #7dd3c7)",
-    "color-mix(in srgb, var(--brand) 45%, #7dd3c7)"
-  ];
-
-  const widths = stages.map((stage) => {
-    const ratio = Math.sqrt(Math.max(stage.count, 0) / max);
-    return Math.max(minWidth, maxWidth * (0.35 + 0.65 * ratio));
-  });
-
-  const segments = stages.map((stage, index) => {
-    const topW = widths[index];
-    const bottomW = widths[Math.min(index + 1, widths.length - 1)] ?? topW;
-    // Classic funnel: each band tapers toward the next stage width
-    const y0 = padY + index * (stageH + gap);
-    const y1 = y0 + stageH;
-    const topLeft = centerX - topW / 2;
-    const topRight = centerX + topW / 2;
-    // Use next stage's width at bottom so bands form a continuous funnel silhouette
-    const nextTopW = index < stages.length - 1 ? widths[index + 1] : bottomW * 0.92;
-    const botLeft = centerX - nextTopW / 2;
-    const botRight = centerX + nextTopW / 2;
-    const points = `${topLeft},${y0} ${topRight},${y0} ${botRight},${y1} ${botLeft},${y1}`;
-    const midY = (y0 + y1) / 2;
-    const drop = index > 0 ? Math.max(0, stages[index - 1].count - stage.count) : 0;
-    return { stage, index, points, midY, y0, y1, topW, drop, fill: palette[index % palette.length] };
-  });
-
-  return (
-    <div className="funnel-chart">
-      <svg
-        className="funnel-svg"
-        viewBox={`0 0 ${width} ${height}`}
-        role="img"
-        aria-label="Visibility funnel chart"
-      >
-        <defs>
-          {segments.map((seg) => (
-            <linearGradient key={`grad-${seg.stage.id}`} id={`funnel-grad-${seg.stage.id}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={seg.fill} stopOpacity="0.95" />
-              <stop offset="100%" stopColor={seg.fill} stopOpacity="0.72" />
-            </linearGradient>
-          ))}
-        </defs>
-
-        {segments.map((seg) => (
-          <g key={seg.stage.id} className="funnel-band">
-            <polygon
-              points={seg.points}
-              fill={`url(#funnel-grad-${seg.stage.id})`}
-              className="funnel-polygon"
-              role="button"
-              tabIndex={0}
-              onClick={() => onSelect(seg.stage)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onSelect(seg.stage);
-                }
-              }}
-            >
-              <title>
-                {`${seg.stage.label}: ${seg.stage.count} (${seg.stage.pctOfTotal ?? 0}% of total)`}
-              </title>
-            </polygon>
-            <text x={centerX} y={seg.midY - 6} textAnchor="middle" className="funnel-svg-label">
-              {seg.stage.label}
-            </text>
-            <text x={centerX} y={seg.midY + 14} textAnchor="middle" className="funnel-svg-value">
-              {seg.stage.count}
-              <tspan className="funnel-svg-pct"> · {seg.stage.pctOfTotal ?? 0}%</tspan>
-            </text>
-          </g>
-        ))}
-      </svg>
-
-      <aside className="funnel-legend" aria-label="Funnel stage details">
-        {segments.map((seg) => (
-          <button
-            type="button"
-            key={`legend-${seg.stage.id}`}
-            className="funnel-legend-row"
-            onClick={() => onSelect(seg.stage)}
-            title={seg.stage.description || seg.stage.label}
-          >
-            <span className="funnel-legend-swatch" style={{ background: seg.fill }} />
-            <span className="funnel-legend-copy">
-              <strong>{seg.stage.label}</strong>
-              <span className="muted">{seg.stage.description}</span>
-            </span>
-            <span className="funnel-legend-metrics mono">
-              <span>{seg.stage.count}</span>
-              {seg.index > 0 ? (
-                <span className="muted">
-                  {seg.stage.conversionFromPrev ?? 0}% in · −{seg.drop}
-                </span>
-              ) : (
-                <span className="muted">100% base</span>
-              )}
-            </span>
-          </button>
-        ))}
-      </aside>
-    </div>
-  );
 }
 
 function DonutChart({
@@ -374,7 +232,6 @@ export function ExecutiveDashboardPage() {
   const [payload, setPayload] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"funnel" | "graphical">("funnel");
 
   useEffect(() => {
     let mounted = true;
@@ -392,32 +249,6 @@ export function ExecutiveDashboardPage() {
   }, []);
 
   const dashboard = (payload?.dashboard as Record<string, unknown> | undefined) ?? payload ?? {};
-  const funnel = useMemo(() => {
-    const raw = (dashboard.funnel as FunnelStage[] | undefined) || [];
-    if (raw.length) return raw;
-    const total = metric(dashboard, ["totalAgents", "agentsTotal", "total"]);
-    return [
-      { id: "discovered", label: "Discovered", count: total, href: "/inventory", pctOfTotal: 100, conversionFromPrev: 100 },
-      {
-        id: "confirmed",
-        label: "Confirmed",
-        count: metric(dashboard, ["confirmedAgents"]),
-        href: "/inventory?agentStatus=confirmed"
-      },
-      {
-        id: "owned",
-        label: "Owned",
-        count: Math.max(0, total - metric(dashboard, ["ownerlessAgents", "ownerless"])),
-        href: "/inventory"
-      },
-      {
-        id: "managed",
-        label: "Managed",
-        count: Math.max(0, total - metric(dashboard, ["shadowAiAgents", "shadowAi"])),
-        href: "/inventory"
-      }
-    ];
-  }, [dashboard]);
 
   const modelRows = useMemo(
     () => listFromPayload<DistRow>(dashboard, ["models", "modelUsage", "modelsInUse"]),
@@ -433,12 +264,6 @@ export function ExecutiveDashboardPage() {
   const trends = (dashboard.trends as { series?: Array<{ week: string; count: number }> } | undefined) || {};
   const series = trends.series || [];
   const insight = valueAt(dashboard, ["insight"], "");
-  const dropOffs = (dashboard.dropOffs as Array<Record<string, unknown>> | undefined) || [];
-
-  const openStage = (stage: FunnelStage) => {
-    if (stage.href) navigate(stage.href);
-    else navigate("/inventory");
-  };
 
   const openDist = (row: DistRow, facet?: string) => {
     const fromApi = (row.inventoryQuery || {}) as Record<string, string | undefined>;
@@ -472,28 +297,10 @@ export function ExecutiveDashboardPage() {
           <p className="eyebrow">Executive</p>
           <h1>AI Agent Visibility Overview</h1>
           <p className="page-description">
-            Leadership view of discovery → confirmation → ownership → managed posture, with graphical distribution.
+            Leadership view of discovered agents, ownership, Shadow AI, and usage mix across the estate.
           </p>
         </div>
-        <div className="toolbar">
-          <div className="view-toggle" role="group" aria-label="Dashboard view">
-            <button
-              type="button"
-              className={`button ${view === "funnel" ? "primary" : "ghost"}`}
-              onClick={() => setView("funnel")}
-            >
-              Funnel
-            </button>
-            <button
-              type="button"
-              className={`button ${view === "graphical" ? "primary" : "ghost"}`}
-              onClick={() => setView("graphical")}
-            >
-              Graphical
-            </button>
-          </div>
-          <span className="status-pill">Updated {new Date().toLocaleTimeString()}</span>
-        </div>
+        <span className="status-pill">Updated {new Date().toLocaleTimeString()}</span>
       </header>
 
       {insight ? <p className="usage-insight">{insight}</p> : null}
@@ -502,7 +309,7 @@ export function ExecutiveDashboardPage() {
         <KpiCard label="Discovered" value={metric(dashboard, ["totalAgents", "agentsTotal", "total"])} trend="Inventory" />
         <KpiCard
           label="Confirmed"
-          value={metric(dashboard, ["confirmedAgents"], funnel.find((s) => s.id === "confirmed")?.count || 0)}
+          value={metric(dashboard, ["confirmedAgents"], 0)}
           trend="Strong evidence"
           tone="good"
         />
@@ -520,7 +327,7 @@ export function ExecutiveDashboardPage() {
         />
         <KpiCard
           label="Managed"
-          value={metric(dashboard, ["managedAgents"], funnel.find((s) => s.id === "managed")?.count || 0)}
+          value={metric(dashboard, ["managedAgents"], 0)}
           trend="Owned & not shadow"
           tone="good"
         />
@@ -546,65 +353,29 @@ export function ExecutiveDashboardPage() {
 
       <p className="muted" style={{ marginBottom: 16 }}>
         Investigate Shadow AI in the <Link to="/shadow-ai">Shadow AI</Link> workbench, or open{" "}
-        <Link to="/inventory">Inventory</Link> from any funnel stage.
+        <Link to="/inventory">Inventory</Link> from any chart.
       </p>
 
-      {view === "funnel" ? (
-        <>
-          <section className="panel funnel-panel">
-            <div className="panel-heading">
-              <h2>Visibility funnel</h2>
-              <p className="muted">Discovered → classified → confirmed → owned → managed</p>
-            </div>
-            <VisibilityFunnel stages={funnel} onSelect={openStage} />
-            {dropOffs.length ? (
-              <div className="funnel-dropoffs">
-                {dropOffs.map((d) => (
-                  <div className="funnel-dropoff-chip" key={String(d.to)}>
-                    <span>{valueAt(d, ["label"])}</span>
-                    <strong className="mono">{numberAt(d, ["lost"], 0)} lost</strong>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </section>
+      <section className="split-grid">
+        <section className="panel">
+          <h2>By evidence class</h2>
+          <DonutChart rows={evidenceRows} title="Evidence" onSelect={(row) => openDist(row)} />
+        </section>
+        <section className="panel">
+          <h2>By agent status</h2>
+          <DonutChart rows={statusRows} title="Status" onSelect={(row) => openDist(row)} />
+        </section>
+      </section>
 
-          <section className="split-grid">
-            <section className="panel">
-              <h2>Evidence mix</h2>
-              <DonutChart rows={evidenceRows} title="Evidence" onSelect={(row) => openDist(row)} />
-            </section>
-            <section className="panel">
-              <h2>Discovery trend</h2>
-              <p className="muted">Agents first discovered per week</p>
-              <TrendSparkline series={series} />
-            </section>
-          </section>
-        </>
-      ) : (
-        <>
-          <section className="split-grid">
-            <section className="panel">
-              <h2>By evidence class</h2>
-              <DonutChart rows={evidenceRows} title="Evidence" onSelect={(row) => openDist(row)} />
-            </section>
-            <section className="panel">
-              <h2>By agent status</h2>
-              <DonutChart rows={statusRows} title="Status" onSelect={(row) => openDist(row)} />
-            </section>
-          </section>
+      <section className="split-grid">
+        <BarList title="Models in use" rows={modelRows} onSelect={(row) => openDist(row, "model")} />
+        <BarList title="Agents by category" rows={categoryRows} onSelect={(row) => openDist(row, "category")} />
+      </section>
 
-          <section className="split-grid">
-            <BarList title="Models in use" rows={modelRows} onSelect={(row) => openDist(row, "model")} />
-            <BarList title="Agents by category" rows={categoryRows} onSelect={(row) => openDist(row, "category")} />
-          </section>
-
-          <section className="panel">
-            <h2>Discovery trend</h2>
-            <TrendSparkline series={series} />
-          </section>
-        </>
-      )}
+      <section className="panel">
+        <h2>Discovery trend</h2>
+        <TrendSparkline series={series} />
+      </section>
     </div>
   );
 }

@@ -515,8 +515,7 @@ function sumResultField(bucket, field) {
 }
 
 /**
- * Executive visibility funnel + supporting mixes for leadership dashboards.
- * Funnel stages narrow from discovered inventory toward owned, managed posture.
+ * Executive visibility KPIs + supporting mixes for leadership dashboards.
  */
 export async function buildExecutiveInsights(pool, tenantId) {
   const [counts, evidence, trends, categories, models, frameworks, cloud] = await Promise.all([
@@ -557,63 +556,15 @@ export async function buildExecutiveInsights(pool, tenantId) {
   const confirmed = c.confirmed;
   const owned = c.owned;
   const managed = c.managed;
-
-  const funnel = [
-    {
-      id: "discovered",
-      label: "Discovered",
-      description: "All AI agents in inventory",
-      count: discovered,
-      href: "/inventory"
-    },
-    {
-      id: "classified",
-      label: "Classified",
-      description: "Evidence class assigned",
-      count: classified,
-      href: "/inventory"
-    },
-    {
-      id: "confirmed",
-      label: "Confirmed",
-      description: "Strong agent evidence",
-      count: confirmed,
-      href: "/inventory?agentStatus=confirmed"
-    },
-    {
-      id: "owned",
-      label: "Owned",
-      description: "Has an attributed owner",
-      count: owned,
-      href: "/inventory"
-    },
-    {
-      id: "managed",
-      label: "Managed",
-      description: "Owned and not Shadow AI",
-      count: managed,
-      href: "/inventory"
-    }
-  ].map((stage, index, arr) => {
-    const prev = index === 0 ? discovered : arr[index - 1].count;
-    const conversion = prev > 0 ? Number(((stage.count / prev) * 100).toFixed(1)) : 0;
-    const ofTotal = discovered > 0 ? Number(((stage.count / discovered) * 100).toFixed(1)) : 0;
-    return { ...stage, conversionFromPrev: conversion, pctOfTotal: ofTotal };
-  });
-
-  const dropOffs = funnel.slice(1).map((stage, i) => ({
-    from: funnel[i].id,
-    to: stage.id,
-    lost: Math.max(0, funnel[i].count - stage.count),
-    label: `${funnel[i].label} → ${stage.label}`
-  }));
+  const confirmedPct = discovered > 0 ? Number(((confirmed / discovered) * 100).toFixed(1)) : 0;
+  const managedPct = discovered > 0 ? Number(((managed / discovered) * 100).toFixed(1)) : 0;
 
   const insightParts = [];
   if (!discovered) {
     insightParts.push("No agents discovered yet. Run discovery to populate executive visibility.");
   } else {
     insightParts.push(
-      `${discovered} agents discovered; ${confirmed} confirmed (${funnel[2].pctOfTotal}%); ${managed} managed (${funnel[4].pctOfTotal}%).`
+      `${discovered} agents discovered; ${confirmed} confirmed (${confirmedPct}%); ${managed} managed (${managedPct}%).`
     );
     if (c.ownerless > 0) {
       insightParts.push(`${c.ownerless} still ownerless.`);
@@ -621,8 +572,6 @@ export async function buildExecutiveInsights(pool, tenantId) {
   }
 
   return {
-    funnel,
-    dropOffs,
     evidence,
     trends,
     categories: categories.items,
