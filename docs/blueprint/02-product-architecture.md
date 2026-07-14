@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar is a multi-source discovery and visibility platform that ingests observations from endpoints, IDEs, repositories, cloud accounts, containers, SaaS applications, browser environments, MCP configurations, local LLM runtimes, and autonomous execution platforms. The system normalizes those observations into canonical assets, resolves agent identities, builds relationships in a graph, indexes inventory for search, streams events to the UI, and exposes enterprise APIs for export and integration.
+Visentra is a multi-source discovery and visibility platform that ingests observations from endpoints, IDEs, repositories, cloud accounts, containers, SaaS applications, browser environments, MCP configurations, local LLM runtimes, and autonomous execution platforms. The system normalizes those observations into canonical assets, resolves agent identities, builds relationships in a graph, indexes inventory for search, streams events to the UI, and exposes enterprise APIs for export and integration.
 
 The architecture follows four product principles:
 
@@ -15,7 +15,7 @@ The architecture follows four product principles:
 
 ```mermaid
 C4Context
-    title AgentRadar System Context
+    title Visentra System Context
 
     Person(ciso, "CISO", "Needs enterprise AI agent inventory and exposure visibility")
     Person(secops, "SecOps Analyst", "Investigates discovered agents and relationships")
@@ -24,7 +24,7 @@ C4Context
     Person(dev, "Developer", "Reviews owned agents and source evidence")
     Person(auditor, "Auditor", "Consumes exportable inventory and evidence")
 
-    System(agentRadar, "AgentRadar Platform", "Enterprise AI Agent Discovery & Visibility")
+    System(agentRadar, "Visentra Platform", "Enterprise AI Agent Discovery & Visibility")
 
     System_Ext(endpoint, "Endpoint Fleet", "Developer laptops, servers, workstations")
     System_Ext(ide, "IDE Ecosystem", "VS Code, JetBrains, Cursor, extensions")
@@ -56,7 +56,7 @@ C4Context
 
 ```mermaid
 C4Container
-    title AgentRadar Container Architecture
+    title Visentra Container Architecture
 
     Person(user, "Enterprise User", "Security, platform, AI, developer, auditor personas")
 
@@ -301,7 +301,7 @@ Responsibilities:
 
 ## Tenancy Model
 
-AgentRadar is tenant-isolated by default.
+Visentra is tenant-isolated by default.
 
 - Every row, node, edge, index document, object-storage key, event, and cache key includes `tenant_id`.
 - Services derive tenant context from authenticated request or signed collector credentials.
@@ -360,7 +360,7 @@ Realtime constraints:
 
 ## Read Model Strategy
 
-AgentRadar uses purpose-built read models:
+Visentra uses purpose-built read models:
 
 - PostgreSQL for canonical detail pages and transactional state.
 - OpenSearch for global search, facets, and high-cardinality filters.
@@ -395,7 +395,7 @@ Strong consistency is required for canonical inventory writes. Eventual consiste
 
 ## Deployment Topology
 
-AgentRadar should support:
+Visentra should support:
 
 - Multi-tenant SaaS deployment.
 - Customer-managed single-tenant deployment for regulated enterprises.

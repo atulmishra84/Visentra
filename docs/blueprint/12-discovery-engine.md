@@ -2,7 +2,7 @@
 
 The discovery engine converts signals from cloud APIs, Kubernetes, SaaS, CI/CD, git, logs, identity, MCP/LLM provider APIs, and **optional EDR/endpoint-management integrations** into normalized observations that feed identity resolution, relationship inference, search, dashboards, and realtime UI. See [27-discovery-workflow.md](./27-discovery-workflow.md) for the end-to-end workflow.
 
-**Platform posture: agentless.** AgentRadar does not require a proprietary client on endpoints. Endpoint/IDE/process evidence is obtained by integrating with the customer’s existing EDR (or similar) systems when that coverage is needed.
+**Platform posture: agentless.** Visentra does not require a proprietary client on endpoints. Endpoint/IDE/process evidence is obtained by integrating with the customer’s existing EDR (or similar) systems when that coverage is needed.
 
 Related: [11-apis.md](./11-apis.md), [13-visibility-engine.md](./13-visibility-engine.md), [14-relationship-engine.md](./14-relationship-engine.md), [26-data-flow-diagrams.md](./26-data-flow-diagrams.md).
 
@@ -47,7 +47,7 @@ flowchart LR
 | CI/CD | Pipeline API | Build agents, scheduled agents | Job defs, secrets refs (names only), runners. |
 | MCP / LLM API | Provider + config APIs | MCP servers, models, usage | Server URL, tool list, model IDs (no raw secrets). |
 
-**Explicitly out of default scope:** deploying an AgentRadar daemon, IDE plugin, or filesystem agent on employee laptops. Those signals come from **EDR / MDM / existing endpoint tooling** when the customer enables that connector.
+**Explicitly out of default scope:** deploying a Visentra daemon, IDE plugin, or filesystem agent on employee laptops. Those signals come from **EDR / MDM / existing endpoint tooling** when the customer enables that connector.
 | CI/CD | Pipeline events | Builds, artifacts, deployments | Run ID, actor, image digest, target env. |
 | MCP | Protocol/config discovery | MCP servers, tools, resources | Server URL/command, tool schema, client config. |
 | LLM API | Provider telemetry | Models, deployments, usage | Model name, key alias, client library, caller metadata. |

@@ -1,4 +1,4 @@
-# AgentRadar Cloud Deploy Package
+# Visentra Cloud Deploy Package
 
 > **Evaluation / POC path.** This installer deploys Postgres, Redis, and Neo4j as
 > Container Apps **without persistent volumes or managed backups**. Inventory and
@@ -6,7 +6,7 @@
 > Database for PostgreSQL Flexible Server (+ backups), Key Vault, and Entra ID SSO
 > — see [`../PRODUCTION.md`](../PRODUCTION.md).
 
-One-click install of **AgentRadar Discovery & Visibility** into **your Azure subscription** (customer cloud / BYOC).
+One-click install of **Visentra Discovery & Visibility** into **your Azure subscription** (customer cloud / BYOC).
 
 ## Data plane modes
 

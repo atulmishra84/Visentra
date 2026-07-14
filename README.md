@@ -1,4 +1,4 @@
-# AgentRadar — AI Governance, Risk & Security Platform
+# Visentra — AI Governance, Risk & Security Platform
 
 > **Discover. Govern. Secure. Every AI agent, everywhere.**
 
@@ -13,14 +13,14 @@ A greenfield **Enterprise AI Agent Discovery & Visibility** track (CrowdStrike-f
 
 ```bash
 cd platform/infra/compose && docker compose up -d --build
-# UI http://localhost:5173  —  admin@agentradar.local / AgentRadar!dev
+# UI http://localhost:5173  —  admin@agentradar.local / Visentra!dev
 ```
 
 Scope of the new track: **Discover · Inventory · Relationships · Visibility** (no governance/remediation yet). The root Compose V1 and AKS `deploy/` stacks below are unchanged.
 
 ---
 
-AgentRadar is an enterprise AI governance platform that gives organizations complete visibility, risk intelligence, and compliance control over every AI agent running in their cloud environment. Built on a Bring Your Own Cloud (BYOC) model, AgentRadar deploys entirely inside the customer's own Azure tenant — your data never leaves your environment.
+Visentra is an enterprise AI governance platform that gives organizations complete visibility, risk intelligence, and compliance control over every AI agent running in their cloud environment. Built on a Bring Your Own Cloud (BYOC) model, Visentra deploys entirely inside the customer's own Azure tenant — your data never leaves your environment.
 
 ## Platform loop
 
@@ -110,4 +110,4 @@ Outbound: Azure Management API · Azure Monitor
 
 ---
 
-*AgentRadar is built for enterprises that take AI governance seriously — not as a compliance checkbox, but as a foundational operational discipline.*
+*Visentra is built for enterprises that take AI governance seriously — not as a compliance checkbox, but as a foundational operational discipline.*

@@ -1,6 +1,6 @@
 # 21. Azure
 
-AgentRadar on Azure uses AKS, Azure Database for PostgreSQL Flexible Server, Azure Cache for Redis, OpenSearch/Elastic or Azure AI Search adapter, Event Hubs/NATS, optional Cosmos DB Gremlin, Application Gateway or NGINX ingress, Key Vault, managed identities, Blob Storage, ACR, and Azure Monitor.
+Visentra on Azure uses AKS, Azure Database for PostgreSQL Flexible Server, Azure Cache for Redis, OpenSearch/Elastic or Azure AI Search adapter, Event Hubs/NATS, optional Cosmos DB Gremlin, Application Gateway or NGINX ingress, Key Vault, managed identities, Blob Storage, ACR, and Azure Monitor.
 
 Related: [18-deployment-architecture.md](./18-deployment-architecture.md), [19-kubernetes-deployment.md](./19-kubernetes-deployment.md), [23-security-architecture.md](./23-security-architecture.md).
 

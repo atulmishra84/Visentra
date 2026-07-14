@@ -1,6 +1,6 @@
 # 19. Kubernetes Deployment
 
-AgentRadar's reference deployment is a Helm chart that installs the services from [16-backend-services.md](./16-backend-services.md), integrates cloud secret stores, configures ingress, and enables autoscaling.
+Visentra's reference deployment is a Helm chart that installs the services from [16-backend-services.md](./16-backend-services.md), integrates cloud secret stores, configures ingress, and enables autoscaling.
 
 Related: [18-deployment-architecture.md](./18-deployment-architecture.md), [20-aws.md](./20-aws.md), [21-azure.md](./21-azure.md), [22-gcp.md](./22-gcp.md).
 

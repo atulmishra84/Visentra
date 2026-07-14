@@ -34,7 +34,7 @@ async function decayEdges(driver) {
 
 async function main() {
   if (!NEO4J_URI) {
-    console.log("AgentRadar relationship worker idle — NEO4J_URI not set; projection handled by API pipeline.");
+    console.log("Visentra relationship worker idle — NEO4J_URI not set; projection handled by API pipeline.");
     setInterval(() => {}, 60 * 60 * 1000);
     return;
   }

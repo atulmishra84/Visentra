@@ -2,7 +2,7 @@
 
 ## Overview
 
-Agent identity resolution determines whether normalized observations represent a new agent, an existing agent, a new instance of an existing agent, or a weak candidate. It is central to trust: false merges hide assets, while false splits inflate inventory. AgentRadar should prefer conservative merging with transparent confidence.
+Agent identity resolution determines whether normalized observations represent a new agent, an existing agent, a new instance of an existing agent, or a weak candidate. It is central to trust: false merges hide assets, while false splits inflate inventory. Visentra should prefer conservative merging with transparent confidence.
 
 ## Resolution Inputs
 

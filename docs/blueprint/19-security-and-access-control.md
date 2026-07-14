@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar must be enterprise-ready from the first release. Security includes tenant isolation, SSO, RBAC, service authentication, collector identity, secrets handling, audit events, export controls, and evidence access controls.
+Visentra must be enterprise-ready from the first release. Security includes tenant isolation, SSO, RBAC, service authentication, collector identity, secrets handling, audit events, export controls, and evidence access controls.
 
 ## Authentication
 

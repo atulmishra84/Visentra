@@ -2,7 +2,7 @@
 
 ## Overview
 
-PostgreSQL is the canonical inventory store for AgentRadar. It holds tenants, users, collectors, sources, normalized entities, relationships, observations, evidence metadata, discovery runs, exports, saved searches, settings, snapshots, and audit events.
+PostgreSQL is the canonical inventory store for Visentra. It holds tenants, users, collectors, sources, normalized entities, relationships, observations, evidence metadata, discovery runs, exports, saved searches, settings, snapshots, and audit events.
 
 ## Database Principles
 
@@ -18,7 +18,7 @@ PostgreSQL is the canonical inventory store for AgentRadar. It holds tenants, us
 | Table | Purpose |
 |---|---|
 | `tenants` | Tenant metadata. |
-| `users` | Human users known to AgentRadar. |
+| `users` | Human users known to Visentra. |
 | `roles` | RBAC roles. |
 | `user_roles` | User-role assignments. |
 | `collectors` | Collector identities and health. |

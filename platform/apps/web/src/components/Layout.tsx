@@ -123,7 +123,7 @@ export function Layout() {
         <div className="brand-lockup">
           <div className="brand-mark">AR</div>
           <div>
-            <div className="brand-title">AgentRadar</div>
+            <div className="brand-title">Visentra</div>
             <div className="brand-subtitle">Discovery & Visibility</div>
           </div>
         </div>

@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar integrations support discovery intake, enrichment, export, and enterprise workflows. V1/V2 integrations should focus on visibility and data exchange, not enforcement or remediation.
+Visentra integrations support discovery intake, enrichment, export, and enterprise workflows. V1/V2 integrations should focus on visibility and data exchange, not enforcement or remediation.
 
 ## Integration Categories
 

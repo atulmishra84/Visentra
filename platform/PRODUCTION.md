@@ -1,6 +1,6 @@
-# Production readiness checklist — AgentRadar Discovery
+# Production readiness checklist — Visentra Discovery
 
-AgentRadar is **agentless discovery & visibility**. This checklist is the minimum bar before a customer-facing production deploy.
+Visentra is **agentless discovery & visibility**. This checklist is the minimum bar before a customer-facing production deploy.
 
 ## Stage 1 — Production Discovery (required)
 

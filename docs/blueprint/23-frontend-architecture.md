@@ -2,7 +2,7 @@
 
 ## Overview
 
-The AgentRadar frontend is an enterprise web console for discovery, inventory, topology, search, analytics, timelines, exports, and settings. It should be fast, accessible, role-aware, and optimized for dense technical workflows.
+The Visentra frontend is an enterprise web console for discovery, inventory, topology, search, analytics, timelines, exports, and settings. It should be fast, accessible, role-aware, and optimized for dense technical workflows.
 
 ## Recommended Stack
 

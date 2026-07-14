@@ -543,7 +543,7 @@ const loginRateLimit = createRateLimiter({ windowMs: 60_000, max: IS_PROD ? 10 :
 app.get("/health", async (_req, res) => {
   res.json({
     status: "ok",
-    service: "agentradar-api",
+    service: "visentra-api",
     env: IS_PROD ? "production" : "development",
     neo4j: Boolean(neo4jDriver)
   });
@@ -1310,7 +1310,7 @@ app.get("/api/usage/export", auth, async (req, res) => {
     }
     const csv = await exportUsageCsv(pool, req.tenantId, dimension, req.query);
     res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", `attachment; filename=agentradar-usage-${dimension}.csv`);
+    res.setHeader("Content-Disposition", `attachment; filename=visentra-usage-${dimension}.csv`);
     return res.send(csv);
   } catch (err) {
     res.status(500).json({ error: { message: publicErrorMessage(err, "Usage export failed") } });
@@ -1390,11 +1390,11 @@ app.get("/api/export/agents", auth, async (req, res) => {
       lines.push(cols.map((c) => JSON.stringify(r[c] ?? "")).join(","));
     }
     res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", "attachment; filename=agentradar-agents.csv");
+    res.setHeader("Content-Disposition", "attachment; filename=visentra-agents.csv");
     return res.send(lines.join("\n"));
   }
   res.setHeader("Content-Type", "application/json");
-  res.setHeader("Content-Disposition", "attachment; filename=agentradar-agents.json");
+  res.setHeader("Content-Disposition", "attachment; filename=visentra-agents.json");
   res.send(JSON.stringify({ agents: result.rows }, null, 2));
 });
 
@@ -1710,7 +1710,7 @@ async function boot() {
   }
 
   app.listen(PORT, () => {
-    console.log(`AgentRadar API listening on :${PORT} (${IS_PROD ? "production" : "development"})`);
+    console.log(`Visentra API listening on :${PORT} (${IS_PROD ? "production" : "development"})`);
   });
 }
 

@@ -1,6 +1,6 @@
 # 15. Search Architecture
 
-AgentRadar search uses OpenSearch as the reference engine for full-text discovery, exact filters, facets, autocomplete, highlighting, and relationship-aware ranking across agents, assets, prompts, tools, MCP servers, repositories, observations, and graph edges.
+Visentra search uses OpenSearch as the reference engine for full-text discovery, exact filters, facets, autocomplete, highlighting, and relationship-aware ranking across agents, assets, prompts, tools, MCP servers, repositories, observations, and graph edges.
 
 Related: [11-apis.md](./11-apis.md), [13-visibility-engine.md](./13-visibility-engine.md), [14-relationship-engine.md](./14-relationship-engine.md), [16-backend-services.md](./16-backend-services.md).
 

@@ -1,4 +1,4 @@
-# AgentRadar Discovery & Visibility Blueprint
+# Visentra Discovery & Visibility Blueprint
 
 Implementation-ready engineering blueprint for the world's first Enterprise AI Agent Discovery & Visibility Platform.
 
@@ -60,6 +60,6 @@ docker compose up -d --build
 # Web: http://localhost:5173  API: http://localhost:8080/health
 ```
 
-Default admin: `admin@agentradar.local` / `AgentRadar!dev`
+Default admin: `admin@agentradar.local` / `Visentra!dev`
 
 Local compose enables `DISCOVERY_DEMO_SEED=true` so the inventory boots with multi-category sample agents (IDE, framework, cloud, MCP, SaaS, local LLM). Production deploys must leave demo seed off.

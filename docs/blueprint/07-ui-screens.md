@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document defines the major AgentRadar UI screens. Each screen should be implementation-ready: purpose, primary widgets, filters, drill-down paths, export behavior, and realtime behavior are specified. The visual language should match enterprise security and observability products: high trust, dense where needed, fast filters, clear evidence, strong status states, and no governance/remediation actions in V1/V2.
+This document defines the major Visentra UI screens. Each screen should be implementation-ready: purpose, primary widgets, filters, drill-down paths, export behavior, and realtime behavior are specified. The visual language should match enterprise security and observability products: high trust, dense where needed, fast filters, clear evidence, strong status states, and no governance/remediation actions in V1/V2.
 
 ## Common Screen Contract
 

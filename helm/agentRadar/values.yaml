@@ -1,4 +1,4 @@
-# AgentRadar — Helm Chart Values (Azure Standalone)
+# Visentra — Helm Chart Values (Azure Standalone)
 # These are the default values. Override per environment with:
 #   helm upgrade agentRadar ./helm/agentRadar -f values-prod.yaml
 

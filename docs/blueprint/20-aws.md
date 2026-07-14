@@ -1,6 +1,6 @@
 # 20. AWS
 
-AgentRadar on AWS uses EKS, RDS PostgreSQL, ElastiCache Redis, OpenSearch Service, MSK/NATS, optional Neptune, ALB ingress, IAM workload identities, Secrets Manager, KMS, S3, ECR, and CloudWatch.
+Visentra on AWS uses EKS, RDS PostgreSQL, ElastiCache Redis, OpenSearch Service, MSK/NATS, optional Neptune, ALB ingress, IAM workload identities, Secrets Manager, KMS, S3, ECR, and CloudWatch.
 
 Related: [18-deployment-architecture.md](./18-deployment-architecture.md), [19-kubernetes-deployment.md](./19-kubernetes-deployment.md), [23-security-architecture.md](./23-security-architecture.md).
 
@@ -74,7 +74,7 @@ Use least-privilege roles per service account. Avoid broad wildcards and scope a
 
 Cross-account discovery:
 
-1. Customer creates `AgentRadarDiscoveryRole` in target accounts.
+1. Customer creates `VisentraDiscoveryRole` in target accounts.
 2. Trust policy allows collector role with external ID.
 3. Permissions are read-only and scoped to enabled collectors.
 4. Collector uses resource ARNs as strong identity keys.

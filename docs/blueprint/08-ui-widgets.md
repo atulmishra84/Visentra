@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar UI widgets must support enterprise discovery and visibility workflows: KPI monitoring, faceted search, dense tables, topology exploration, event timelines, realtime streams, usage analytics, coverage maps, and evidence drill-down. Widgets should be reusable across screens and implemented with consistent states, accessibility, exports, and RBAC behavior.
+Visentra UI widgets must support enterprise discovery and visibility workflows: KPI monitoring, faceted search, dense tables, topology exploration, event timelines, realtime streams, usage analytics, coverage maps, and evidence drill-down. Widgets should be reusable across screens and implemented with consistent states, accessibility, exports, and RBAC behavior.
 
 ## Shared Widget Requirements
 
@@ -393,7 +393,7 @@ Represent confidence consistently across inventory, topology, search, and detail
 
 ### Purpose
 
-Show why AgentRadar believes an entity or relationship exists.
+Show why Visentra believes an entity or relationship exists.
 
 ### Contents
 

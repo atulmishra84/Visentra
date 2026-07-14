@@ -1,6 +1,6 @@
 # 18. Deployment Architecture
 
-AgentRadar supports multi-tenant SaaS, dedicated SaaS, BYOC managed, and BYOC self-managed deployments using the same logical services from [16-backend-services.md](./16-backend-services.md). Kubernetes is the reference runtime; managed cloud services provide persistence, cache, search, eventing, ingress, and observability.
+Visentra supports multi-tenant SaaS, dedicated SaaS, BYOC managed, and BYOC self-managed deployments using the same logical services from [16-backend-services.md](./16-backend-services.md). Kubernetes is the reference runtime; managed cloud services provide persistence, cache, search, eventing, ingress, and observability.
 
 Related: [19-kubernetes-deployment.md](./19-kubernetes-deployment.md), [20-aws.md](./20-aws.md), [21-azure.md](./21-azure.md), [22-gcp.md](./22-gcp.md), [23-security-architecture.md](./23-security-architecture.md).
 

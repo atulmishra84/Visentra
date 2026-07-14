@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar quality depends on software correctness and data correctness. The platform must test collectors, ingestion, normalization, identity resolution, graph projection, search indexing, APIs, UI, RBAC, exports, and scale behavior.
+Visentra quality depends on software correctness and data correctness. The platform must test collectors, ingestion, normalization, identity resolution, graph projection, search indexing, APIs, UI, RBAC, exports, and scale behavior.
 
 ## Test Pyramid
 

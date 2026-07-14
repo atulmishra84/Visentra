@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar's roadmap is intentionally staged. The product must first become the enterprise system of record for AI agent discovery, then deepen into runtime visibility, and only later consider governance or remediation. This sequencing keeps the initial product focused, credible, and implementable.
+Visentra's roadmap is intentionally staged. The product must first become the enterprise system of record for AI agent discovery, then deepen into runtime visibility, and only later consider governance or remediation. This sequencing keeps the initial product focused, credible, and implementable.
 
 ## Roadmap Summary
 
@@ -45,7 +45,7 @@ V1 is **agentless-first**, with architecture ready for the full category set:
 - SaaS / MCP / LLM provider APIs.
 - Git / CI/CD / logs / identity.
 - Framework and autonomous agents visible via cloud, repo, and runtime signals.
-- **Endpoint / IDE / local LLM / browser** via **EDR integrations** (CrowdStrike, Defender/Intune, Cortex, Netskope, etc.) — not via an AgentRadar local client.
+- **Endpoint / IDE / local LLM / browser** via **EDR integrations** (CrowdStrike, Defender/Intune, Cortex, Netskope, etc.) — not via a Visentra local client.
 
 ### V1 Success Criteria
 
@@ -64,7 +64,7 @@ V1 is **agentless-first**, with architecture ready for the full category set:
 - Blocking or disabling tools.
 - Prompt/content governance.
 - Runtime kill switch.
-- **Deploying a proprietary AgentRadar endpoint agent / IDE plugin as a required install.**
+- **Deploying a proprietary Visentra endpoint agent / IDE plugin as a required install.**
 
 ## V2: Visibility Depth
 
@@ -154,7 +154,7 @@ Do not build governance until:
 
 ```mermaid
 gantt
-    title AgentRadar Roadmap
+    title Visentra Roadmap
     dateFormat  YYYY-MM-DD
     section V1 Discovery
     Platform foundation        :a1, 2026-07-01, 45d

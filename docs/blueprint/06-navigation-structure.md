@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar navigation must support executive monitoring, operational investigation, discovery administration, inventory exploration, topology analysis, usage analytics, event review, enterprise search, and settings. The structure should feel familiar to users of CrowdStrike, Wiz, Datadog, and ServiceNow: a persistent left navigation, strong global search, role-aware visibility, and fast drill-down.
+Visentra navigation must support executive monitoring, operational investigation, discovery administration, inventory exploration, topology analysis, usage analytics, event review, enterprise search, and settings. The structure should feel familiar to users of CrowdStrike, Wiz, Datadog, and ServiceNow: a persistent left navigation, strong global search, role-aware visibility, and fast drill-down.
 
 ## Navigation Principles
 
@@ -33,7 +33,7 @@ AgentRadar navigation must support executive monitoring, operational investigati
 ## Proposed Left Nav Tree
 
 ```text
-AgentRadar
+Visentra
 ├── Executive
 │   ├── Overview
 │   ├── Coverage

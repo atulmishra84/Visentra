@@ -1,6 +1,6 @@
 # 17. Frontend Components
 
-AgentRadar's frontend is a React SPA organized by feature domains: dashboards, agents, assets, graph, search, discovery, coverage, exports, and settings. Component responsibilities align with APIs in [11-apis.md](./11-apis.md) and wireframes in [28-ui-wireframes.md](./28-ui-wireframes.md).
+Visentra's frontend is a React SPA organized by feature domains: dashboards, agents, assets, graph, search, discovery, coverage, exports, and settings. Component responsibilities align with APIs in [11-apis.md](./11-apis.md) and wireframes in [28-ui-wireframes.md](./28-ui-wireframes.md).
 
 Related: [13-visibility-engine.md](./13-visibility-engine.md), [15-search-architecture.md](./15-search-architecture.md), [25-sequence-diagrams.md](./25-sequence-diagrams.md).
 

@@ -1,6 +1,6 @@
 # 22. GCP
 
-AgentRadar on Google Cloud uses GKE, Cloud SQL for PostgreSQL, Memorystore for Redis, Elastic/OpenSearch-compatible search, Pub/Sub or NATS, optional graph projection alternatives, Google Cloud Load Balancing, Secret Manager, Artifact Registry, Cloud Storage, and Cloud Operations.
+Visentra on Google Cloud uses GKE, Cloud SQL for PostgreSQL, Memorystore for Redis, Elastic/OpenSearch-compatible search, Pub/Sub or NATS, optional graph projection alternatives, Google Cloud Load Balancing, Secret Manager, Artifact Registry, Cloud Storage, and Cloud Operations.
 
 Related: [18-deployment-architecture.md](./18-deployment-architecture.md), [19-kubernetes-deployment.md](./19-kubernetes-deployment.md), [23-security-architecture.md](./23-security-architecture.md).
 

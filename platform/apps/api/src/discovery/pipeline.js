@@ -270,7 +270,7 @@ export async function claimDiscoveryJob(pool, { tenantId, collectorIds, triggere
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    // Serialize claim attempts per tenant (key namespace 872314 = "AgentRadar discovery")
+    // Serialize claim attempts per tenant (key namespace 872314 = "Visentra discovery")
     await client.query(`SELECT pg_advisory_xact_lock(872314, hashtext($1::text))`, [tenantId]);
     const running = await client.query(
       `SELECT id FROM discovery_jobs WHERE tenant_id=$1 AND status='running' ORDER BY created_at DESC LIMIT 1`,

@@ -1,6 +1,6 @@
 # 09 — Database Schema (PostgreSQL)
 
-Canonical relational schema for AgentRadar Discovery & Visibility. Source of truth for migrations: [`platform/schemas/postgres.sql`](../../platform/schemas/postgres.sql).
+Canonical relational schema for Visentra Discovery & Visibility. Source of truth for migrations: [`platform/schemas/postgres.sql`](../../platform/schemas/postgres.sql).
 
 Related: [05-information-architecture.md](./05-information-architecture.md), [10-graph-schema.md](./10-graph-schema.md), [14-inventory-data-model.md](./14-inventory-data-model.md).
 
@@ -51,7 +51,7 @@ Primary inventory entity. Columns map to the product brief attribute list.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| id | UUID PK | Stable AgentRadar ID |
+| id | UUID PK | Stable Visentra ID |
 | tenant_id | UUID FK | |
 | fingerprint | TEXT | Entity-resolution key (unique per tenant) |
 | name | TEXT | |

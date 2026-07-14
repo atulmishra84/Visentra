@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar workflows must make discovery feel immediate, evidence-backed, and explorable. The first release should support five critical journeys:
+Visentra workflows must make discovery feel immediate, evidence-backed, and explorable. The first release should support five critical journeys:
 
 1. First discovery run.
 2. Investigate an agent.
@@ -20,7 +20,7 @@ Platform Engineer, with CISO observing outcomes.
 
 ### Trigger
 
-The customer has installed AgentRadar and wants the first useful inventory from one or more sources.
+The customer has installed Visentra and wants the first useful inventory from one or more sources.
 
 ### Entry Points
 
@@ -248,7 +248,7 @@ Platform Engineer, CISO.
 
 ### Trigger
 
-The organization wants to know where AgentRadar can and cannot see AI agent activity.
+The organization wants to know where Visentra can and cannot see AI agent activity.
 
 ### Entry Points
 
@@ -276,7 +276,7 @@ The organization wants to know where AgentRadar can and cannot see AI agent acti
 | Stale | Source was previously healthy but has not reported within threshold. |
 | Failed | Source is configured but currently failing. |
 | Unconfigured | Source is known but no collector/connector is configured. |
-| Unsupported | AgentRadar does not yet support this source or capability. |
+| Unsupported | Visentra does not yet support this source or capability. |
 | Unknown | Inventory lacks enough context to determine coverage. |
 
 ### Acceptance Criteria

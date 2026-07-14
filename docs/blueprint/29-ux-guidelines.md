@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar should feel like a serious enterprise security and observability platform. The UX must support executives scanning posture, analysts investigating details, platform engineers managing coverage, AI platform teams analyzing adoption, developers reviewing owned assets, and auditors exporting evidence.
+Visentra should feel like a serious enterprise security and observability platform. The UX must support executives scanning posture, analysts investigating details, platform engineers managing coverage, AI platform teams analyzing adoption, developers reviewing owned assets, and auditors exporting evidence.
 
 The product experience should be fast, dense, evidence-backed, accessible, and trustworthy. It must not introduce governance/remediation language or workflows in V1/V2.
 
@@ -19,7 +19,7 @@ The product experience should be fast, dense, evidence-backed, accessible, and t
 
 ## Enterprise Visual Tone
 
-AgentRadar should visually align with mature enterprise platforms:
+Visentra should visually align with mature enterprise platforms:
 
 - Clear hierarchy.
 - Subtle color.
@@ -160,7 +160,7 @@ Every export includes:
 
 ## Density Guidelines
 
-AgentRadar needs density controls because personas differ.
+Visentra needs density controls because personas differ.
 
 | Density | Use |
 |---|---|

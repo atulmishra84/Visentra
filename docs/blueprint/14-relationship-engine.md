@@ -1,6 +1,6 @@
 # 14. Relationship Engine
 
-The relationship engine infers, scores, decays, stores, and projects edges between AgentRadar entities. It explains how developers, IDEs, agents, models, tools, MCP servers, data stores, cloud resources, APIs, and external services connect.
+The relationship engine infers, scores, decays, stores, and projects edges between Visentra entities. It explains how developers, IDEs, agents, models, tools, MCP servers, data stores, cloud resources, APIs, and external services connect.
 
 Related: [12-discovery-engine.md](./12-discovery-engine.md), [13-visibility-engine.md](./13-visibility-engine.md), [15-search-architecture.md](./15-search-architecture.md), [25-sequence-diagrams.md](./25-sequence-diagrams.md).
 
