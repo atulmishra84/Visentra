@@ -2,40 +2,100 @@ import { Link, Navigate } from "react-router-dom";
 import { VisentraLogo } from "../components/VisentraLogo";
 import { useAuth } from "../lib/auth";
 
-const TOOLS = [
+const MOMENTS = [
   {
-    name: "Agent inventory",
-    summary: "Canonical catalog of agents across IDE, SaaS, cloud, MCP, and frameworks — with owners and confidence."
+    id: "discover",
+    title: "Discover every agent",
+    copy: "Agentless collectors surface IDE, SaaS, cloud, MCP, and framework agents into one trusted inventory — with owners, confidence, and how they were identified."
   },
   {
-    name: "Sensitive data class",
-    summary: "Classify what agents can reach — PII, PHI, secrets — from permissions and knowledge sources, with evidence."
+    id: "classify",
+    title: "Classify sensitive data reach",
+    copy: "Know which agents can touch PII or PHI from permissions, knowledge sources, and entitlements — with evidence, not guesswork."
   },
   {
-    name: "Config & access map",
-    summary: "See tools, MCP, knowledge, channels, auth mode, and granted scopes on every agent profile."
+    id: "relate",
+    title: "Map blast radius and relationships",
+    copy: "Follow paths from agents to models, identities, tools, and data stores so high-reach shadow AI rises to the top of the queue."
   },
   {
-    name: "Blast radius",
-    summary: "Score reach across graph edges, identity, and high-sensitivity access to prioritize investigation."
-  },
-  {
-    name: "Change intelligence",
-    summary: "Track newly discovered, disappeared, owner changes, config drift, and data-class escalations."
-  },
-  {
-    name: "Coverage & Shadow AI",
-    summary: "Map connector coverage and surface unmanaged or ownerless agents before they become blind spots."
-  },
-  {
-    name: "Topology & relationships",
-    summary: "Explore how agents connect to models, tools, identities, repositories, and external services."
-  },
-  {
-    name: "Usage analytics",
-    summary: "Understand models, frameworks, cloud, and IDE adoption across the estate — visibility only, no enforcement."
+    id: "change",
+    title: "Track change with evidence",
+    copy: "New agents, disappeared runtimes, owner shifts, config drift, and data-class escalations — visibility that stays current."
   }
 ];
+
+function ProductStage() {
+  return (
+    <div className="landing-stage" aria-hidden="true">
+      <div className="landing-stage-frame">
+        <div className="landing-stage-chrome">
+          <span className="landing-stage-dot" />
+          <span className="landing-stage-dot" />
+          <span className="landing-stage-dot" />
+          <span className="landing-stage-path">Inventory · Data class</span>
+        </div>
+        <div className="landing-stage-body">
+          <div className="landing-stage-side">
+            <div className="landing-stage-side-brand">
+              <VisentraLogo size={22} />
+              <span>Visentra</span>
+            </div>
+            <div className="landing-stage-nav">
+              <span className="on">Executive</span>
+              <span>Inventory</span>
+              <span>Change intel</span>
+              <span>Topology</span>
+            </div>
+          </div>
+          <div className="landing-stage-main">
+            <div className="landing-stage-kpis">
+              <div>
+                <em>13</em>
+                <span>Agents</span>
+              </div>
+              <div>
+                <em>4</em>
+                <span>PII access</span>
+              </div>
+              <div>
+                <em>1</em>
+                <span>PHI access</span>
+              </div>
+            </div>
+            <div className="landing-stage-table">
+              <div className="landing-stage-row head">
+                <span>Agent</span>
+                <span>Class</span>
+                <span>Owner</span>
+              </div>
+              <div className="landing-stage-row">
+                <span>M365 Copilot</span>
+                <span className="pill pii">PII</span>
+                <span>it-admin</span>
+              </div>
+              <div className="landing-stage-row highlight">
+                <span>Bedrock Claims</span>
+                <span className="pill phi">PHI</span>
+                <span>claims-eng</span>
+              </div>
+              <div className="landing-stage-row">
+                <span>Workday HR Copilot</span>
+                <span className="pill pii">PII</span>
+                <span>hr-ops</span>
+              </div>
+              <div className="landing-stage-row">
+                <span>Cursor MCP Agent</span>
+                <span className="pill none">NONE</span>
+                <span>alex.chen</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function LandingPage() {
   const { isAuthenticated, loading } = useAuth();
@@ -52,12 +112,12 @@ export function LandingPage() {
     <div className="landing-page">
       <header className="landing-nav">
         <Link className="landing-brand" to="/" aria-label="Visentra home">
-          <VisentraLogo size={36} />
+          <VisentraLogo size={34} />
           <span className="landing-brand-name">Visentra</span>
         </Link>
         <div className="landing-nav-actions">
-          <a className="landing-nav-link" href="#tools">
-            Platform
+          <a className="landing-nav-link" href="#capabilities">
+            Capabilities
           </a>
           <Link className="button primary landing-nav-cta" to="/login">
             Sign in
@@ -66,52 +126,57 @@ export function LandingPage() {
       </header>
 
       <section className="landing-hero">
-        <div className="landing-hero-atmosphere" aria-hidden="true" />
-        <div className="landing-hero-inner">
+        <div className="landing-hero-glow" aria-hidden="true" />
+        <div className="landing-hero-copy">
           <p className="landing-brand-signal">
-            <VisentraLogo size={28} />
+            <VisentraLogo size={26} />
             <span>Visentra</span>
           </p>
           <h1 className="landing-headline">See every AI agent before it sees your data.</h1>
           <p className="landing-lede">
-            Agentless discovery and visibility for the enterprise AI estate — inventory, access,
-            sensitive data reach, and change intelligence in one place.
+            Enterprise discovery and visibility for the AI estate — agentless inventory, sensitive
+            data classification, and change intelligence.
           </p>
           <div className="landing-cta-row">
             <Link className="button primary landing-cta" to="/login">
               Sign in
             </Link>
-            <a className="button landing-cta-secondary" href="#tools">
-              Explore the platform
+            <a className="landing-cta-ghost" href="#capabilities">
+              View capabilities
             </a>
           </div>
         </div>
+        <ProductStage />
       </section>
 
-      <section className="landing-tools" id="tools">
-        <div className="landing-tools-inner">
-          <p className="eyebrow">Platform</p>
-          <h2 className="landing-section-title">Built for discovery, not enforcement</h2>
-          <p className="landing-section-copy">
-            Visentra maps agents, relationships, and data reach across your estate — so security and
-            platform teams can investigate with evidence.
-          </p>
-          <ul className="landing-tool-list">
-            {TOOLS.map((tool) => (
-              <li className="landing-tool" key={tool.name}>
-                <h3>{tool.name}</h3>
-                <p>{tool.summary}</p>
-              </li>
-            ))}
-          </ul>
+      <section className="landing-audience">
+        <p>
+          Built for <strong>CISOs</strong>, <strong>AI platform</strong>, and{" "}
+          <strong>security operations</strong> teams who need a system of record — not another
+          enforcement console.
+        </p>
+      </section>
+
+      <section className="landing-capabilities" id="capabilities">
+        <div className="landing-capabilities-intro">
+          <p className="eyebrow">Capabilities</p>
+          <h2 className="landing-section-title">Four moves that make the estate visible</h2>
         </div>
+        <ol className="landing-moments">
+          {MOMENTS.map((moment, index) => (
+            <li className="landing-moment" key={moment.id} data-index={String(index + 1).padStart(2, "0")}>
+              <h3>{moment.title}</h3>
+              <p>{moment.copy}</p>
+            </li>
+          ))}
+        </ol>
       </section>
 
       <section className="landing-close">
         <div className="landing-close-inner">
-          <VisentraLogo size={48} />
-          <h2>Ready to map your AI estate?</h2>
-          <p>Sign in to open the Visentra command center.</p>
+          <VisentraLogo size={52} />
+          <h2>Open the Visentra command center</h2>
+          <p>Sign in to investigate inventory, data reach, and change across your AI estate.</p>
           <Link className="button primary landing-cta" to="/login">
             Sign in
           </Link>
@@ -122,7 +187,7 @@ export function LandingPage() {
         <span className="landing-footer-brand">
           <VisentraLogo size={20} /> Visentra
         </span>
-        <span className="muted">Discovery &amp; Visibility</span>
+        <span>Discovery &amp; Visibility · Agentless by design</span>
       </footer>
     </div>
   );
