@@ -51,6 +51,11 @@ export function AgentDetailPage() {
     (agent.ownership as Record<string, unknown> | undefined) ||
     (meta.ownership as Record<string, unknown> | undefined) ||
     {};
+  const dataAccess =
+    (payload?.dataAccessClassification as Record<string, unknown> | undefined) ||
+    (agent.dataAccessClassification as Record<string, unknown> | undefined) ||
+    (meta.dataAccessClassification as Record<string, unknown> | undefined) ||
+    {};
   const blast =
     (payload?.blastRadius as Record<string, unknown> | undefined) ||
     (agent.blastRadius as Record<string, unknown> | undefined) ||
@@ -62,6 +67,20 @@ export function AgentDetailPage() {
   const knowledge = listOf(agentConfig.knowledgeSources);
   const triggers = listOf(agentConfig.triggers);
   const channels = listOf(agentConfig.channels);
+  const dataClasses = listOf(dataAccess.dataClasses || meta.dataClasses);
+  const dataEvidence = Array.isArray(dataAccess.evidence)
+    ? (dataAccess.evidence as Record<string, unknown>[])
+    : [];
+  const primaryDataClass = valueAt(
+    dataAccess,
+    ["primaryDataClass"],
+    valueAt(meta, ["primaryDataClass"], dataClasses[0] || "none")
+  );
+  const dataConfidence = valueAt(
+    dataAccess,
+    ["confidence"],
+    valueAt(meta, ["dataAccessConfidence"], "low")
+  );
   const paths = (blast?.paths as Record<string, unknown>[] | undefined) || [];
   const ownsRels = relationships.filter((rel) => /owns|uses_identity/i.test(valueAt(rel, ["rel_type", "type"])));
   const ownershipStatus = valueAt(ownership, ["ownershipStatus"], valueAt(agent, ["owner"]) ? "owned" : "ownerless");
@@ -296,6 +315,14 @@ export function AgentDetailPage() {
             Sensitivity: <strong>{valueAt(agentAccess, ["sensitivity"], "unknown")}</strong>
             {agentAccess.overPermissioned ? " · flagged over-permissioned" : ""}
           </p>
+          <p className="muted" style={{ marginTop: 4 }}>
+            Sensitive data:{" "}
+            <strong className={/phi|pii/i.test(primaryDataClass) ? "badge bad" : ""}>
+              {String(primaryDataClass).toUpperCase()}
+            </strong>{" "}
+            ({dataConfidence} confidence)
+            {dataClasses.length > 1 ? ` · ${dataClasses.map((c) => c.toUpperCase()).join(", ")}` : ""}
+          </p>
           <div className="chip-row">
             {granted.length ? (
               granted.map((scope) => (
@@ -307,6 +334,22 @@ export function AgentDetailPage() {
               <span className="muted">No access scopes discovered yet.</span>
             )}
           </div>
+          {dataEvidence.length ? (
+            <div className="chart-list" style={{ marginTop: 12 }}>
+              <div className="bar-row">
+                <span>Evidence</span>
+                <span className="muted">Why this data class</span>
+                <span />
+              </div>
+              {dataEvidence.slice(0, 8).map((ev, index) => (
+                <div className="bar-row" key={`dac-${index}`}>
+                  <span className="badge">{valueAt(ev, ["source"], "signal")}</span>
+                  <span>{valueAt(ev, ["detail", "signal"], "—")}</span>
+                  <span className="mono">{valueAt(ev, ["signal"], "")}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="chart-list" style={{ marginTop: 12 }}>
             <div className="bar-row">
               <span>Identities</span>
@@ -325,6 +368,11 @@ export function AgentDetailPage() {
             <div className="bar-row">
               <span>Connected apps</span>
               <span>{listOf(agentAccess.connectedApps).join(", ") || "—"}</span>
+              <span />
+            </div>
+            <div className="bar-row">
+              <span>Permissions</span>
+              <span>{listOf(agentAccess.permissions).join(", ") || "—"}</span>
               <span />
             </div>
           </div>

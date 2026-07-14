@@ -77,14 +77,22 @@ function platformObservation({
       email: provider === "m365_copilot",
       sharepoint: provider === "m365_copilot",
       calendar: provider === "m365_copilot",
-      crm: provider === "salesforce",
+      crm: provider === "salesforce" || provider === "servicenow",
       identity: true,
       ...(extra.accessScopes || {})
     },
     identities: owner ? [owner] : [],
     dataStores: knowledgeSources,
     connectedApps: [label],
-    permissions: Array.isArray(extra.permissions) ? extra.permissions : [],
+    permissions: Array.isArray(extra.permissions)
+      ? extra.permissions
+      : provider === "m365_copilot"
+        ? ["Mail.Read", "Files.Read.All", "Sites.Read.All", "User.Read", "Calendars.Read"]
+        : provider === "salesforce"
+          ? ["Contacts.Read", "Accounts.Read"]
+          : provider === "workday"
+            ? ["Worker.Read", "Directory.Read"]
+            : [],
     ...(extra.agentAccess || {})
   };
   const ownership = {

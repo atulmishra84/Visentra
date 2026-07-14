@@ -350,6 +350,18 @@ export function ExecutiveDashboardPage() {
           tone="warn"
         />
         <KpiCard
+          label="PII access"
+          value={metric(dashboard, ["piiAccessAgents", "agentsWithPii"], 0)}
+          trend="Agents that can reach PII"
+          tone="warn"
+        />
+        <KpiCard
+          label="PHI access"
+          value={metric(dashboard, ["phiAccessAgents", "agentsWithPhi"], 0)}
+          trend="Agents that can reach PHI"
+          tone="warn"
+        />
+        <KpiCard
           label="Identity-attributed"
           value={metric(dashboard, ["identityAttributedAgents", "identityAttributed"], 0)}
           trend="Owner + identity signal"

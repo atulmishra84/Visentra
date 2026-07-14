@@ -5,7 +5,14 @@ import { DetailDrawer } from "../components/DetailDrawer";
 import { KpiCard } from "../components/KpiCard";
 import { apiRequest, compactDate, listFromPayload, numberAt, valueAt } from "../lib/api";
 
-type QueueFilter = "all" | "config_drift" | "blast_radius" | "shadow_ai" | "disappeared" | "owner_changed";
+type QueueFilter =
+  | "all"
+  | "config_drift"
+  | "blast_radius"
+  | "shadow_ai"
+  | "disappeared"
+  | "owner_changed"
+  | "data_class_escalated";
 
 export function OperationsDashboardPage() {
   const navigate = useNavigate();
@@ -112,6 +119,11 @@ export function OperationsDashboardPage() {
       <section className="card-grid">
         <KpiCard label="Disappeared" value={numberAt(dashboard, ["disappearedAgents"], 0)} tone="warn" />
         <KpiCard label="Owner changes" value={numberAt(dashboard, ["ownerChanges"], 0)} tone="warn" />
+        <KpiCard
+          label="Data class escalations"
+          value={numberAt(dashboard, ["dataClassEscalations"], 0)}
+          tone="warn"
+        />
         <KpiCard label="Config drift" value={numberAt(dashboard, ["configDrift"], 0)} tone="warn" />
         <KpiCard label="High blast radius" value={numberAt(dashboard, ["highBlastRadius"], 0)} tone="warn" />
         <KpiCard label="Shadow AI" value={numberAt(dashboard, ["shadowAiAgents", "shadowAi"], 0)} tone="warn" />
@@ -124,6 +136,7 @@ export function OperationsDashboardPage() {
             ["all", "All"],
             ["disappeared", "Disappeared"],
             ["owner_changed", "Owner changes"],
+            ["data_class_escalated", "Data class"],
             ["config_drift", "Config drift"],
             ["blast_radius", "Blast radius"],
             ["shadow_ai", "Shadow AI"]

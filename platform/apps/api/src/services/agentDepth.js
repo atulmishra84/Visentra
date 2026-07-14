@@ -39,6 +39,252 @@ function uniq(list) {
   return [...new Set(list.filter(Boolean))];
 }
 
+/** Priority for primaryDataClass (higher = more sensitive). */
+const DATA_CLASS_PRIORITY = {
+  phi: 50,
+  pii: 40,
+  secrets: 30,
+  financial: 20,
+  none: 0,
+  unknown: 0
+};
+
+const PII_PERMISSION_RE =
+  /\b(mail\.read|mail\.readwrite|user\.read(\.all)?|contacts\.read|files\.read(\.all)?|chat\.read|people\.read|calendars\.read|directory\.read(\.all)?|sites\.read(\.all)?|mailboxsettings\.read)\b/i;
+const PHI_PERMISSION_RE =
+  /\b(fhir|ehr|hipaa|phi|health\.read|medical|patient|clinical|epic|cerner|healthcloud)\b/i;
+const FINANCIAL_PERMISSION_RE =
+  /\b(payroll|finance|banking|payment|invoice|stripe|quickbooks|sap\.?fi)\b/i;
+const SECRETS_PERMISSION_RE =
+  /\b(secrets?|keyvault|credential|api[_-]?key|password|token\.?read)\b/i;
+
+const PII_KNOWLEDGE_RE =
+  /\b(hr|payroll|employee|customer|contact|outlook|onedrive|sharepoint|crm|salesforce|workday|directory|pii|personal)\b/i;
+const PHI_KNOWLEDGE_RE =
+  /\b(patient|clinical|ehr|fhir|phi|hipaa|medical|health|epic|cerner|claims|diagnosis)\b/i;
+const FINANCIAL_KNOWLEDGE_RE =
+  /\b(finance|banking|payment|invoice|ledger|payroll|billing)\b/i;
+
+const PII_APP_RE =
+  /\b(salesforce|workday|dynamics|hubspot|zendesk|outlook|exchange|m365|microsoft 365|copilot|servicenow)\b/i;
+const PHI_APP_RE = /\b(epic|cerner|athenahealth|healthcloud|fhir|ehr)\b/i;
+
+const PII_SCOPES = new Set(["email", "crm", "sharepoint", "calendar"]);
+const PHI_SCOPES = new Set(["phi", "healthcare", "ehr", "fhir"]);
+
+function confidenceRank(c) {
+  if (c === "high") return 3;
+  if (c === "medium") return 2;
+  if (c === "low") return 1;
+  return 0;
+}
+
+function bumpConfidence(current, next) {
+  return confidenceRank(next) > confidenceRank(current) ? next : current;
+}
+
+function pickPrimaryDataClass(classes) {
+  let best = "none";
+  let bestScore = -1;
+  for (const c of classes) {
+    const score = DATA_CLASS_PRIORITY[c] ?? 0;
+    if (score > bestScore) {
+      best = c;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/**
+ * Classify sensitive data reach (PII/PHI/secrets/financial) from agentless signals.
+ * Does not inspect prompts, responses, or file contents.
+ */
+export function buildDataAccessClassification(obs = {}, agentAccess = null, agentConfig = null) {
+  const meta = obs.metadata && typeof obs.metadata === "object" ? obs.metadata : {};
+  const existing =
+    meta.dataAccessClassification && typeof meta.dataAccessClassification === "object"
+      ? meta.dataAccessClassification
+      : {};
+  const access = agentAccess || buildAgentAccess(obs);
+  const config = agentConfig || buildAgentConfig(obs);
+
+  const classes = new Set();
+  const evidence = [];
+  let confidence = "low";
+
+  // Explicit collector / seed overrides (strong)
+  const explicitClasses = uniq([
+    ...asList(existing.dataClasses),
+    ...asList(meta.dataClasses),
+    ...asList(meta.dataClass),
+    meta.primaryDataClass,
+    existing.primaryDataClass
+  ]).map((c) => String(c).toLowerCase());
+  for (const c of explicitClasses) {
+    if (["pii", "phi", "secrets", "financial", "none", "unknown"].includes(c) && c !== "none" && c !== "unknown") {
+      classes.add(c);
+      evidence.push({
+        source: "explicit",
+        signal: c,
+        detail: `Collector labeled data class: ${c}`
+      });
+      confidence = bumpConfidence(confidence, "high");
+    }
+  }
+
+  const permissions = uniq([
+    ...asList(access.permissions),
+    ...asList(obs.permissions),
+    ...asList(meta.permissions),
+    ...asList(existing.permissions)
+  ]);
+
+  for (const perm of permissions) {
+    const p = String(perm);
+    if (PHI_PERMISSION_RE.test(p)) {
+      classes.add("phi");
+      evidence.push({ source: "entitlement", signal: p, detail: `PHI-related entitlement: ${p}` });
+      confidence = bumpConfidence(confidence, "high");
+    } else if (PII_PERMISSION_RE.test(p)) {
+      classes.add("pii");
+      evidence.push({ source: "entitlement", signal: p, detail: `PII-related entitlement: ${p}` });
+      confidence = bumpConfidence(confidence, "high");
+    }
+    if (FINANCIAL_PERMISSION_RE.test(p)) {
+      classes.add("financial");
+      evidence.push({ source: "entitlement", signal: p, detail: `Financial entitlement: ${p}` });
+      confidence = bumpConfidence(confidence, "medium");
+    }
+    if (SECRETS_PERMISSION_RE.test(p)) {
+      classes.add("secrets");
+      evidence.push({ source: "entitlement", signal: p, detail: `Secrets-related entitlement: ${p}` });
+      confidence = bumpConfidence(confidence, "high");
+    }
+  }
+
+  const granted = access.granted || [];
+  for (const scope of granted) {
+    if (PHI_SCOPES.has(scope) || PHI_PERMISSION_RE.test(scope)) {
+      classes.add("phi");
+      evidence.push({ source: "scope", signal: scope, detail: `Access scope indicates PHI: ${scope}` });
+      confidence = bumpConfidence(confidence, "medium");
+    } else if (PII_SCOPES.has(scope)) {
+      classes.add("pii");
+      evidence.push({ source: "scope", signal: scope, detail: `Access scope indicates PII: ${scope}` });
+      confidence = bumpConfidence(confidence, "medium");
+    }
+    if (scope === "secrets" || scope === "cloudAdmin") {
+      classes.add("secrets");
+      evidence.push({ source: "scope", signal: scope, detail: `Access scope indicates secrets: ${scope}` });
+      confidence = bumpConfidence(confidence, "high");
+    }
+  }
+
+  const knowledge = uniq([
+    ...asList(config.knowledgeSources),
+    ...asList(access.dataStores),
+    ...asList(config.vectorStores),
+    ...asList(config.memoryStores)
+  ]);
+  for (const ks of knowledge) {
+    const k = String(ks);
+    if (PHI_KNOWLEDGE_RE.test(k)) {
+      classes.add("phi");
+      evidence.push({ source: "knowledge", signal: k, detail: `Knowledge/data store suggests PHI: ${k}` });
+      confidence = bumpConfidence(confidence, "medium");
+    } else if (PII_KNOWLEDGE_RE.test(k)) {
+      classes.add("pii");
+      evidence.push({ source: "knowledge", signal: k, detail: `Knowledge/data store suggests PII: ${k}` });
+      confidence = bumpConfidence(confidence, "medium");
+    }
+    if (FINANCIAL_KNOWLEDGE_RE.test(k)) {
+      classes.add("financial");
+      evidence.push({ source: "knowledge", signal: k, detail: `Knowledge/data store suggests financial data: ${k}` });
+      confidence = bumpConfidence(confidence, "medium");
+    }
+  }
+
+  const appsAndTools = uniq([
+    ...asList(access.connectedApps),
+    ...asList(config.tools),
+    ...asList(config.mcpServers),
+    ...asList(config.channels),
+    obs.provider,
+    config.platform,
+    obs.framework
+  ]);
+  for (const app of appsAndTools) {
+    const a = String(app);
+    if (PHI_APP_RE.test(a)) {
+      classes.add("phi");
+      evidence.push({ source: "app", signal: a, detail: `Connected app/tool suggests PHI: ${a}` });
+      confidence = bumpConfidence(confidence, "low");
+    } else if (PII_APP_RE.test(a)) {
+      classes.add("pii");
+      evidence.push({ source: "app", signal: a, detail: `Connected app/tool suggests PII: ${a}` });
+      confidence = bumpConfidence(confidence, "low");
+    }
+  }
+
+  // Dedupe evidence by signal+source
+  const seenEv = new Set();
+  const uniqueEvidence = [];
+  for (const e of evidence) {
+    const key = `${e.source}:${e.signal}`;
+    if (seenEv.has(key)) continue;
+    seenEv.add(key);
+    uniqueEvidence.push(e);
+  }
+
+  let dataClasses = [...classes];
+  if (!dataClasses.length) {
+    dataClasses = explicitClasses.includes("unknown") ? ["unknown"] : ["none"];
+    confidence = dataClasses[0] === "none" ? "low" : confidence;
+  }
+
+  // Prefer explicit primary when provided and still in set
+  const explicitPrimary = existing.primaryDataClass || meta.primaryDataClass;
+  const primaryDataClass =
+    explicitPrimary && dataClasses.includes(String(explicitPrimary).toLowerCase())
+      ? String(explicitPrimary).toLowerCase()
+      : pickPrimaryDataClass(dataClasses);
+
+  if (existing.confidence && confidenceRank(existing.confidence) > confidenceRank(confidence)) {
+    confidence = existing.confidence;
+  }
+  if (meta.dataAccessConfidence && confidenceRank(meta.dataAccessConfidence) > confidenceRank(confidence)) {
+    confidence = meta.dataAccessConfidence;
+  }
+
+  // Merge explicit evidence from collectors
+  const priorEvidence = Array.isArray(existing.evidence)
+    ? existing.evidence
+    : Array.isArray(meta.dataAccessEvidence)
+      ? meta.dataAccessEvidence
+      : [];
+  for (const e of priorEvidence) {
+    if (!e || typeof e !== "object") continue;
+    const key = `${e.source || "explicit"}:${e.signal || e.detail || ""}`;
+    if (seenEv.has(key)) continue;
+    seenEv.add(key);
+    uniqueEvidence.push({
+      source: e.source || "explicit",
+      signal: e.signal || "",
+      detail: e.detail || String(e.signal || "labeled")
+    });
+  }
+
+  return {
+    dataClasses,
+    primaryDataClass,
+    confidence,
+    evidence: uniqueEvidence.slice(0, 25),
+    hasPii: dataClasses.includes("pii") || dataClasses.includes("phi"),
+    hasPhi: dataClasses.includes("phi")
+  };
+}
+
 /**
  * Normalize agentConfig from observation fields + metadata.
  */
@@ -272,6 +518,7 @@ export function enrichObservationWithDepth(obs) {
   const agentConfig = buildAgentConfig(obs);
   const agentAccess = buildAgentAccess(obs);
   const ownership = buildOwnership(obs);
+  const dataAccessClassification = buildDataAccessClassification(obs, agentAccess, agentConfig);
   const howIdentified =
     (obs.metadata && obs.metadata.howIdentified) ||
     agentConfig.howConfigured ||
@@ -284,6 +531,7 @@ export function enrichObservationWithDepth(obs) {
       agentConfig,
       agentAccess,
       ownership,
+      dataAccessClassification,
       howIdentified,
       accessGrantCount: agentAccess.grantCount,
       accessSensitivity: agentAccess.sensitivity,
@@ -294,7 +542,12 @@ export function enrichObservationWithDepth(obs) {
       ownershipStatus: ownership.ownershipStatus,
       identityCount: ownership.identities.length,
       authMode: agentConfig.authMode,
-      channels: agentConfig.channels
+      channels: agentConfig.channels,
+      primaryDataClass: dataAccessClassification.primaryDataClass,
+      dataClasses: dataAccessClassification.dataClasses,
+      dataAccessConfidence: dataAccessClassification.confidence,
+      hasPii: dataAccessClassification.hasPii,
+      hasPhi: dataAccessClassification.hasPhi
     }
   };
 }
@@ -307,10 +560,14 @@ export function summarizeAgentDepth(agent) {
   const agentConfig = meta.agentConfig || buildAgentConfig({ ...agent, metadata: meta });
   const agentAccess = meta.agentAccess || buildAgentAccess({ ...agent, metadata: meta });
   const ownership = meta.ownership || buildOwnership({ ...agent, metadata: meta });
+  const dataAccessClassification =
+    meta.dataAccessClassification ||
+    buildDataAccessClassification({ ...agent, metadata: meta }, agentAccess, agentConfig);
   return {
     agentConfig,
     agentAccess,
     ownership,
+    dataAccessClassification,
     howIdentified: meta.howIdentified || null,
     evidenceClass: meta.evidenceClass || null,
     agentStatus: meta.agentStatus || null,
@@ -363,6 +620,9 @@ export async function computeBlastRadius(pool, tenantId, { agentId = null, limit
     const edgeScore = Math.min(25, (agent.edge_count || 0) * 3);
     const sensitivityScore =
       depth.agentAccess.sensitivity === "high" ? 20 : depth.agentAccess.sensitivity === "medium" ? 12 : 4;
+    const dac = depth.dataAccessClassification || {};
+    const dataClassScore =
+      dac.primaryDataClass === "phi" ? 18 : dac.primaryDataClass === "pii" ? 12 : dac.primaryDataClass === "secrets" ? 10 : 0;
     const shadowScore =
       (agent.metadata && agent.metadata.shadowAi === true) ||
       (Array.isArray(agent.risk_indicators) && agent.risk_indicators.some((x) => /shadow|unmanaged/i.test(String(x))))
@@ -374,12 +634,14 @@ export async function computeBlastRadius(pool, tenantId, { agentId = null, limit
 
     const score = Math.min(
       100,
-      accessScore + edgeScore + sensitivityScore + shadowScore + ownerlessScore + internetExternal
+      accessScore + edgeScore + sensitivityScore + dataClassScore + shadowScore + ownerlessScore + internetExternal
     );
 
     const reasons = [];
     if (depth.agentAccess.grantCount) reasons.push(`${depth.agentAccess.grantCount} access scopes`);
     if (depth.agentAccess.sensitivity === "high") reasons.push("high-sensitivity access");
+    if (dac.hasPhi) reasons.push("PHI data access");
+    else if (dac.hasPii) reasons.push("PII data access");
     if (ownerlessScore) reasons.push("ownerless");
     if (shadowScore) reasons.push("shadow/unmanaged");
     if (agent.edge_count) reasons.push(`${agent.edge_count} graph edges`);
@@ -515,6 +777,7 @@ export async function computeDiscoveryChanges(pool, tenantId, { sinceHours = 168
 
   const configDrift = [];
   const ownerChanges = [];
+  const dataClassEscalations = [];
   for (const row of observationPairs.rows) {
     const cur = summarizeFromPayload(row.current_payload);
     const prev = summarizeFromPayload(row.previous_payload);
@@ -544,6 +807,32 @@ export async function computeDiscoveryChanges(pool, tenantId, { sinceHours = 168
         changedAt: row.current_at,
         changeType: "owner_changed",
         summary: `${prevOwner || "(none)"} → ${curOwner || "(none)"}`,
+        href: `/agents/${row.id}`
+      });
+    }
+    const prevPrimary = prev.dataAccess?.primaryDataClass || "none";
+    const curPrimary = cur.dataAccess?.primaryDataClass || "none";
+    const prevRank = DATA_CLASS_PRIORITY[prevPrimary] ?? 0;
+    const curRank = DATA_CLASS_PRIORITY[curPrimary] ?? 0;
+    const newlySensitive =
+      (cur.dataAccess?.hasPii && !prev.dataAccess?.hasPii) ||
+      (cur.dataAccess?.hasPhi && !prev.dataAccess?.hasPhi) ||
+      curRank > prevRank;
+    if (newlySensitive && curPrimary !== "none" && curPrimary !== "unknown") {
+      dataClassEscalations.push({
+        agentId: row.id,
+        id: row.id,
+        name: row.name,
+        category: row.category,
+        owner: row.owner,
+        previousDataClass: prevPrimary,
+        primaryDataClass: curPrimary,
+        dataClasses: cur.dataAccess?.dataClasses || [curPrimary],
+        confidence: cur.dataAccess?.confidence || "low",
+        changedAt: row.current_at,
+        changeType: "data_class_escalated",
+        summary: `${prevPrimary} → ${curPrimary}`,
+        evidence: (cur.dataAccess?.evidence || []).slice(0, 5),
         href: `/agents/${row.id}`
       });
     }
@@ -605,6 +894,7 @@ export async function computeDiscoveryChanges(pool, tenantId, { sinceHours = 168
       href: `/agents/${r.id}`
     })),
     ownerChanges,
+    dataClassEscalations,
     configDrift,
     changedRelationships: edgeChanges.rows[0]?.c || 0,
     summary: {
@@ -612,6 +902,7 @@ export async function computeDiscoveryChanges(pool, tenantId, { sinceHours = 168
       updatedAgents: recentlyUpdated.rows.length,
       disappearedAgents: disappeared.rows.length,
       ownerChanges: ownerChanges.length,
+      dataClassEscalations: dataClassEscalations.length,
       configDrift: configDrift.length,
       changedRelationships: edgeChanges.rows[0]?.c || 0
     },
@@ -621,10 +912,13 @@ export async function computeDiscoveryChanges(pool, tenantId, { sinceHours = 168
 
 function summarizeFromPayload(payload) {
   const obs = payload && typeof payload === "object" ? payload : {};
+  const config = buildAgentConfig(obs);
+  const access = buildAgentAccess(obs);
   return {
-    config: buildAgentConfig(obs),
-    access: buildAgentAccess(obs),
-    ownership: buildOwnership(obs)
+    config,
+    access,
+    ownership: buildOwnership(obs),
+    dataAccess: buildDataAccessClassification(obs, access, config)
   };
 }
 
@@ -674,7 +968,25 @@ function diffDepth(prev, cur) {
   for (const t of curIds) if (!prevIds.has(t)) changes.push({ field: "identities", op: "added", value: t });
   for (const t of prevIds) if (!curIds.has(t)) changes.push({ field: "identities", op: "removed", value: t });
 
+  const prevClasses = new Set(prev.dataAccess?.dataClasses || []);
+  const curClasses = new Set(cur.dataAccess?.dataClasses || []);
+  for (const t of curClasses) {
+    if (!prevClasses.has(t) && t !== "none" && t !== "unknown") {
+      changes.push({ field: "dataClass", op: "added", value: t });
+    }
+  }
+  for (const t of prevClasses) {
+    if (!curClasses.has(t) && t !== "none" && t !== "unknown") {
+      changes.push({ field: "dataClass", op: "removed", value: t });
+    }
+  }
+  const prevPrimary = prev.dataAccess?.primaryDataClass || "none";
+  const curPrimary = cur.dataAccess?.primaryDataClass || "none";
+  if (prevPrimary !== curPrimary) {
+    changes.push({ field: "primaryDataClass", op: "changed", value: `${prevPrimary}→${curPrimary}` });
+  }
+
   return changes;
 }
 
-export { ACCESS_KEYS };
+export { ACCESS_KEYS, DATA_CLASS_PRIORITY };
