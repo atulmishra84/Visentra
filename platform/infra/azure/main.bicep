@@ -30,7 +30,7 @@ param dataPlaneMode string = 'eval'
 param postgresAdminLogin string = 'agentradar'
 
 var name = toLower('${prefix}${uniqueSuffix}')
-var neo4jPassword = 'AgentRadar!${take(uniqueSuffix, 8)}'
+var neo4jPassword = 'Visentra!${take(uniqueSuffix, 8)}'
 var isProduction = dataPlaneMode == 'production'
 var kvName = 'kv${take(replace(name, '-', ''), 20)}'
 var pgServerName = 'psql-${take(name, 50)}'

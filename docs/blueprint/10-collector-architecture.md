@@ -2,7 +2,7 @@
 
 ## Overview
 
-Collectors and connectors are the edge of AgentRadar discovery. They gather metadata from enterprise surfaces and submit signed observation batches to the ingestion service. Collectors must be safe, auditable, upgradeable, and privacy-aware.
+Collectors and connectors are the edge of Visentra discovery. They gather metadata from enterprise surfaces and submit signed observation batches to the ingestion service. Collectors must be safe, auditable, upgradeable, and privacy-aware.
 
 ## Collector Types
 

@@ -1,7 +1,7 @@
 {
   "name": "agentradar",
   "version": "1.0.0",
-  "description": "AgentRadar — AI Governance, Risk & Security Platform (BYOC)",
+  "description": "Visentra — AI Governance, Risk & Security Platform (BYOC)",
   "main": "server.js",
   "engines": {
     "node": ">=20"

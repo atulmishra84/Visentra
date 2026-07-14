@@ -580,7 +580,7 @@ app.use((err, _req, res, _next) => {
 async function boot() {
   await ensureRedis().catch(() => {});
   app.listen(config.port, () => {
-    console.log(`AgentRadar API listening on :${config.port}`);
+    console.log(`Visentra API listening on :${config.port}`);
   });
 
   startDiscoveryScheduler(async () => {

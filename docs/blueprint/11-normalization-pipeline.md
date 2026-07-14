@@ -2,7 +2,7 @@
 
 ## Overview
 
-The normalization pipeline converts heterogeneous source observations into canonical AgentRadar records. It preserves evidence, applies source-specific mappings, validates schemas, enriches known taxonomies, seeds confidence, and prepares records for identity resolution and graph construction.
+The normalization pipeline converts heterogeneous source observations into canonical Visentra records. It preserves evidence, applies source-specific mappings, validates schemas, enriches known taxonomies, seeds confidence, and prepares records for identity resolution and graph construction.
 
 ## Pipeline Stages
 
@@ -26,7 +26,7 @@ flowchart LR
 |---|---|
 | Envelope Validation | Confirm tenant, source, schema, hash, idempotency, size, and signature. |
 | Source Parser | Parse source-specific payloads into typed intermediate records. |
-| Canonical Mapper | Map fields to AgentRadar entities and relationships. |
+| Canonical Mapper | Map fields to Visentra entities and relationships. |
 | Schema Validator | Enforce canonical schema versions and required fields. |
 | Taxonomy Enrichment | Recognize providers, frameworks, MCP transports, tool categories, runtimes. |
 | Evidence Builder | Create evidence references for every canonical claim. |

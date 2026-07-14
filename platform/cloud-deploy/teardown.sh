@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tear down an AgentRadar cloud deployment (deletes the resource group).
+# Tear down an Visentra cloud deployment (deletes the resource group).
 set -euo pipefail
 
 RG="${RG:-}"
@@ -40,7 +40,7 @@ if [[ -z "${RG:-}" ]]; then
   exit 1
 fi
 
-echo "This will DELETE resource group '$RG' and all AgentRadar resources inside it."
+echo "This will DELETE resource group '$RG' and all Visentra resources inside it."
 if [[ "$YES" != "true" ]]; then
   read -r -p "Type the resource group name to confirm: " confirm
   if [[ "$confirm" != "$RG" ]]; then

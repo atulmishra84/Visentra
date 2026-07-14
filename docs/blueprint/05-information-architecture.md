@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar's information architecture defines the canonical object model for enterprise AI agent discovery and visibility. The model must support inventory tables, topology graphs, search, timelines, exports, RBAC, evidence provenance, and future visibility depth without introducing governance/remediation semantics.
+Visentra's information architecture defines the canonical object model for enterprise AI agent discovery and visibility. The model must support inventory tables, topology graphs, search, timelines, exports, RBAC, evidence provenance, and future visibility depth without introducing governance/remediation semantics.
 
 The key design rule is: **every canonical asset is evidence-backed and relationship-aware**.
 
@@ -36,7 +36,7 @@ All major entities share a base envelope.
 
 | Attribute | Type | Description |
 |---|---|---|
-| `id` | string | Stable AgentRadar identifier. |
+| `id` | string | Stable Visentra identifier. |
 | `tenant_id` | string | Tenant boundary. |
 | `entity_type` | enum | Agent, Device, IDE, Model, Tool, MCP Server, Cloud, Identity, Repository, etc. |
 | `display_name` | string | Human-readable name. |
@@ -497,7 +497,7 @@ Confidence is required because agent discovery combines strong and weak signals.
 
 ## Data Sensitivity Guidelines
 
-AgentRadar should default to metadata over content:
+Visentra should default to metadata over content:
 
 - Collect configuration paths, package names, model names, tool names, and relationship metadata.
 - Avoid collecting prompt contents, model responses, secrets, raw file contents, or personal browser history by default.

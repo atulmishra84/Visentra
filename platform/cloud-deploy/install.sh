@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AgentRadar — one-click deploy to a customer Azure subscription.
+# Visentra — one-click deploy to a customer Azure subscription.
 # Requires: Azure CLI (az), Contributor on the target subscription.
 # Does NOT require a local Docker daemon (builds via Azure Container Registry Tasks).
 set -euo pipefail
@@ -11,7 +11,7 @@ ROOT="$(cd "$PLATFORM/.." && pwd)"
 
 usage() {
   cat <<'EOF'
-AgentRadar Cloud Deploy — install into your Azure subscription
+Visentra Cloud Deploy — install into your Azure subscription
 
 Usage:
   ./install.sh                 # interactive prompts
@@ -112,7 +112,7 @@ prompt PREFIX "Resource name prefix" "agentradar"
 prompt ADMIN_EMAIL "Admin email" "admin@yourcompany.com"
 prompt_secret ADMIN_PASSWORD "Admin password"
 
-# Detect upgrade of an existing AgentRadar RG (do not auto-rotate secrets).
+# Detect upgrade of an existing Visentra RG (do not auto-rotate secrets).
 EXISTING_DEPLOY=false
 if az group show --name "${RG:-}" >/dev/null 2>&1; then
   if az containerapp list -g "$RG" --query "[?contains(name, 'api-')].name" -o tsv 2>/dev/null | grep -q .; then
@@ -121,7 +121,7 @@ if az group show --name "${RG:-}" >/dev/null 2>&1; then
 fi
 
 if [[ "$EXISTING_DEPLOY" == "true" ]]; then
-  echo "==> Existing AgentRadar deployment detected in '$RG' (upgrade mode)"
+  echo "==> Existing Visentra deployment detected in '$RG' (upgrade mode)"
   echo "    JWT_SECRET, ENCRYPTION_KEY, POSTGRES_PASSWORD, and BOOTSTRAP_ADMIN_PASSWORD"
   echo "    must be supplied explicitly so connectors and login stay intact."
   missing=()
@@ -154,7 +154,7 @@ TAG="${IMAGE_TAG:-$(date +%Y%m%d%H%M%S)}"
 
 echo ""
 echo "============================================"
-echo " AgentRadar cloud deploy"
+echo " Visentra cloud deploy"
 echo "  Data plane   : $DATA_PLANE_MODE"
 if [[ "$DATA_PLANE_MODE" == "eval" ]]; then
   echo "  (eval = containerized Postgres/Neo4j — not durable)"
@@ -400,7 +400,7 @@ done
 cat <<EOF
 
 ============================================
- AgentRadar is live in your Azure cloud
+ Visentra is live in your Azure cloud
 ============================================
  Web URL : https://$WEB_FQDN
  Login   : $ADMIN_EMAIL

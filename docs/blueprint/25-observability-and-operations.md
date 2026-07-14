@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar itself must be observable. Customers will trust discovery data only if the platform exposes pipeline health, collector health, service health, lag, errors, and export state. Internal operations need metrics, logs, traces, runbooks, and alerting.
+Visentra itself must be observable. Customers will trust discovery data only if the platform exposes pipeline health, collector health, service health, lag, errors, and export state. Internal operations need metrics, logs, traces, runbooks, and alerting.
 
 ## Golden Signals
 

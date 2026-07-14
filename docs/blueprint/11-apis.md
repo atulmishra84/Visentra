@@ -1,6 +1,6 @@
 # 11. APIs
 
-AgentRadar exposes a tenant-scoped REST API under `/api/v1` for authentication, agents, assets, graph exploration, search, discovery jobs/events, dashboards, and export. The machine-readable contract is defined in [24-api-specifications.md](./24-api-specifications.md) and should be materialized at `platform/schemas/openapi.yaml`.
+Visentra exposes a tenant-scoped REST API under `/api/v1` for authentication, agents, assets, graph exploration, search, discovery jobs/events, dashboards, and export. The machine-readable contract is defined in [24-api-specifications.md](./24-api-specifications.md) and should be materialized at `platform/schemas/openapi.yaml`.
 
 Related: [12-discovery-engine.md](./12-discovery-engine.md), [13-visibility-engine.md](./13-visibility-engine.md), [14-relationship-engine.md](./14-relationship-engine.md), [15-search-architecture.md](./15-search-architecture.md).
 

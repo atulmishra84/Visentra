@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar APIs provide access to inventory, topology, search, discovery runs, events, exports, collectors, integrations, and settings. APIs should be consistent, versioned, tenant-scoped, cursor-paginated, RBAC-enforced, and audit-aware.
+Visentra APIs provide access to inventory, topology, search, discovery runs, events, exports, collectors, integrations, and settings. APIs should be consistent, versioned, tenant-scoped, cursor-paginated, RBAC-enforced, and audit-aware.
 
 ## API Conventions
 

@@ -1,6 +1,6 @@
 # 23. Security Architecture
 
-This blueprint covers AgentRadar platform security: authentication, authorization, SSO, RBAC, secrets, network isolation, tenant isolation, auditability, and secure operations. It intentionally avoids product governance or enforcement features.
+This blueprint covers Visentra platform security: authentication, authorization, SSO, RBAC, secrets, network isolation, tenant isolation, auditability, and secure operations. It intentionally avoids product governance or enforcement features.
 
 Related: [11-apis.md](./11-apis.md), [18-deployment-architecture.md](./18-deployment-architecture.md), [19-kubernetes-deployment.md](./19-kubernetes-deployment.md), [20-aws.md](./20-aws.md), [21-azure.md](./21-azure.md), [22-gcp.md](./22-gcp.md).
 
@@ -128,7 +128,7 @@ Rules: never log secrets, redact known patterns, avoid raw prompt/credential ind
 
 ## Compliance mapping (visibility track)
 
-| Control theme | How AgentRadar helps (visibility only) |
+| Control theme | How Visentra helps (visibility only) |
 |---|---|
 | Asset inventory | Continuous AI agent CMDB |
 | Access review | Owner attribution + ownerless queue |

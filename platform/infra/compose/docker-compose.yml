@@ -84,7 +84,7 @@ services:
       JWT_SECRET: agentradar-dev-secret-change-me
       ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       BOOTSTRAP_ADMIN_EMAIL: admin@agentradar.local
-      BOOTSTRAP_ADMIN_PASSWORD: "AgentRadar!dev"
+      BOOTSTRAP_ADMIN_PASSWORD: "Visentra!dev"
       DISCOVERY_DEMO_SEED: "true"
       DISCOVERY_AI_ONLY: "true"
       CORS_ORIGIN: http://localhost:5173
@@ -114,7 +114,7 @@ services:
       DISCOVERY_INTERVAL_MS: "300000"
       DISCOVERY_DEMO_SEED: "true"
       BOOTSTRAP_ADMIN_EMAIL: admin@agentradar.local
-      BOOTSTRAP_ADMIN_PASSWORD: "AgentRadar!dev"
+      BOOTSTRAP_ADMIN_PASSWORD: "Visentra!dev"
       RUN_ON_START: "true"
     depends_on:
       api:

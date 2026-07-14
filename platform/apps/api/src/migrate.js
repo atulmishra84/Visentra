@@ -67,7 +67,7 @@ export async function migrate(pool) {
 
   const isProd = process.env.NODE_ENV === "production";
   const email = process.env.BOOTSTRAP_ADMIN_EMAIL || "admin@agentradar.local";
-  const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || (isProd ? null : "AgentRadar!dev");
+  const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || (isProd ? null : "Visentra!dev");
   if (!password) {
     throw new Error("BOOTSTRAP_ADMIN_PASSWORD is required");
   }

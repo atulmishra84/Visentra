@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AgentRadar — Auto-populate GitHub Actions secrets from Terraform outputs
+# Visentra — Auto-populate GitHub Actions secrets from Terraform outputs
 #
 # Run this ONCE after bootstrap.sh. It reads terraform output and sets
 # every GitHub secret the pipeline needs in one command.

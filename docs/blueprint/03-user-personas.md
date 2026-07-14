@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar serves enterprise teams that need to understand AI agent presence, ownership, relationships, and activity. The product must support executive visibility, operational investigation, platform coverage management, AI adoption analysis, developer accountability, and audit evidence without introducing governance or remediation workflows in V1/V2.
+Visentra serves enterprise teams that need to understand AI agent presence, ownership, relationships, and activity. The product must support executive visibility, operational investigation, platform coverage management, AI adoption analysis, developer accountability, and audit evidence without introducing governance or remediation workflows in V1/V2.
 
 ## Persona Summary
 
@@ -58,7 +58,7 @@ The CISO is accountable for understanding enterprise AI adoption and potential e
 
 ### Risks If Underserved
 
-- CISO views AgentRadar as a niche developer tool instead of a strategic security system.
+- CISO views Visentra as a niche developer tool instead of a strategic security system.
 - Lack of coverage clarity undermines trust in inventory.
 - Overemphasis on governance may create commitments the platform cannot meet in V1/V2.
 
@@ -66,7 +66,7 @@ The CISO is accountable for understanding enterprise AI adoption and potential e
 
 ### Profile
 
-The SecOps Analyst uses AgentRadar to investigate newly discovered agents, understand relationships, assess evidence quality, and export findings. They are comfortable with dense tables, filters, timelines, and graph navigation.
+The SecOps Analyst uses Visentra to investigate newly discovered agents, understand relationships, assess evidence quality, and export findings. They are comfortable with dense tables, filters, timelines, and graph navigation.
 
 ### Jobs To Be Done
 
@@ -79,7 +79,7 @@ The SecOps Analyst uses AgentRadar to investigate newly discovered agents, under
 
 ### Questions They Ask
 
-- Why did AgentRadar classify this as an agent?
+- Why did Visentra classify this as an agent?
 - What evidence was collected and when?
 - Is this a duplicate or a distinct agent?
 - Which identity is associated with this runtime?
@@ -163,7 +163,7 @@ The Platform Engineer deploys, configures, and maintains discovery coverage. The
 
 ### Profile
 
-The AI Platform Engineer is responsible for enterprise AI platforms, model gateways, agent frameworks, MCP architecture, and developer enablement. They use AgentRadar to understand adoption and standardization.
+The AI Platform Engineer is responsible for enterprise AI platforms, model gateways, agent frameworks, MCP architecture, and developer enablement. They use Visentra to understand adoption and standardization.
 
 ### Jobs To Be Done
 
@@ -207,7 +207,7 @@ The AI Platform Engineer is responsible for enterprise AI platforms, model gatew
 
 ### Profile
 
-The Developer may not be a daily AgentRadar user. They access it when asked to review assets tied to their identity, device, repository, IDE, or team. The experience must be direct and evidence-based.
+The Developer may not be a daily Visentra user. They access it when asked to review assets tied to their identity, device, repository, IDE, or team. The experience must be direct and evidence-based.
 
 ### Jobs To Be Done
 

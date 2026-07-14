@@ -2,29 +2,29 @@
 
 ## Executive Summary
 
-AgentRadar is the world's first **Enterprise AI Agent Discovery & Visibility Platform**. It gives enterprises a live inventory of AI agents, agentic developer tools, model-connected automations, AI runtime services, and the relationships that connect them to people, devices, repositories, cloud infrastructure, SaaS applications, data stores, MCP servers, tools, and models.
+Visentra is the world's first **Enterprise AI Agent Discovery & Visibility Platform**. It gives enterprises a live inventory of AI agents, agentic developer tools, model-connected automations, AI runtime services, and the relationships that connect them to people, devices, repositories, cloud infrastructure, SaaS applications, data stores, MCP servers, tools, and models.
 
-The market is moving faster than enterprise visibility. Developers install coding agents in IDEs, teams adopt SaaS assistants, platforms launch autonomous workflow agents, cloud teams deploy model-backed services, and security teams inherit an expanding surface they cannot see. AgentRadar exists to close that visibility gap.
+The market is moving faster than enterprise visibility. Developers install coding agents in IDEs, teams adopt SaaS assistants, platforms launch autonomous workflow agents, cloud teams deploy model-backed services, and security teams inherit an expanding surface they cannot see. Visentra exists to close that visibility gap.
 
 The product positioning:
 
-- **CrowdStrike for AI Agents**: enterprise-wide visibility into agent presence — **agentless first**, with optional **EDR integrations** for endpoint evidence (no AgentRadar client required on laptops).
+- **CrowdStrike for AI Agents**: enterprise-wide visibility into agent presence — **agentless first**, with optional **EDR integrations** for endpoint evidence (no Visentra client required on laptops).
 - **Wiz for AI**: cloud, identity, repository, model, framework, and topology intelligence across the AI attack surface.
 - **Datadog for AI Runtime**: timelines, events, activity streams, usage views, and operational visibility for agentic systems.
 - **ServiceNow CMDB for AI Assets**: authoritative asset inventory and relationship map for AI agents and AI-adjacent infrastructure.
 
 ## Discovery posture (locked)
 
-**AgentRadar is an agentless platform.**
+**Visentra is an agentless platform.**
 
 | Principle | Meaning |
 |-----------|---------|
-| No proprietary endpoint agent required | Customers do **not** deploy an AgentRadar client/daemon on developer machines for core discovery. |
+| No proprietary endpoint agent required | Customers do **not** deploy a Visentra client/daemon on developer machines for core discovery. |
 | Agentless by default | Cloud APIs, Kubernetes APIs, SaaS APIs, CI/CD, git, logs, and identity integrations drive inventory. |
-| Endpoint coverage via EDR | When laptop/IDE/process visibility is needed, AgentRadar **pulls from existing EDR / endpoint management** (e.g. CrowdStrike, Microsoft Defender/Intune, Cortex XDR, Netskope) rather than installing its own agent. |
+| Endpoint coverage via EDR | When laptop/IDE/process visibility is needed, Visentra **pulls from existing EDR / endpoint management** (e.g. CrowdStrike, Microsoft Defender/Intune, Cortex XDR, Netskope) rather than installing its own agent. |
 | Optional future sensors | Any future lightweight sensor is non-default and never a prerequisite for cloud/SaaS discovery. |
 
-AgentRadar is not an agent governance product in V1/V2. It does not approve, block, remediate, quarantine, or enforce policy against agents. It discovers, normalizes, correlates, maps, searches, exports, and visualizes.
+Visentra is not an agent governance product in V1/V2. It does not approve, block, remediate, quarantine, or enforce policy against agents. It discovers, normalizes, correlates, maps, searches, exports, and visualizes.
 
 ## Market Problem
 
@@ -45,7 +45,7 @@ Existing security and operations stacks see fragments of this activity, but no s
 
 The enterprise needs an **AI agent asset intelligence layer** before it can safely operate, optimize, or govern AI agents. Discovery and visibility are prerequisites for every later workflow.
 
-AgentRadar should become the system of record for:
+Visentra should become the system of record for:
 
 - Which agents exist.
 - Where they run.
@@ -95,7 +95,7 @@ Later roadmap phases may include policy, approval, remediation, agent allowlisti
 
 ## Discovery Categories
 
-AgentRadar must support all major AI agent discovery categories. Each category contributes different evidence and confidence.
+Visentra must support all major AI agent discovery categories. Each category contributes different evidence and confidence.
 
 | Category | Definition | Example Signals | Primary Buyers |
 |---|---|---|---|
@@ -112,7 +112,7 @@ AgentRadar must support all major AI agent discovery categories. Each category c
 
 ## Product Promise
 
-AgentRadar promises an enterprise team can answer, within minutes:
+Visentra promises an enterprise team can answer, within minutes:
 
 1. "Show me every AI agent in our environment."
 2. "Show me which agents use Anthropic, OpenAI, Bedrock, Gemini, local models, or internal endpoints."
@@ -142,7 +142,7 @@ The following are not V1/V2 goals:
 
 ### Breadth of Discovery
 
-AgentRadar spans endpoint, IDE, repository, cloud, container, SaaS, browser, MCP, and local runtime sources. Competitors may cover one slice; AgentRadar unifies them.
+Visentra spans endpoint, IDE, repository, cloud, container, SaaS, browser, MCP, and local runtime sources. Competitors may cover one slice; Visentra unifies them.
 
 ### Evidence-Backed Inventory
 
@@ -154,7 +154,7 @@ Agent relationships are first-class. Users can navigate from an agent to identit
 
 ### Enterprise Search and Export
 
-Security and platform teams need queryable, exportable inventories. AgentRadar makes AI agent assets searchable by owner, model, tool, runtime, cloud, repository, tag, status, and confidence.
+Security and platform teams need queryable, exportable inventories. Visentra makes AI agent assets searchable by owner, model, tool, runtime, cloud, repository, tag, status, and confidence.
 
 ### Product Boundary Clarity
 
@@ -204,7 +204,7 @@ Discovery and visibility are clear and valuable without governance. This prevent
 
 ## Competitive Frame
 
-AgentRadar should feel familiar to enterprise buyers:
+Visentra should feel familiar to enterprise buyers:
 
 - Like CrowdStrike, it should make previously invisible endpoint/runtime activity visible.
 - Like Wiz, it should make cloud and identity relationships explorable.
@@ -215,7 +215,7 @@ The product should not imitate consumer AI dashboards. It should present as a se
 
 ## Narrative for Stakeholders
 
-> "AI agents are already inside your enterprise. They are in IDEs, laptops, SaaS apps, browser extensions, cloud accounts, containers, repositories, and automation platforms. AgentRadar gives you the first complete map: every agent, every relationship, every owner, every runtime, and every blind spot. Before you govern AI agents, you need to see them."
+> "AI agents are already inside your enterprise. They are in IDEs, laptops, SaaS apps, browser extensions, cloud accounts, containers, repositories, and automation platforms. Visentra gives you the first complete map: every agent, every relationship, every owner, every runtime, and every blind spot. Before you govern AI agents, you need to see them."
 
 ## Related Documents
 

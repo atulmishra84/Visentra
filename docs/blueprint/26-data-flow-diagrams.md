@@ -1,6 +1,6 @@
 # 26. Data Flow Diagrams
 
-These diagrams show how AgentRadar data moves from discovery sources into observations, entity resolution, relationships, search, dashboards, and realtime UI updates.
+These diagrams show how Visentra data moves from discovery sources into observations, entity resolution, relationships, search, dashboards, and realtime UI updates.
 
 Related: [12-discovery-engine.md](./12-discovery-engine.md), [13-visibility-engine.md](./13-visibility-engine.md), [14-relationship-engine.md](./14-relationship-engine.md), [15-search-architecture.md](./15-search-architecture.md), [27-discovery-workflow.md](./27-discovery-workflow.md).
 

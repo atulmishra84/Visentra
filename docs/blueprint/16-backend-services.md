@@ -1,6 +1,6 @@
 # 16. Backend Services
 
-AgentRadar can start as a modular monolith and evolve into independently scalable services. The target service catalog below defines boundaries that should be preserved in code packages even when deployed together.
+Visentra can start as a modular monolith and evolve into independently scalable services. The target service catalog below defines boundaries that should be preserved in code packages even when deployed together.
 
 Related: [11-apis.md](./11-apis.md), [12-discovery-engine.md](./12-discovery-engine.md), [18-deployment-architecture.md](./18-deployment-architecture.md), [19-kubernetes-deployment.md](./19-kubernetes-deployment.md).
 

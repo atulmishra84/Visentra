@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar events power discovery runs, timelines, realtime UI updates, operational observability, graph change history, exports, and audit. Events are immutable, tenant-scoped, schema-versioned, and replay-safe.
+Visentra events power discovery runs, timelines, realtime UI updates, operational observability, graph change history, exports, and audit. Events are immutable, tenant-scoped, schema-versioned, and replay-safe.
 
 ## Event Families
 

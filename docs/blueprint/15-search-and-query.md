@@ -2,7 +2,7 @@
 
 ## Overview
 
-Search is a primary AgentRadar workflow. Users need to find agents, relationships, evidence, discovery events, models, MCP servers, repositories, identities, cloud resources, and coverage gaps quickly. Search must support both guided facets and typed structured queries.
+Search is a primary Visentra workflow. Users need to find agents, relationships, evidence, discovery events, models, MCP servers, repositories, identities, cloud resources, and coverage gaps quickly. Search must support both guided facets and typed structured queries.
 
 ## Search Modes
 

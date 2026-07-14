@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AgentRadar — AI Governance</title>
+  <title>Visentra — AI Governance</title>
   <style>
     :root {
       --bg: #0b1220;
@@ -183,7 +183,7 @@
 <body>
   <div id="login-view">
     <div class="card">
-      <p class="brand">AgentRadar</p>
+      <p class="brand">Visentra</p>
       <p class="tagline">Discover. Govern. Secure. Every AI agent, everywhere.</p>
       <form id="login-form">
         <label>Email</label>
@@ -202,7 +202,7 @@
 
   <div id="app-shell" class="hidden">
     <nav>
-      <div class="brand">AgentRadar</div>
+      <div class="brand">Visentra</div>
       <button data-view="dashboard" class="active">Dashboard</button>
       <button data-view="inventory">1 · Discovery</button>
       <button data-view="phi">2 · PHI</button>
@@ -606,8 +606,8 @@ ${esc(JSON.stringify(a.framework_scores, null, 2))}</div></details></td>
         <h1>Module 7 — SIEM & Observability</h1>
         <p class="sub">Azure Monitor / Log Analytics forwarding (fail-soft)</p>
         <div class="panel">
-          <p>Configure <code>LOG_ANALYTICS_WORKSPACE_ID</code> and <code>LOG_ANALYTICS_KEY</code>. Audit events stream to custom log <strong>AgentRadarAudit_CL</strong>.</p>
-          <pre class="drawer">AgentRadarAudit_CL
+          <p>Configure <code>LOG_ANALYTICS_WORKSPACE_ID</code> and <code>LOG_ANALYTICS_KEY</code>. Audit events stream to custom log <strong>VisentraAudit_CL</strong>.</p>
+          <pre class="drawer">VisentraAudit_CL
 | where TimeGenerated > ago(90d)
 | where action_s in ("login","agent_flagged","compliance_export","user_provisioned","discovery_scan")
 | order by TimeGenerated desc</pre>

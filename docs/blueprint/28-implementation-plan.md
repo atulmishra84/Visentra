@@ -2,7 +2,7 @@
 
 ## Overview
 
-This implementation plan sequences AgentRadar delivery from foundation to V1 Discovery and V2 Visibility depth. The plan intentionally excludes governance and remediation workflows.
+This implementation plan sequences Visentra delivery from foundation to V1 Discovery and V2 Visibility depth. The plan intentionally excludes governance and remediation workflows.
 
 ## Workstreams
 

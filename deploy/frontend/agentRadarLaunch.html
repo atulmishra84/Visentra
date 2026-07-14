@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>AgentRadar — AI Governance Platform</title>
+<title>Visentra — AI Governance Platform</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -1435,7 +1435,7 @@ pre.sc-code .val { color:#f59e0b; }
 
 
 /* ===================================================
-   DATA LINEAGE MAP v2 — merged into AgentRadar v9
+   DATA LINEAGE MAP v2 — merged into Visentra v9
 =================================================== */
 .ln-pill{font-size:10px;font-weight:600;padding:4px 11px;border-radius:99px;cursor:pointer;border:1px solid rgba(200,210,240,0.55);background:rgba(255,255,255,0.6);color:var(--text-muted);transition:all .15s;white-space:nowrap;flex-shrink:0}
 .ln-pill:hover{border-color:var(--brand-border);color:var(--brand)}
@@ -1860,7 +1860,7 @@ input[type=checkbox]{accent-color:var(--brand)}
       <div class="sb-logo-icon">
         <svg viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="2.8" fill="white"/><circle cx="9" cy="9" r="6.5" stroke="white" stroke-width="1.2" stroke-dasharray="3 2"/><circle cx="2.5" cy="9" r="1.3" fill="white" opacity=".6"/><circle cx="15.5" cy="9" r="1.3" fill="white" opacity=".6"/><circle cx="9" cy="2.5" r="1.3" fill="white" opacity=".6"/><circle cx="9" cy="15.5" r="1.3" fill="white" opacity=".6"/></svg>
       </div>
-      <div><div class="sb-brand">AgentRadar</div><div class="sb-tagline">AI Governance Platform</div></div>
+      <div><div class="sb-brand">Visentra</div><div class="sb-tagline">AI Governance Platform</div></div>
     </div>
     <div class="tenant-pill" onclick="cycleTenant()">
       <div class="tenant-dot" id="tdot"></div>
@@ -2578,7 +2578,7 @@ input[type=checkbox]{accent-color:var(--brand)}
         <div class="wiz-header">
           <div class="wiz-step-label" id="wiz-step-lbl">Step 1 of 5</div>
           <div class="wiz-title" id="wiz-title">Connect your first environment</div>
-          <div class="wiz-sub" id="wiz-sub">AgentRadar needs read-only access to discover AI agents. Choose your environment type to get started.</div>
+          <div class="wiz-sub" id="wiz-sub">Visentra needs read-only access to discover AI agents. Choose your environment type to get started.</div>
         </div>
         <div class="wiz-progress" style="margin-bottom:16px"><div class="wiz-progress-fill" id="wiz-fill" style="width:20%"></div></div>
         <div class="wiz-body" id="wiz-body"></div>
@@ -2604,7 +2604,7 @@ input[type=checkbox]{accent-color:var(--brand)}
       <div style="width:40px;height:40px;background:linear-gradient(135deg,#2563eb,#7c3aed);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">⚡</div>
       <div>
         <div style="font-size:20px;font-weight:800;font-family:var(--font-display)">Connect Your Environment</div>
-        <div style="font-size:12px;color:var(--text-muted)">Provide read-only credentials — AgentRadar finds every AI agent automatically. No configuration needed.</div>
+        <div style="font-size:12px;color:var(--text-muted)">Provide read-only credentials — Visentra finds every AI agent automatically. No configuration needed.</div>
       </div>
       <div id="cd-last-scan" style="margin-left:auto;font-size:11px;color:var(--text-muted)"></div>
     </div>
@@ -2613,7 +2613,7 @@ input[type=checkbox]{accent-color:var(--brand)}
     <div style="display:flex;gap:8px;margin:16px 0;padding:12px 16px;background:rgba(37,99,235,0.06);border:1px solid rgba(37,99,235,0.15);border-radius:10px">
       <div style="font-size:12px;color:var(--text-secondary);line-height:1.7">
         <span style="font-weight:700;color:#2563eb">How it works: </span>
-        Paste your cloud credentials → AgentRadar probes your environment → discovers every AI agent (active, dormant, in-development) → saves to inventory → shows risk and compliance gaps.
+        Paste your cloud credentials → Visentra probes your environment → discovers every AI agent (active, dormant, in-development) → saves to inventory → shows risk and compliance gaps.
         <span style="font-weight:700;color:#2563eb"> You don't need to know what AI you have. We find it.</span>
       </div>
     </div>
@@ -2962,7 +2962,7 @@ done</div>
                 <div class="cred-field"><div class="cred-lbl">Service Account Token</div><input class="cred-inp" id="ci-k8s-token" type="password" placeholder="eyJhbGciOiJSUzI1NiIs..."></div>
                 <div class="cred-field"><div class="cred-lbl">Namespaces to scan</div><input class="cred-inp" id="ci-k8s-ns" placeholder="default, production, ai-workloads"></div>
               </div>
-              <div class="code-snip"><button class="snip-copy" onclick="copySnip(this)">Copy</button><span class="cm"># Create read-only ClusterRole for AgentRadar</span>
+              <div class="code-snip"><button class="snip-copy" onclick="copySnip(this)">Copy</button><span class="cm"># Create read-only ClusterRole for Visentra</span>
 kubectl apply -f - &lt;&lt;EOF
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -3141,7 +3141,7 @@ useradd -r -s /sbin/nologin agentRadar-scanner
                 <div class="cred-field"><div class="cred-lbl">Indexes to search</div><input class="cred-inp" id="ci-splunk-idx" value="main, security, _internal" placeholder="main, security"></div>
                 <div class="cred-field"><div class="cred-lbl">Lookback window</div><select class="cred-select" id="ci-splunk-window"><option>7 days</option><option selected>30 days</option><option>90 days</option></select></div>
               </div>
-              <div class="code-snip" id="splunk-query-snip"><button class="snip-copy" onclick="copySnip(this)">Copy</button><span class="cm">| AgentRadar shadow AI detection query</span>
+              <div class="code-snip" id="splunk-query-snip"><button class="snip-copy" onclick="copySnip(this)">Copy</button><span class="cm">| Visentra shadow AI detection query</span>
 index=* earliest=-30d (
   dest_host=<span class="str">"api.openai.com"</span> OR dest_host=<span class="str">"api.anthropic.com"</span>
   OR dest_host=<span class="str">"*.huggingface.co"</span>
@@ -3242,7 +3242,7 @@ index=* earliest=-30d (
                 <div class="cred-field"><div class="cred-lbl">Frameworks to enforce</div><input class="cred-inp" id="ci-gh-fw" value="gdpr, hipaa, euai, soc2" placeholder="gdpr, hipaa, soc2"></div>
               </div>
               <div class="code-snip"><button class="snip-copy" onclick="copySnip(this)">Copy</button><span class="cm"># .github/workflows/agentRadar-gate.yml</span>
-- name: <span class="str">AgentRadar AI governance gate</span>
+- name: <span class="str">Visentra AI governance gate</span>
   uses: <span class="val">agentRadar/scan-action@v2</span>
   with:
     api-key: <span class="kw">${{ secrets.AGENTRADARPOLICY_KEY }}</span>
@@ -3308,7 +3308,7 @@ agentRadar-gate:
                 <div class="cred-field"><div class="cred-lbl">OAuth Scope</div><input class="cred-inp" value="system/AuditEvent.read system/CapabilityStatement.read" readonly style="color:var(--text-muted)"></div>
                 <div class="cred-field"><div class="cred-lbl">BAA Status</div><select class="cred-select" id="ci-epic-baa"><option selected>Signed</option><option>Pending signature</option><option>Not started</option></select></div>
               </div>
-              <div class="code-snip"><button class="snip-copy" onclick="copySnip(this)">Copy</button><span class="cm"># What AgentRadar reads from Epic (no PHI)</span>
+              <div class="code-snip"><button class="snip-copy" onclick="copySnip(this)">Copy</button><span class="cm"># What Visentra reads from Epic (no PHI)</span>
 GET /metadata               <span class="cm"># CapabilityStatement</span>
 GET /.well-known/smart-configuration  <span class="cm"># SMART apps</span>
 GET /AuditEvent?agent=*    <span class="cm"># AI agent activity log</span>
@@ -3317,7 +3317,7 @@ GET /AuditEvent?agent=*    <span class="cm"># AI agent activity log</span>
                 <button class="btn sm primary" onclick="testConn('epic')">▶ Test FHIR</button>
                 <button class="btn sm" onclick="runHealthScan('epic')">Scan FHIR Agents</button>
               </div>
-              <div class="conn-log" id="log-epic"><div class="log-grn">[OK] Epic FHIR R4 endpoint reachable</div><div class="log-grn">[OK] CapabilityStatement retrieved</div><div class="log-amb">[WARN] 3 SMART apps found — 1 unregistered in AgentRadar</div></div>
+              <div class="conn-log" id="log-epic"><div class="log-grn">[OK] Epic FHIR R4 endpoint reachable</div><div class="log-grn">[OK] CapabilityStatement retrieved</div><div class="log-amb">[WARN] 3 SMART apps found — 1 unregistered in Visentra</div></div>
             </div>
           </div>
 
@@ -3356,7 +3356,7 @@ GET /AuditEvent?agent=*    <span class="cm"># AI agent activity log</span>
                 <div class="cred-field"><div class="cred-lbl">Port</div><input class="cred-inp" id="ci-dicom-port" value="104" placeholder="104 or 11112"></div>
                 <div class="cred-field"><div class="cred-lbl">Called AE Title</div><input class="cred-inp" id="ci-dicom-aet" value="AGENTRADARPACSGW" placeholder="YOUR_AE_TITLE"></div>
               </div>
-              <div class="code-snip"><button class="snip-copy" onclick="copySnip(this)">Copy</button><span class="cm"># AgentRadar DICOM C-ECHO test (only network ping)</span>
+              <div class="code-snip"><button class="snip-copy" onclick="copySnip(this)">Copy</button><span class="cm"># Visentra DICOM C-ECHO test (only network ping)</span>
 findscu -v -S -k 0008,0052=STUDY \
   <span class="str">"pacs.healthsys.org"</span> 104 \
   --aetitle AGENTRADARPACSGW \
@@ -3435,7 +3435,7 @@ findscu -v -S -k 0008,0052=STUDY \
               </div>
               <div class="script-item" style="cursor:pointer" onclick="loadTemplate('register-agents')">
                 <div class="script-dot" style="background:var(--green)"></div>
-                <div><div class="script-name">Bulk Agent Registration</div><div class="script-meta">Registers discovered agents via AgentRadar API</div></div>
+                <div><div class="script-name">Bulk Agent Registration</div><div class="script-meta">Registers discovered agents via Visentra API</div></div>
                 <span class="script-lang">JavaScript</span>
                 <button class="script-btn" onclick="event.stopPropagation();loadTemplate('register-agents')">Load</button>
               </div>
@@ -3465,7 +3465,7 @@ findscu -v -S -k 0008,0052=STUDY \
             <div class="ce-body">
               <div class="ce-line-nums" id="ce-lines">1</div>
               <textarea class="ce-code" id="ce-editor" spellcheck="false" oninput="updateLineNums()" onkeydown="handleEditorKey(event)" placeholder="// Write your environment integration script here
-// Access AgentRadar platform via window.AR object:
+// Access Visentra platform via window.AR object:
 //   AR.agents      — agent inventory array
 //   AR.addAgent()  — register a new agent
 //   AR.log()       — write to output console below"></textarea>
@@ -3485,7 +3485,7 @@ findscu -v -S -k 0008,0052=STUDY \
         <div class="col">
           <div class="card">
             <div class="card-head"><span class="card-title">AI-Generated Executive Summary</span><span class="tier-badge t5">✦ AI Narration</span></div>
-            <div class="ai-panel"><div class="ai-header"><div class="ai-orb"></div><span class="ai-label">AgentRadar Intelligence</span></div><div class="ai-text" id="ciso-ai">Loading analysis…</div></div>
+            <div class="ai-panel"><div class="ai-header"><div class="ai-orb"></div><span class="ai-label">Visentra Intelligence</span></div><div class="ai-text" id="ciso-ai">Loading analysis…</div></div>
           </div>
           <div class="card"><div class="card-head"><span class="card-title">Recommended Actions</span></div><div style="padding:14px;display:flex;flex-direction:column;gap:8px" id="ciso-recs"></div></div>
         </div>
@@ -3607,7 +3607,7 @@ findscu -v -S -k 0008,0052=STUDY \
   <div class="login-box">
     <div class="login-logo">
       <div class="login-logo-icon"><svg width="18" height="18" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="2.2" fill="white"/><circle cx="7" cy="7" r="5" stroke="white" stroke-width="1" stroke-dasharray="2 1.5"/><circle cx="2" cy="7" r="1" fill="white" opacity=".6"/><circle cx="12" cy="7" r="1" fill="white" opacity=".6"/></svg></div>
-      <span class="login-title">AgentRadar</span>
+      <span class="login-title">Visentra</span>
     </div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6">AI Governance Platform — sign in to continue</div>
     <div class="login-field"><div class="login-lbl">Email</div><input class="login-inp" id="login-email" type="email" placeholder="you@company.com" value="admin@agentradar.local"></div>
@@ -3621,7 +3621,7 @@ findscu -v -S -k 0008,0052=STUDY \
         <div class="role-card" id="role-viewer" onclick="selectRole('viewer')"><div class="role-name">Viewer</div><div class="role-desc">Dashboard view only</div><span class="role-badge rb-viewer">Read-only</span></div>
       </div>
     </div>
-    <button class="btn primary" style="width:100%;padding:10px" onclick="doLogin()">Sign in to AgentRadar</button>
+    <button class="btn primary" style="width:100%;padding:10px" onclick="doLogin()">Sign in to Visentra</button>
     <div style="margin-top:10px;text-align:center;font-size:11px;color:var(--text-muted)">SSO / SAML available for enterprise accounts</div>
   </div>
 </div>
@@ -3632,7 +3632,7 @@ findscu -v -S -k 0008,0052=STUDY \
     <div class="onb-progress"><div class="onb-progress-fill" id="onb-fill" style="width:25%"></div></div>
     <div class="onb-header">
       <div class="onb-step-label" id="onb-step-lbl">Step 1 of 4</div>
-      <div class="onb-title" id="onb-title">Welcome to AgentRadar</div>
+      <div class="onb-title" id="onb-title">Welcome to Visentra</div>
       <div class="onb-sub" id="onb-sub">Let's get your organization set up in under 5 minutes.</div>
     </div>
     <div class="onb-body" id="onb-body">
@@ -3957,7 +3957,7 @@ findscu -v -S -k 0008,0052=STUDY \
 <div class="agent-key-modal hidden" id="agent-key-modal">
   <div class="agent-key-box">
     <div class="akb-title">✦ Connect Anthropic API Key</div>
-    <div class="akb-sub">The AI Agent uses Claude claude-sonnet-4-20250514 with tool use to query your live AgentRadar inventory, run compliance checks, and generate governance actions. Use any LLM — your key stays in memory only, never stored.</div>
+    <div class="akb-sub">The AI Agent uses Claude claude-sonnet-4-20250514 with tool use to query your live Visentra inventory, run compliance checks, and generate governance actions. Use any LLM — your key stays in memory only, never stored.</div>
 
     <!-- Provider selector grid -->
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px" id="prov-grid">
@@ -3998,7 +3998,7 @@ findscu -v -S -k 0008,0052=STUDY \
     <div class="aap-orb">
       <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.5" fill="white"/><circle cx="8" cy="8" r="5.5" stroke="white" stroke-width="1.1" stroke-dasharray="2.5 1.8"/><circle cx="2" cy="8" r="1.2" fill="white" opacity=".5"/><circle cx="14" cy="8" r="1.2" fill="white" opacity=".5"/><circle cx="8" cy="2" r="1.2" fill="white" opacity=".5"/><circle cx="8" cy="14" r="1.2" fill="white" opacity=".5"/></svg>
     </div>
-    <span class="aap-title">AgentRadar AI Agent</span>
+    <span class="aap-title">Visentra AI Agent</span>
     <span class="aap-badge">CLAUDE</span>
     <div class="aap-status"><div class="aap-dot" id="aap-dot"></div><span id="aap-status-label">Ready</span></div>
     <button class="aap-close" onclick="closeAgentPanel()">✕</button>
@@ -4020,7 +4020,7 @@ findscu -v -S -k 0008,0052=STUDY \
     <div class="aap-msg">
       <div class="aap-av agent">AR</div>
       <div class="aap-bubble">
-        <p>I'm your AI governance agent — wired directly into your live AgentRadar platform data.</p>
+        <p>I'm your AI governance agent — wired directly into your live Visentra platform data.</p>
         <p>Ask me anything about your <strong>agents, compliance posture, shadow AI, PHI exposure, or risks</strong>. I'll call the right tools and reason over the results.</p>
       </div>
     </div>
@@ -4840,7 +4840,7 @@ const SCAN_POOLS={
 };
 
 const PROD_CODE={
-  'sc-net-probe':{lang:'Node.js — pure built-ins (net · tls · http · dns) — no nmap',code:`// AgentRadar Network Port Prober — no nmap, no external deps
+  'sc-net-probe':{lang:'Node.js — pure built-ins (net · tls · http · dns) — no nmap',code:`// Visentra Network Port Prober — no nmap, no external deps
 // Uses only Node.js built-ins: net, tls, http, https, dns
 
 const net = require('net');
@@ -5734,9 +5734,9 @@ function renderModels(){
 
 /* -- PLAYBOOKS -- */
 const PLAYBOOKS=[
-  {id:1,title:"Remediate PHI Without HIPAA BAA",framework:"HIPAA",priority:"critical",agent:"Patient Classifier API",steps:["1. Immediately suspend PHI data ingestion from the agent","2. Engage Legal to draft and execute a Business Associate Agreement (BAA) with the AI vendor","3. Document all PHI processed during the period without BAA (breach assessment required within 60 days)","4. Implement access controls: restrict PHI to only agents with signed BAAs","5. Re-enable agent only after BAA is signed, controls tested, and audit log enabled","6. Re-run AgentRadar scan to verify HIPAA = pass"],est:"3–5 business days"},
+  {id:1,title:"Remediate PHI Without HIPAA BAA",framework:"HIPAA",priority:"critical",agent:"Patient Classifier API",steps:["1. Immediately suspend PHI data ingestion from the agent","2. Engage Legal to draft and execute a Business Associate Agreement (BAA) with the AI vendor","3. Document all PHI processed during the period without BAA (breach assessment required within 60 days)","4. Implement access controls: restrict PHI to only agents with signed BAAs","5. Re-enable agent only after BAA is signed, controls tested, and audit log enabled","6. Re-run Visentra scan to verify HIPAA = pass"],est:"3–5 business days"},
   {id:2,title:"Contain Shadow HL7 Listener",framework:"HIPAA / HITRUST",priority:"critical",agent:"Shadow HL7 Listener",steps:["1. Immediately block port 2575 (MLLP) at the firewall for the detected host IP","2. Isolate the host from the network to prevent further ADT feed ingestion","3. Conduct forensic review: what PHI was received? How many ADT messages?","4. Notify Privacy Officer — potential HIPAA breach if PHI was accessed without authorization","5. Trace who deployed the listener — was it a developer, vendor, or unauthorized actor?","6. If breach confirmed: notify affected patients within 60 days per HIPAA Breach Notification Rule"],est:"Immediate (0–24 hours)"},
-  {id:3,title:"Fix GDPR PII Access Without Lawful Basis",framework:"GDPR",priority:"critical",agent:"GPT-4 Automation Hub",steps:["1. Suspend the agent's access to PII data sources immediately","2. Identify the specific PII categories being processed (Art. 4 GDPR)","3. Determine and document the lawful basis (consent, contract, legitimate interest — Art. 6 GDPR)","4. If consent: implement consent collection mechanism and re-obtain from all affected data subjects","5. Create Record of Processing Activity (Art. 30 GDPR) entry for this agent","6. Execute a Data Protection Impact Assessment (DPIA) if high risk processing (Art. 35)","7. Re-run AgentRadar scan to verify GDPR = pass"],est:"5–10 business days"},
+  {id:3,title:"Fix GDPR PII Access Without Lawful Basis",framework:"GDPR",priority:"critical",agent:"GPT-4 Automation Hub",steps:["1. Suspend the agent's access to PII data sources immediately","2. Identify the specific PII categories being processed (Art. 4 GDPR)","3. Determine and document the lawful basis (consent, contract, legitimate interest — Art. 6 GDPR)","4. If consent: implement consent collection mechanism and re-obtain from all affected data subjects","5. Create Record of Processing Activity (Art. 30 GDPR) entry for this agent","6. Execute a Data Protection Impact Assessment (DPIA) if high risk processing (Art. 35)","7. Re-run Visentra scan to verify GDPR = pass"],est:"5–10 business days"},
   {id:4,title:"FDA SaMD Classification for Radiology AI",framework:"FDA SaMD",priority:"high",agent:"Radiology Multiagent Pipeline",steps:["1. Determine the intended use and device function under FDA 21 CFR Part 820","2. Classify the SaMD: Class I, II, or III based on risk to patient safety","3. For Class II: prepare and submit 510(k) Premarket Notification or De Novo request","4. Implement Quality Management System (QMS) per ISO 13485","5. Complete Algorithm Validation: analytical validation, clinical validation, bias assessment","6. Prepare Software Bill of Materials (SBOM) per FDA cybersecurity guidance","7. Establish post-market surveillance plan for ongoing performance monitoring"],est:"6–12 months (regulatory timeline)"},
   {id:5,title:"Contain AutoGPT with Prod API Keys",framework:"SOC 2 / NIST",priority:"critical",agent:"AutoGPT Instance",steps:["1. Immediately revoke all production API keys associated with the AutoGPT instance","2. Isolate the workstation (DESKTOP-7F3A) from the network","3. Audit all API calls made using the leaked keys (check cloud provider logs)","4. Rotate all potentially compromised credentials across affected systems","5. Review files accessed on the local filesystem during the agent's runtime","6. Implement endpoint DLP policy to prevent future unauthorized key storage"],est:"0–48 hours"},
   {id:6,title:"HITRUST CSF Data Protection Remediation",framework:"HITRUST CSF",priority:"high",agent:"Genomics Research Agent",steps:["1. Classify genomic data under HITRUST requirement 07.a (Information Classification)","2. Implement encryption at rest (AES-256) and in transit (TLS 1.3) for all genomic datasets","3. Deploy Data Loss Prevention (DLP) controls on the agent's data egress paths","4. Implement Privileged Access Management for researcher accounts accessing genomic data","5. Conduct network segmentation review — genomics pipeline should be on an isolated VLAN","6. Schedule quarterly HITRUST self-assessment for this agent category"],est:"2–4 weeks"},
@@ -5783,7 +5783,7 @@ async function askPB(){
   chat.appendChild(thinking);
   chat.scrollTop=chat.scrollHeight;
   try{
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:400,system:'You are an expert AI governance and healthcare compliance advisor embedded in AgentRadar. Answer concisely about HIPAA, HITRUST, FDA SaMD, GDPR, SOC2, and AI security remediation. Keep responses under 120 words.',messages:[{role:'user',content:q}]})});
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:400,system:'You are an expert AI governance and healthcare compliance advisor embedded in Visentra. Answer concisely about HIPAA, HITRUST, FDA SaMD, GDPR, SOC2, and AI security remediation. Keep responses under 120 words.',messages:[{role:'user',content:q}]})});
     const d=await resp.json();
     thinking.textContent=(d.content?.[0]?.text)||'Unable to get response.';
     thinking.style.color='var(--text-secondary)';
@@ -6043,7 +6043,7 @@ function showBlast(ag){
    Edge types: normal | phi | risk | safe | ext       */
 
 /* ========================================================
-   DATA LINEAGE MAP v2 — AgentRadar v9
+   DATA LINEAGE MAP v2 — Visentra v9
    All globals prefixed 'ln' — no conflicts with v9 vars
 ======================================================== */
 const LN_COLS={SOURCE:{x:60,color:'#10b981',fill:'rgba(16,185,129,0.08)',stroke:'rgba(16,185,129,0.45)',text:'#065f46'},AGENT:{x:360,color:'#6366f1',fill:'rgba(99,102,241,0.08)',stroke:'rgba(99,102,241,0.45)',text:'#3730a3'},EXTERNAL:{x:660,color:'#8b5cf6',fill:'rgba(139,92,246,0.08)',stroke:'rgba(139,92,246,0.45)',text:'#5b21b6'},OUTPUT:{x:960,color:'#f59e0b',fill:'rgba(245,158,11,0.08)',stroke:'rgba(245,158,11,0.45)',text:'#92400e'}};
@@ -6735,7 +6735,7 @@ function copyEnrollToken(){navigator.clipboard.writeText(document.getElementById
 function copyGithubWorkflow(){
   const fw=document.getElementById('ci-gh-fw')?.value||'gdpr,hipaa,euai,soc2';
   const block=document.getElementById('ci-gh-block')?.value||'critical,high';
-  const yaml=`- name: AgentRadar gate\n  uses: agentRadar/scan-action@v2\n  with:\n    api-key: \${{ secrets.AGENTRADARPOLICY_KEY }}\n    fail-on: ${block}\n    frameworks: ${fw}\n    manifest: ./agent-manifest.yaml`;
+  const yaml=`- name: Visentra gate\n  uses: agentRadar/scan-action@v2\n  with:\n    api-key: \${{ secrets.AGENTRADARPOLICY_KEY }}\n    fail-on: ${block}\n    frameworks: ${fw}\n    manifest: ./agent-manifest.yaml`;
   navigator.clipboard.writeText(yaml).catch(()=>{});addAct('info','GitHub YAML copied','Admin','#6366f1');
 }
 function updateSensorSnip(){
@@ -6764,7 +6764,7 @@ const TEMPLATES={
   'fhir-scan':{lang:'python',name:'FHIR Scanner',code:`import requests\n\nFHIR_BASE = "https://fhir.epic.org/interconnect-fhir-oauth/api/FHIR/R4"\n\n# Only reads CapabilityStatement — NO PHI\nr = requests.get(f"{FHIR_BASE}/metadata", headers={"Accept": "application/fhir+json"}, timeout=10)\ncap = r.json()\nprint(f"FHIR {cap.get('fhirVersion')} — {cap.get('software', {}).get('name')}")\n\n# SMART app registry\nr2 = requests.get(f"{FHIR_BASE}/.well-known/smart-configuration", timeout=10)\nprint("SMART apps:", r2.json().get("capabilities", []))\nprint("No PHI accessed.")`},
   'hl7-detect':{lang:'bash',name:'HL7 Shadow Detector',code:`#!/bin/bash\n# Scans for unauthorized HL7 MLLP listeners on port 2575\nHL7_PORT=2575\necho "[SCAN] Checking local port $HL7_PORT..."\nLOCAL=\\$(ss -tlnp 2>/dev/null | grep ":$HL7_PORT")\nif [ -n "$LOCAL" ]; then\n  echo "[ALERT] HL7 listener found:"\n  echo "$LOCAL"\n  PID=\\$(echo "$LOCAL" | grep -oP 'pid=\\K[0-9]+')\n  PROC=\\$(ps -p $PID -o comm= 2>/dev/null)\n  echo "[INFO] Process: $PROC (PID $PID)"\nelse\n  echo "[OK] No unauthorized HL7 listeners"\nfi`},
   'k8s-ai':{lang:'bash',name:'K8s AI Enumerator',code:`#!/bin/bash\n# Kubernetes AI workload discovery\nNAMESPACES=("default" "production" "ai-workloads")\nAI_KEYWORDS="ai ml model predict infer llm bert clinical fhir"\nfor ns in "\${NAMESPACES[@]}"; do\n  echo "[NS] \$ns"\n  kubectl get pods -n "\$ns" 2>/dev/null | while read line; do\n    POD=\$(echo "\$line" | awk '{print \$1}')\n    for kw in \$AI_KEYWORDS; do\n      echo "\$POD" | grep -qi "\$kw" && echo "[FOUND] AI pod: \$POD" && break\n    done\n  done\ndone`},
-  'register-agents':{lang:'javascript',name:'Bulk Registration',code:`// AgentRadar — Bulk Agent Registration\n// Runs inside platform context — accesses live DB\n\nconst newAgents = [\n  {\n    name: "Patient Risk Classifier v2",\n    type: "agent", env: "Cloud",\n    protocols: ["FHIR R4", "REST"],\n    risk: "high", phi: true, domain: "clinical",\n    dataAccess: "Patient records",\n    owner: "clinical-ai@healthsys.org"\n  }\n];\n\nnewAgents.forEach(agent => {\n  AR.addAgent(agent);\n});\n\nAR.log("Registered " + newAgents.length + " agents");\nAR.log("Inventory updated — check Agent Discovery view");`}
+  'register-agents':{lang:'javascript',name:'Bulk Registration',code:`// Visentra — Bulk Agent Registration\n// Runs inside platform context — accesses live DB\n\nconst newAgents = [\n  {\n    name: "Patient Risk Classifier v2",\n    type: "agent", env: "Cloud",\n    protocols: ["FHIR R4", "REST"],\n    risk: "high", phi: true, domain: "clinical",\n    dataAccess: "Patient records",\n    owner: "clinical-ai@healthsys.org"\n  }\n];\n\nnewAgents.forEach(agent => {\n  AR.addAgent(agent);\n});\n\nAR.log("Registered " + newAgents.length + " agents");\nAR.log("Inventory updated — check Agent Discovery view");`}
 };
 
 let currentScriptId=null;
@@ -6796,7 +6796,7 @@ function loadScript(id){
 function deleteScript(id){if(!confirm('Delete this script?'))return;const i=savedScripts.findIndex(x=>x.id===id);if(i>-1)savedScripts.splice(i,1);renderScriptList();}
 function newScript(){
   const ed=document.getElementById('ce-editor');const title=document.getElementById('editor-title');
-  if(ed)ed.value=`// New AgentRadar integration script\n// Globals: DB (agent database), AR.log(), AR.addAgent(), save(), updateStats()\n\nAR.log("Script started");\n// Your code here\nAR.log("Done");`;
+  if(ed)ed.value=`// New Visentra integration script\n// Globals: DB (agent database), AR.log(), AR.addAgent(), save(), updateStats()\n\nAR.log("Script started");\n// Your code here\nAR.log("Done");`;
   if(title)title.textContent='New Script';currentScriptId=null;updateLineNums();showEnvTab('scripts');
 }
 function saveScript(){
@@ -6877,7 +6877,7 @@ const IAC = {
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "AgentRadarReadOnly",
+      "Sid": "VisentraReadOnly",
       "Effect": "Allow",
       "Action": [
         "lambda:ListFunctions",
@@ -6898,16 +6898,16 @@ const IAC = {
     }
   ]
 }`,
-    terraform: `# AgentRadar AWS Scanner — IAM Role
+    terraform: `# Visentra AWS Scanner — IAM Role
 # Run: terraform init && terraform apply
 
 variable "agentRadar_external_id" {
-  description = "External ID from AgentRadar UI"
+  description = "External ID from Visentra UI"
   type        = string
 }
 
 variable "agentRadar_account_id" {
-  default = "123456789012"  # AgentRadar AWS account ID
+  default = "123456789012"  # Visentra AWS account ID
 }
 
 resource "aws_iam_role" "agentRadar_scanner" {
@@ -6929,7 +6929,7 @@ resource "aws_iam_role" "agentRadar_scanner" {
 }
 
 resource "aws_iam_role_policy" "agentRadar_policy" {
-  name   = "AgentRadar-ReadOnly"
+  name   = "Visentra-ReadOnly"
   role   = aws_iam_role.agentRadar_scanner.id
   policy = file("agentRadar-policy.json")
 }
@@ -6939,8 +6939,8 @@ output "role_arn" {
 }`,
     verification: [
       { title: 'Create IAM role', desc: 'Run the Terraform above or create the role manually in AWS Console. Save the Role ARN.' },
-      { title: 'Enter ARN in AgentRadar', desc: 'Paste the Role ARN into the field above. AgentRadar will call sts:AssumeRole to verify.' },
-      { title: 'Test connection', desc: 'Click Test Connection — AgentRadar will assume the role and list Lambda functions, SageMaker endpoints, and Bedrock models.' },
+      { title: 'Enter ARN in Visentra', desc: 'Paste the Role ARN into the field above. Visentra will call sts:AssumeRole to verify.' },
+      { title: 'Test connection', desc: 'Click Test Connection — Visentra will assume the role and list Lambda functions, SageMaker endpoints, and Bedrock models.' },
       { title: 'Run first scan', desc: 'Click Scan Now to discover all AI agents in your AWS account and register them in the inventory.' },
     ]
   },
@@ -6955,7 +6955,7 @@ az ad sp create-for-rbac \\
   --scopes "/subscriptions/{subscription-id}" \\
   --output json
 
-# Output → copy clientId, clientSecret, tenantId into AgentRadar
+# Output → copy clientId, clientSecret, tenantId into Visentra
 
 # Step 2: If you have multiple subscriptions, repeat for each:
 az role assignment create \\
@@ -6970,8 +6970,8 @@ az login --service-principal \\
 az cognitiveservices account list --output table`,
     verification: [
       { title: 'Create Service Principal', desc: 'Run the CLI command above. Copy the clientId, clientSecret, and tenantId from the JSON output.' },
-      { title: 'Enter credentials in AgentRadar', desc: 'Paste Tenant ID, Client ID, Client Secret, and Subscription IDs into the fields above.' },
-      { title: 'Test connection', desc: 'AgentRadar authenticates with ClientSecretCredential and lists Azure OpenAI deployments and ML Studio workspaces.' },
+      { title: 'Enter credentials in Visentra', desc: 'Paste Tenant ID, Client ID, Client Secret, and Subscription IDs into the fields above.' },
+      { title: 'Test connection', desc: 'Visentra authenticates with ClientSecretCredential and lists Azure OpenAI deployments and ML Studio workspaces.' },
       { title: 'Grant access to additional subscriptions', desc: 'If you have multiple subscriptions, add the Reader role for each in Azure IAM.' },
     ]
   },
@@ -6981,7 +6981,7 @@ az cognitiveservices account list --output table`,
     code: `# Run in Google Cloud Shell or local gcloud CLI
 # Step 1: Create service account
 gcloud iam service-accounts create agentRadar-scanner \\
-  --display-name="AgentRadar Scanner" \\
+  --display-name="Visentra Scanner" \\
   --project={your-project-id}
 
 # Step 2: Grant read-only roles
@@ -7001,12 +7001,12 @@ gcloud projects add-iam-policy-binding {your-project-id} \\
 gcloud iam service-accounts keys create agentRadar-key.json \\
   --iam-account=agentRadar-scanner@{your-project-id}.iam.gserviceaccount.com
 
-# Upload agentRadar-key.json content into AgentRadar above`,
+# Upload agentRadar-key.json content into Visentra above`,
     verification: [
       { title: 'Create service account', desc: 'Run the gcloud commands above. The key JSON file is created at the end.' },
       { title: 'Upload key JSON', desc: 'Copy the contents of agentRadar-key.json and paste into the Service Account JSON field above.' },
       { title: 'Add project IDs', desc: 'Enter the GCP project IDs you want to scan. Separate multiple projects with commas.' },
-      { title: 'Test connection', desc: 'AgentRadar authenticates and lists Vertex AI endpoints and Cloud Run services.' },
+      { title: 'Test connection', desc: 'Visentra authenticates and lists Vertex AI endpoints and Cloud Run services.' },
     ]
   },
   k8s: {
@@ -7063,7 +7063,7 @@ type: kubernetes.io/service-account-token`,
       { title: 'Apply RBAC manifest', desc: 'Run: kubectl apply -f agentRadar-rbac.yaml — creates namespace, ServiceAccount, and ClusterRole.' },
       { title: 'Get service account token', desc: 'Run: kubectl get secret agentRadar-scanner-token -n agentRadar -o jsonpath="{.data.token}" | base64 -d' },
       { title: 'Enter credentials', desc: 'Paste the API Server URL (kubectl cluster-info), CA certificate, and token into the fields above.' },
-      { title: 'Configure namespaces', desc: 'Add the namespaces AgentRadar should scan. Default: default, production, ai-workloads, healthcare.' },
+      { title: 'Configure namespaces', desc: 'Add the namespaces Visentra should scan. Default: default, production, ai-workloads, healthcare.' },
     ]
   },
   idp: {
@@ -7079,14 +7079,14 @@ curl https://YOUR_DOMAIN.okta.com/api/v1/apps?limit=5 \\
   -H "Accept: application/json"
 
 # Azure AD: App registration with minimum permissions
-az ad app create --display-name "AgentRadar-IdP-Scanner"
+az ad app create --display-name "Visentra-IdP-Scanner"
 az ad app permission add --id {app-id} --api 00000003-0000-0000-c000-000000000000 \\
   --api-permissions 311a71cc-e848-46a1-bdf8-97ff7156d8e6=Scope  # User.Read.All
 az ad app permission grant --id {app-id} --api 00000003-0000-0000-c000-000000000000`,
     verification: [
       { title: 'Create read-only API token', desc: 'In Okta Admin Console: Security → API → Tokens. Create token with read:apps and read:users scope only.' },
       { title: 'Enter domain and token', desc: 'Paste your Okta domain (company.okta.com) and the SSWS token into the fields above.' },
-      { title: 'Test connection', desc: 'AgentRadar calls /api/v1/apps to list OAuth applications and checks each against the AI platform list.' },
+      { title: 'Test connection', desc: 'Visentra calls /api/v1/apps to list OAuth applications and checks each against the AI platform list.' },
       { title: 'Review discovered grants', desc: 'Agent inventory will show hosted AI agents as "SaaS (Hosted)" type with the authorised user as owner.' },
     ]
   },
@@ -7108,7 +7108,7 @@ curl https://YOUR_TENANT.goskope.com/api/v2/events/data/alert?limit=1 \\
     verification: [
       { title: 'Create API key in Zscaler', desc: 'Admin Console: Administration → API Key Management. Enable Log Streaming Service access.' },
       { title: 'Enter cloud name and token', desc: 'Your cloud name is the part before .zscalertwo.net in your admin URL.' },
-      { title: 'Test connection', desc: 'AgentRadar fetches the last hour of web transactions and matches against 15+ hosted AI platform domains.' },
+      { title: 'Test connection', desc: 'Visentra fetches the last hour of web transactions and matches against 15+ hosted AI platform domains.' },
       { title: 'Review CASB findings', desc: 'Hosted AI agents appear immediately with upload volume, user identity, and DLP risk flag.' },
     ]
   },
@@ -7163,14 +7163,14 @@ sudo systemctl enable --now agentRadar-sensor`,
 
 # Step 2: Create Splunk API token for search
 # In Splunk UI: Settings → Tokens → Generate Token
-# Name: AgentRadar-ReadOnly | Expiry: Never | Role: power (read-only)
+# Name: Visentra-ReadOnly | Expiry: Never | Role: power (read-only)
 
 # Step 3: Test the connection
 curl -k https://{splunk-host}:8089/services/search/jobs \\
   -H "Authorization: Splunk {your-api-token}" \\
   -d "search=search index=security earliest=-1h | head 1"
 
-# Step 4: Required SPL query (AgentRadar runs this every 5 min)
+# Step 4: Required SPL query (Visentra runs this every 5 min)
 # search index=* earliest=-30d (
 #   dest_host="api.openai.com" OR dest_host="api.anthropic.com"
 #   OR dest_host="*.huggingface.co" OR dest_port=11434
@@ -7180,7 +7180,7 @@ curl -k https://{splunk-host}:8089/services/search/jobs \\
     verification: [
       { title: 'Create API token in Splunk', desc: 'In Splunk Web: Settings → Tokens → Generate Token. Copy the token value — it is only shown once.' },
       { title: 'Enter Splunk URL and token', desc: 'Paste your Splunk URL (https://splunk.company.com:8089) and API token above.' },
-      { title: 'Test connection', desc: 'AgentRadar sends a test search query. Verifies index access and token validity.' },
+      { title: 'Test connection', desc: 'Visentra sends a test search query. Verifies index access and token validity.' },
       { title: 'Configure indexes and time range', desc: 'Specify which indexes to search (default: main, security) and the lookback window (default: 30 days).' },
     ]
   },
@@ -7190,7 +7190,7 @@ curl -k https://{splunk-host}:8089/services/search/jobs \\
     code: `# .github/workflows/agentRadar-gate.yml
 # Blocks deployments that introduce ungoverned AI agents
 
-name: AgentRadar AI Governance Gate
+name: Visentra AI Governance Gate
 
 on:
   pull_request:
@@ -7209,7 +7209,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: AgentRadar Policy Gate
+      - name: Visentra Policy Gate
         uses: agentRadar/scan-action@v2
         with:
           api-key: \${{ secrets.AGENTRADATR_KEY }}
@@ -7228,13 +7228,13 @@ jobs:
       { title: 'Add secret to repository', desc: 'In GitHub: Settings → Secrets → Actions → New repository secret. Name: AGENTRADATR_KEY. Value: your API key from above.' },
       { title: 'Create workflow file', desc: 'Add .github/workflows/agentRadar-gate.yml to your repository with the YAML above.' },
       { title: 'Create agent-manifest.yaml (optional)', desc: 'Declare known approved AI agents so the scanner does not flag them. Download template from the Code Editor tab.' },
-      { title: 'Open a test PR', desc: 'Create a PR that touches a Python file. AgentRadar should appear as a required check and post findings.' },
+      { title: 'Open a test PR', desc: 'Create a PR that touches a Python file. Visentra should appear as a required check and post findings.' },
     ]
   },
   fhir: {
     title: 'Epic FHIR R4 — SMART on FHIR client registration',
     lang: 'bash',
-    code: `# Step 1: Register AgentRadar as a SMART Backend Services client in Epic
+    code: `# Step 1: Register Visentra as a SMART Backend Services client in Epic
 # Epic App Market: https://appmarket.epic.com
 # Or via your Epic technical contact for non-public registration
 
@@ -7255,16 +7255,16 @@ curl https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4/metadata \\
 # Step 3: Get SMART configuration
 curl https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4/.well-known/smart-configuration
 
-# AgentRadar reads ONLY:
+# Visentra reads ONLY:
 #   GET /metadata              → CapabilityStatement (what APIs are available)
 #   GET /.well-known/smart-configuration → Registered AI apps
 #   GET /AuditEvent?type=rest  → API access patterns (metadata only, no PHI)
 # It NEVER reads: /Patient, /Observation, /Condition, or any PHI resource`,
     verification: [
-      { title: 'Register in Epic App Market', desc: 'Submit AgentRadar as a Backend Services client. Required scopes: system/AuditEvent.read, system/CapabilityStatement.read.' },
+      { title: 'Register in Epic App Market', desc: 'Submit Visentra as a Backend Services client. Required scopes: system/AuditEvent.read, system/CapabilityStatement.read.' },
       { title: 'Enter FHIR base URL and client ID', desc: 'Paste the Epic FHIR R4 base URL and your registered client ID into the fields above.' },
-      { title: 'Test CapabilityStatement', desc: 'AgentRadar fetches /metadata — no auth required. Verifies the FHIR endpoint is reachable.' },
-      { title: 'Verify AuditEvent access', desc: 'AgentRadar fetches recent AuditEvent records to find AI agent activity. Requires SMART auth.' },
+      { title: 'Test CapabilityStatement', desc: 'Visentra fetches /metadata — no auth required. Verifies the FHIR endpoint is reachable.' },
+      { title: 'Verify AuditEvent access', desc: 'Visentra fetches recent AuditEvent records to find AI agent activity. Requires SMART auth.' },
     ]
   },
 };
@@ -7310,7 +7310,7 @@ const REAL_VALIDATIONS = {
     const arn = fields['ci-aws-arn']?.trim() || '';
     if (!arn.match(/^arn:aws:iam::\d{12}:role\/.+/))
       return { ok: false, msg: 'Invalid Role ARN format — expected: arn:aws:iam::123456789:role/name' };
-    return { ok: true, msg: `Role ARN format valid — deploy AgentRadar backend to complete AssumeRole verification` };
+    return { ok: true, msg: `Role ARN format valid — deploy Visentra backend to complete AssumeRole verification` };
   },
 
   azure: async (fields) => {
@@ -7318,7 +7318,7 @@ const REAL_VALIDATIONS = {
     const cid = fields['ci-az-client']?.trim() || '';
     if (!tid || !cid) return { ok: false, msg: 'Tenant ID and Client ID are required' };
     if (!tid.match(/^[0-9a-f-]{36}$/i)) return { ok: false, msg: 'Tenant ID must be a UUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)' };
-    return { ok: true, msg: `Credentials format valid — deploy AgentRadar backend to complete OAuth verification` };
+    return { ok: true, msg: `Credentials format valid — deploy Visentra backend to complete OAuth verification` };
   },
 
   gcp: async (fields) => {
@@ -7338,14 +7338,14 @@ const REAL_VALIDATIONS = {
     const token = fields['ci-k8s-token']?.trim() || '';
     if (!url || !token) return { ok: false, msg: 'API server URL and SA token are required' };
     if (!url.startsWith('https://')) return { ok: false, msg: 'API server URL must start with https://' };
-    return { ok: true, msg: `Format valid (${url}) — deploy AgentRadar backend to complete K8s API verification` };
+    return { ok: true, msg: `Format valid (${url}) — deploy Visentra backend to complete K8s API verification` };
   },
 
   splunk: async (fields) => {
     const url = fields['ci-splunk-url']?.trim() || '';
     const token = fields['ci-splunk-token']?.trim() || '';
     if (!url || !token) return { ok: false, msg: 'Splunk URL and API token are required' };
-    return { ok: true, msg: `Credentials saved — deploy AgentRadar backend to complete Splunk REST verification` };
+    return { ok: true, msg: `Credentials saved — deploy Visentra backend to complete Splunk REST verification` };
   },
 
   idp: async (fields) => {
@@ -7362,7 +7362,7 @@ const REAL_VALIDATIONS = {
     }
     if(type==='azure') {
       if(!domain.match(/^[0-9a-f-]{36}$/i)) return {ok:false, msg:'Azure Tenant ID must be a UUID'};
-      return {ok:true, msg:`Azure AD format valid — deploy AgentRadar backend to complete MS Graph auth`};
+      return {ok:true, msg:`Azure AD format valid — deploy Visentra backend to complete MS Graph auth`};
     }
     return {ok:true, msg:`${type} credentials format valid`};
   },
@@ -7373,7 +7373,7 @@ const REAL_VALIDATIONS = {
     if(!host||!key) return {ok:false, msg:'Host and API key are required'};
     if(type==='zscaler'&&!host.includes('zscaler')) return {ok:false, msg:'Zscaler host should contain zscaler in domain'};
     if(type==='netskope'&&!host.includes('goskope')) return {ok:false, msg:'Netskope host should contain goskope.com'};
-    return {ok:true, msg:`${type} credentials saved — deploy AgentRadar backend to complete ${type} API validation`};
+    return {ok:true, msg:`${type} credentials saved — deploy Visentra backend to complete ${type} API validation`};
   },
   sensor: async (fields) => {
     return { ok: true, msg: `Enrollment token generated — run the deploy command below to register your sensor` };
@@ -7381,7 +7381,7 @@ const REAL_VALIDATIONS = {
 
   github: async (fields) => {
     const key = fields['ci-gh-apikey']?.trim() || '';
-    if (!key) return { ok: false, msg: 'AgentRadar API key is required for GitHub gate' };
+    if (!key) return { ok: false, msg: 'Visentra API key is required for GitHub gate' };
     return { ok: true, msg: `GitHub Actions gate configured — add AGENTRADATR_KEY to your repository secrets` };
   },
 };
@@ -7580,7 +7580,7 @@ let wizStep = 1, wizEnvType = null;
 const WIZ_STEPS = [
   {
     title: 'What is your primary environment?',
-    sub: 'AgentRadar will walk you through the exact steps to connect it. You can add more environments after setup.',
+    sub: 'Visentra will walk you through the exact steps to connect it. You can add more environments after setup.',
     render: () => `
       <div class="wiz-env-grid">
         ${[['☁','AWS / Cloud','Lambda, SageMaker, Bedrock — most common for AI workloads','cloud'],
@@ -7598,8 +7598,8 @@ const WIZ_STEPS = [
       </div>`
   },
   {
-    title: 'What AgentRadar needs',
-    sub: 'Read-only permissions only. AgentRadar never writes to your environment.',
+    title: 'What Visentra needs',
+    sub: 'Read-only permissions only. Visentra never writes to your environment.',
     render: () => {
       const perms = {
         cloud:  [['AWS Lambda','lambda:ListFunctions, lambda:GetFunction'],['SageMaker','sagemaker:ListEndpoints, DescribeEndpoint'],['Bedrock','bedrock:ListFoundationModels'],['EC2 / ECS','ec2:DescribeInstances, ecs:ListTasks']],
@@ -7616,13 +7616,13 @@ const WIZ_STEPS = [
           <tbody>${rows.map(([svc, perm]) => `<tr><td><strong>${svc}</strong></td><td><code style="font-size:10px;color:var(--brand)">${perm}</code></td><td><span class="perm-tag">Read only</span></td></tr>`).join('')}</tbody>
         </table>
         <div style="padding:10px 12px;background:var(--green-bg);border-radius:var(--r8);border:1px solid var(--green-border);font-size:12px;color:var(--green-text)">
-          ✓ AgentRadar never writes to your environment, never accesses data content, and never stores credential values — only metadata.
+          ✓ Visentra never writes to your environment, never accesses data content, and never stores credential values — only metadata.
         </div>`;
     }
   },
   {
     title: 'Create read-only access',
-    sub: 'Copy the commands below and run them in your environment. This creates the exact permissions AgentRadar needs.',
+    sub: 'Copy the commands below and run them in your environment. This creates the exact permissions Visentra needs.',
     render: () => {
       const iacMap = { cloud:'aws', onprem:'sensor', health:'fhir', siem:'splunk', cicd:'github', multi:'aws' };
       const type   = iacMap[wizEnvType] || 'aws';
@@ -7637,7 +7637,7 @@ const WIZ_STEPS = [
   },
   {
     title: 'Enter your credentials',
-    sub: 'Paste the credentials you just created. They are stored encrypted in your AgentRadar account vault.',
+    sub: 'Paste the credentials you just created. They are stored encrypted in your Visentra account vault.',
     render: () => {
       const envTabMap = { cloud:'cloud', onprem:'onprem', health:'health', siem:'siem', cicd:'cicd', multi:'cloud' };
       return `
@@ -7656,7 +7656,7 @@ const WIZ_STEPS = [
       <div class="verify-step"><div class="verify-num done">✓</div><div><div class="verify-title">Environment selected</div><div class="verify-desc">${wizEnvType || 'cloud'}</div></div></div>
       <div class="verify-step"><div class="verify-num done">✓</div><div><div class="verify-title">Permissions created</div><div class="verify-desc">Read-only IAM role / service principal / service account</div></div></div>
       <div class="verify-step"><div class="verify-num">3</div><div><div class="verify-title">Enter credentials in Connect Hub</div><div class="verify-desc">Paste your credentials in the appropriate tab of the Connect Hub</div></div></div>
-      <div class="verify-step"><div class="verify-num">4</div><div><div class="verify-title">Test connection</div><div class="verify-desc">Click "Test Connection" — AgentRadar validates credentials and reports status</div></div></div>
+      <div class="verify-step"><div class="verify-num">4</div><div><div class="verify-title">Test connection</div><div class="verify-desc">Click "Test Connection" — Visentra validates credentials and reports status</div></div></div>
       <div class="verify-step"><div class="verify-num">5</div><div><div class="verify-title">Run first scan</div><div class="verify-desc">Click "Scan Now" — first results appear in your agent inventory within 60 seconds</div></div></div>
       <div style="margin-top:14px;display:flex;gap:8px">
         <button class="btn primary" onclick="closeWizard();go('integrations');" style="flex:1;padding:9px">Go to Connect Hub →</button>
@@ -7765,7 +7765,7 @@ async function runAI(){
   const phiNoBaa=DB.agents.filter(a=>a.phi&&a.controls.hipaa!=='pass').length;
   const hipaaScore=Math.round(DB.agents.filter(a=>a.controls.hipaa==='pass').length/DB.agents.length*100);
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:`You are AgentRadar, an AI governance platform. Write a 3-paragraph board-ready CISO briefing: ${DB.agents.length} total AI agents, ${sh} shadow deployments, ${cr} critical risk, ${avg}% avg compliance across 8 frameworks (SOC2/ISO27001/GDPR/NIST/EU AI Act/HIPAA/HITRUST CSF/FDA SaMD). Healthcare: ${phiAgents} PHI agents, ${phiNoBaa} without valid HIPAA BAA, HIPAA posture ${hipaaScore}%. ${vl} active policy violations. Key threats: Shadow HL7 Listener on port 2575 receiving ADT feeds, Patient Classifier lacking BAA, Genomics Agent violating GDPR Art.9. Direct, data-driven, no headers or bullets.`}]})});
+    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:`You are Visentra, an AI governance platform. Write a 3-paragraph board-ready CISO briefing: ${DB.agents.length} total AI agents, ${sh} shadow deployments, ${cr} critical risk, ${avg}% avg compliance across 8 frameworks (SOC2/ISO27001/GDPR/NIST/EU AI Act/HIPAA/HITRUST CSF/FDA SaMD). Healthcare: ${phiAgents} PHI agents, ${phiNoBaa} without valid HIPAA BAA, HIPAA posture ${hipaaScore}%. ${vl} active policy violations. Key threats: Shadow HL7 Listener on port 2575 receiving ADT feeds, Patient Classifier lacking BAA, Genomics Agent violating GDPR Art.9. Direct, data-driven, no headers or bullets.`}]})});
     const d=await res.json();
     const text=d.content?.map(c=>c.text||'').join('')||'Unable to generate briefing.';
     el.classList.remove('ai-cursor');el.textContent='';
@@ -7938,7 +7938,7 @@ async function submitAgent(){
   if(_apiToken){
     try{
       await fetch('/api/agents',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_apiToken},body:JSON.stringify(agentData)});
-    }catch(e){console.log('[AgentRadar] API save failed:',e.message);}
+    }catch(e){console.log('[Visentra] API save failed:',e.message);}
   }
   addAct('reg',`Agent registered: ${n}`,'Admin · just now','#10b981');save();closeModal('modal-add');({discovery:renderDisc}[cv]||(() =>{}))();updateStats();
   ['f-name','f-proto','f-data','f-notes'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
@@ -8155,7 +8155,7 @@ async function loadLiveAgents() {
       DB.activity = acts;
     }
   } catch(e) {
-    console.log('[AgentRadar] Live data load failed:', e.message);
+    console.log('[Visentra] Live data load failed:', e.message);
   }
   save();
   updateStats();
@@ -8205,7 +8205,7 @@ function renderADStep1() {
       <button onclick="closeADWizard()" style="margin-left:auto;background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">✕</button>
     </div>
     <div style="background:rgba(37,99,235,0.08);border:1px solid rgba(37,99,235,0.2);border-radius:10px;padding:12px;margin-bottom:16px;font-size:12px;color:#93c5fd;line-height:1.7">
-      ⚡ Provide read-only credentials → AgentRadar detects what's deployed → auto-enables only relevant scanners → runs them → shows results
+      ⚡ Provide read-only credentials → Visentra detects what's deployed → auto-enables only relevant scanners → runs them → shows results
     </div>
     <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:12px">Select your environment(s):</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">
@@ -8278,7 +8278,7 @@ function renderADStep2() {
       <button onclick="closeADWizard()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">✕</button>
     </div>
     <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#6ee7b7">
-      🔒 Read-only access only. Credentials encrypted in Key Vault. AgentRadar never writes to your systems.
+      🔒 Read-only access only. Credentials encrypted in Key Vault. Visentra never writes to your systems.
     </div>
     ${[...adSelected].map(envId => {
       const f = fields[envId]; if (!f) return '';
@@ -9124,7 +9124,7 @@ async function createJiraTicket(data) {
   const savedProject = localStorage.getItem('ar-jira-project');
 
   const priorityMap = {Critical:'Highest', High:'High', Medium:'Medium', Low:'Low'};
-  const description = `*Why this matters:*\n${data.title}\n\n*Remediation Steps:*\n${data.steps.map((s,i)=>`${i+1}. ${s}`).join('\n')}\n\n*Deadline:* ${data.deadline}\n*Framework:* ${data.framework}\n\n_Created by AgentRadar_`;
+  const description = `*Why this matters:*\n${data.title}\n\n*Remediation Steps:*\n${data.steps.map((s,i)=>`${i+1}. ${s}`).join('\n')}\n\n*Deadline:* ${data.deadline}\n*Framework:* ${data.framework}\n\n_Created by Visentra_`;
 
   try {
     showScannerToast('Creating Jira ticket...', false);
@@ -9138,7 +9138,7 @@ async function createJiraTicket(data) {
       body: JSON.stringify({
         fields: {
           project: { key: savedProject },
-          summary: '[AgentRadar] '+data.title,
+          summary: '[Visentra] '+data.title,
           description: { type:'doc', version:1, content:[{type:'paragraph',content:[{type:'text',text:description}]}] },
           issuetype: { name: 'Task' },
           priority: { name: priorityMap[data.priority] || 'Medium' },
@@ -9158,13 +9158,13 @@ async function createJiraTicket(data) {
   } catch(e) {
     // Jira may block CORS — open pre-filled URL instead
     showScannerToast('Opening Jira (CORS blocked direct API)...', false);
-    window.open(savedUrl+'/secure/CreateIssueDetails!init.jspa?pid='+savedProject+'&issuetype=10002&summary='+encodeURIComponent('[AgentRadar] '+data.title)+'&priority='+encodeURIComponent(priorityMap[data.priority]||'Medium'), '_blank');
+    window.open(savedUrl+'/secure/CreateIssueDetails!init.jspa?pid='+savedProject+'&issuetype=10002&summary='+encodeURIComponent('[Visentra] '+data.title)+'&priority='+encodeURIComponent(priorityMap[data.priority]||'Medium'), '_blank');
   }
 }
 /* ══ END REMEDIATION ENGINE ══════════════════════════════ */
 
 function doSignOut() {
-  if (!confirm('Sign out of AgentRadar?')) return;
+  if (!confirm('Sign out of Visentra?')) return;
   _apiToken = '';
   _apiMode = false;
   sessionStorage.removeItem('ar-role');
@@ -9209,12 +9209,12 @@ function initDark() {
 let onbStep = 1;
 const ONB_STEPS = [
   {
-    title:'Welcome to AgentRadar', sub:'Set up your organization to start discovering AI agents in your environment.',
+    title:'Welcome to Visentra', sub:'Set up your organization to start discovering AI agents in your environment.',
     body:`<div class="onb-field"><div class="onb-lbl">Organization name</div><input class="onb-inp" id="onb-org" placeholder="e.g. HealthSystem Inc." value="HealthSystem Inc."></div>
 <div class="onb-field"><div class="onb-lbl">Primary industry</div><select class="onb-inp" id="onb-env"><option>Healthcare / Clinical</option><option>Financial Services</option><option>Technology</option><option>Government</option><option>Other</option></select></div>`
   },
   {
-    title:'Connect your first cloud', sub:'AgentRadar will scan for AI agents across your cloud accounts. Start with one environment.',
+    title:'Connect your first cloud', sub:'Visentra will scan for AI agents across your cloud accounts. Start with one environment.',
     body:`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
 <div class="role-card" onclick="selectOnbEnv('aws',this)"><div class="role-name">🟠 AWS</div><div class="role-desc">Lambda, SageMaker, Bedrock</div></div>
 <div class="role-card selected" onclick="selectOnbEnv('azure',this)"><div class="role-name">🔷 Azure</div><div class="role-desc">OpenAI, ML Studio</div></div>
@@ -9223,11 +9223,11 @@ const ONB_STEPS = [
 </div>`
   },
   {
-    title:'Run your first scan', sub:'AgentRadar will discover AI agents across your connected environment. This takes under 60 seconds.',
+    title:'Run your first scan', sub:'Visentra will discover AI agents across your connected environment. This takes under 60 seconds.',
     body:`<div style="text-align:center;padding:16px 0"><div style="font-size:32px;margin-bottom:12px">⟳</div><div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click below to start your first scan. Discovered agents will appear in your inventory.</div><button class="btn primary" onclick="onbRunScan()" style="padding:8px 24px">Start first scan</button><div id="onb-scan-status" style="font-size:11px;color:var(--text-muted);margin-top:10px"></div></div>`
   },
   {
-    title:'You\'re ready to go!', sub:'AgentRadar is now monitoring your AI environment. Here\'s what to do next.',
+    title:'You\'re ready to go!', sub:'Visentra is now monitoring your AI environment. Here\'s what to do next.',
     body:`<div style="display:flex;flex-direction:column;gap:10px">
 <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:var(--r8);background:var(--brand-bg);border:1px solid var(--brand-border)"><span style="font-size:16px">🔍</span><div><div style="font-size:12px;font-weight:600;color:var(--text-primary)">Review discovered agents</div><div style="font-size:11px;color:var(--text-muted)">Check the Agent Discovery view for all found agents</div></div></div>
 <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:var(--r8);background:var(--red-bg);border:1px solid var(--red-border)"><span style="font-size:16px">⚠</span><div><div style="font-size:12px;font-weight:600;color:var(--text-primary)">Address shadow AI</div><div style="font-size:11px;color:var(--text-muted)">3 unauthorized agents detected — review Shadow AI view</div></div></div>
@@ -9295,7 +9295,7 @@ const HELP_CONTENT = {
   compliance:   { title:'Compliance Posture', what:'Pass/warn/fail status across 8 frameworks for every agent in your inventory.', actions:['Click any cell to see the control detail','Filter by framework to focus on one standard','Export CSV produces evidence for auditors'], standards:['SOC 2','ISO 27001','GDPR','NIST AI RMF','EU AI Act','HIPAA','HITRUST CSF','FDA SaMD'] },
   ciso:         { title:'CISO Report', what:'Board-ready executive summary of your AI governance posture — auto-generated from live data.', actions:['Export PDF produces a downloadable document','AI Narration generates natural-language commentary','Refresh regenerates from current inventory'], standards:['SOC 2 CC1.1','NIST AI RMF GV-6.2'] },
   lineage:      { title:'Data Lineage Map', what:'Full AI data flow tracing — source system to AI agent to external provider to output destination.', actions:['Click any node to see data type, encryption, BAA, owner, purpose','Filter PHI Only to see all health data flows','Unencrypted filter shows compliance gaps'], standards:['GDPR Art.30','HIPAA 164.308(a)(1)','SOC 2 CC4.1'] },
-  integrations: { title:'Environment Connect Hub', what:'Connect AgentRadar to your cloud APIs, on-prem sensors, SIEM tools, CI/CD pipelines, and healthcare systems.', actions:['Test Connection validates credentials','Deploy Sensor installs the on-prem scanner','Code Editor lets you write custom integration scripts'], standards:['SOC 2 CC7.1','NIST AI RMF MS-2.5'] },
+  integrations: { title:'Environment Connect Hub', what:'Connect Visentra to your cloud APIs, on-prem sensors, SIEM tools, CI/CD pipelines, and healthcare systems.', actions:['Test Connection validates credentials','Deploy Sensor installs the on-prem scanner','Code Editor lets you write custom integration scripts'], standards:['SOC 2 CC7.1','NIST AI RMF MS-2.5'] },
 };
 
 function toggleHelp() {
@@ -9313,7 +9313,7 @@ function closeHelp() {
 }
 
 function renderHelp() {
-  const info = HELP_CONTENT[cv] || { title: 'AgentRadar Help', what: 'Navigate using the sidebar to explore your AI governance platform.', actions: ['Use ✦ AI Agent to ask questions about your inventory','Run All Scans to discover new agents','Check the Dashboard for your posture summary'], standards: [] };
+  const info = HELP_CONTENT[cv] || { title: 'Visentra Help', what: 'Navigate using the sidebar to explore your AI governance platform.', actions: ['Use ✦ AI Agent to ask questions about your inventory','Run All Scans to discover new agents','Check the Dashboard for your posture summary'], standards: [] };
   const title = document.getElementById('help-title');
   const body = document.getElementById('help-body');
   if (title) title.textContent = info.title;
@@ -9540,7 +9540,7 @@ function removeWebhook(i) { webhooks.splice(i, 1); localStorage.setItem('ar-webh
 
 function testWebhook() {
   if (!webhooks.length) { alert('Add a webhook URL first'); return; }
-  const payload = { event:'test', severity:'info', agent:{name:'Test Agent',risk:'low'}, timestamp:new Date().toISOString(), platform:'AgentRadar' };
+  const payload = { event:'test', severity:'info', agent:{name:'Test Agent',risk:'low'}, timestamp:new Date().toISOString(), platform:'Visentra' };
   // In browser we simulate — real webhook POSTs need a backend
   showScannerToast('Webhook test fired (simulated in demo mode)', false);
   addAct('info', 'Webhook test fired: ' + webhooks[0].url.slice(0,40), 'System · just now', '#6366f1');
@@ -9583,14 +9583,14 @@ function exportCisoPDF() {
     'PHI EXPOSURE',
     ...DB.agents.filter(a=>a.phi).map(a=>`  • ${a.name} — HIPAA: ${a.controls?.hipaa} — BAA: ${a.controls?.hipaa==='pass'?'Signed':'Not signed'}`),
     '',
-    'This report was generated by AgentRadar AI Governance Platform.',
-    'For board presentation, request full PDF with charts from your AgentRadar account.',
+    'This report was generated by Visentra AI Governance Platform.',
+    'For board presentation, request full PDF with charts from your Visentra account.',
   ];
   const content = lines.join('\n');
   const blob = new Blob([content], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.href = url; link.download = `AgentRadar-CISO-Report-${new Date().toISOString().split('T')[0]}.txt`;
+  link.href = url; link.download = `Visentra-CISO-Report-${new Date().toISOString().split('T')[0]}.txt`;
   link.click();
   addAct('info', 'CISO report exported', currentUser + ' · just now', '#6366f1');
 }
@@ -9666,7 +9666,7 @@ function doSessionLogout() {
 const MFA_ROLES = ['ciso'];
 let _mfaSecret  = (()=>{
   const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let s='AGRD'; // AgentRadar prefix in Base32
+  let s='AGRD'; // Visentra prefix in Base32
   for(let i=0;i<12;i++) s+=chars[Math.floor(Math.random()*32)];
   return s;
 })();
@@ -9691,7 +9691,7 @@ function showMFASetup() {
     const qrEl = document.getElementById('mfa-qr');
     if (!qrEl) return;
     qrEl.innerHTML = '';
-    const issuer = 'AgentRadar';
+    const issuer = 'Visentra';
     const user = (currentUser || 'admin').replace(/\s+/g, '').toLowerCase();
     const otpUrl = 'otpauth://totp/' + encodeURIComponent(issuer + ':' + user) +
       '?secret=' + _mfaSecret +
@@ -9846,7 +9846,7 @@ SUMMARY:
   Claude Code agents:     ${DB.agents.filter(a=>a.claudeCode).length}
   Hosted (external):      ${DB.agents.filter(a=>a.hosted).length}
 
-This package was generated by AgentRadar AI Governance Platform.
+This package was generated by Visentra AI Governance Platform.
 `;
   files.unshift({ name:'00_README.txt', content: summary });
 
@@ -10313,7 +10313,7 @@ const THREAT_DB = [
   { id:'T005', name:'Shadow AI API key exposure in CI/CD',   sev:'high',    src:'GitHub-Advisory',   age:'3d ago',  ioc:'ANTHROPIC_API_KEY=sk-ant', affects:['token-tracer'], mitre:'AML.T0012' },
   { id:'T006', name:'Azure OpenAI quota exhaustion DoS',     sev:'medium',  src:'Azure-MSRC',         age:'4d ago',  ioc:'openai.azure.com/rate-limit', affects:['azure-scan'], mitre:'AML.T0034' },
   { id:'T007', name:'Ollama localhost exposure to LAN',      sev:'medium',  src:'Shodan-Report',      age:'5d ago',  ioc:'localhost:11434/api', affects:['net-probe'], mitre:'AML.T0021' },
-  { id:'T008', name:'Agent-to-agent loop escalation',        sev:'critical', src:'AgentRadar-Lab',    age:'6h ago',  ioc:'tool_use:agent_spawn', affects:['mcp-a2a','orchestrator'], mitre:'AML.T0055' },
+  { id:'T008', name:'Agent-to-agent loop escalation',        sev:'critical', src:'Visentra-Lab',    age:'6h ago',  ioc:'tool_use:agent_spawn', affects:['mcp-a2a','orchestrator'], mitre:'AML.T0055' },
 ];
 
 const CVE_DB = [
@@ -10395,7 +10395,7 @@ function renderMITREMatrix() {
   const el = document.getElementById('mitre-matrix');
   if (!el) return;
   el.innerHTML = MITRE_TECHNIQUES.map(t => `
-    <div style="padding:6px 8px;border-radius:6px;background:${t.covered ? 'rgba(16,185,129,.12)' : 'rgba(200,210,240,.06)'};border:1px solid ${t.covered ? 'rgba(16,185,129,.3)' : 'rgba(200,210,240,.12)'};cursor:pointer" title="${t.covered?'Detected by AgentRadar':'Not yet covered'}">
+    <div style="padding:6px 8px;border-radius:6px;background:${t.covered ? 'rgba(16,185,129,.12)' : 'rgba(200,210,240,.06)'};border:1px solid ${t.covered ? 'rgba(16,185,129,.3)' : 'rgba(200,210,240,.12)'};cursor:pointer" title="${t.covered?'Detected by Visentra':'Not yet covered'}">
       <div style="font-size:8px;font-family:var(--font-mono);color:${t.covered?'#10b981':'var(--text-muted)'}">${t.id}</div>
       <div style="font-size:9px;color:${t.covered?'var(--text-secondary)':'var(--text-muted)'};margin-top:2px;line-height:1.3">${t.name}</div>
       ${t.covered ? '<div style="font-size:8px;color:#10b981;margin-top:2px">✓ Covered</div>' : '<div style="font-size:8px;color:var(--text-muted);margin-top:2px">○ Gap</div>'}
@@ -10623,7 +10623,7 @@ const AAP_TOOLS=[
   {name:"get_model_registry",description:"Get AI model registry: underlying models, validation status, PHI access, risk, audit dates.",input_schema:{type:"object",properties:{filter_unvalidated:{type:"boolean"},filter_phi:{type:"boolean"}},required:[]}}
 ];
 
-const AAP_SYSTEM=`You are the AgentRadar AI Agent embedded inside the AgentRadar v6 AI Governance Platform. You have 9 tool functions wired directly to the live platform database.
+const AAP_SYSTEM=`You are the Visentra AI Agent embedded inside the Visentra v6 AI Governance Platform. You have 9 tool functions wired directly to the live platform database.
 
 Your job: answer governance questions by calling tools, reasoning over results, and giving clear actionable intelligence. The platform monitors ${18} AI agents across cloud, on-prem, hybrid, and healthcare environments. Compliance frameworks: SOC 2, ISO 27001, GDPR, NIST AI RMF, EU AI Act, HIPAA, HITRUST CSF, FDA SaMD.
 
@@ -10931,7 +10931,7 @@ async function callLLM(messages, tools, systemPrompt) {
 
   // For Bedrock — note: real SigV4 signing needs backend
   if (AI_PROVIDER === 'bedrock') {
-    throw new Error('AWS Bedrock requires server-side SigV4 signing. Connect via the AgentRadar backend API instead.');
+    throw new Error('AWS Bedrock requires server-side SigV4 signing. Connect via the Visentra backend API instead.');
   }
 
   const r = await fetch(url, { method:'POST', headers, body:JSON.stringify(body) });

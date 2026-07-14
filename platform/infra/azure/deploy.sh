@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy AgentRadar Discovery to Azure Container Apps (production-oriented)
+# Deploy Visentra Discovery to Azure Container Apps (production-oriented)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -17,7 +17,7 @@ ENTRA_TENANT_ID="${ENTRA_TENANT_ID:-}"
 ENTRA_CLIENT_ID="${ENTRA_CLIENT_ID:-}"
 ENTRA_CLIENT_SECRET="${ENTRA_CLIENT_SECRET:-}"
 
-# Detect upgrade of an existing AgentRadar RG (do not auto-rotate secrets).
+# Detect upgrade of an existing Visentra RG (do not auto-rotate secrets).
 EXISTING_DEPLOY=false
 if az group show --name "${RG}" >/dev/null 2>&1; then
   if az containerapp list -g "$RG" --query "[?contains(name, 'api-')].name" -o tsv 2>/dev/null | grep -q .; then
@@ -26,7 +26,7 @@ if az group show --name "${RG}" >/dev/null 2>&1; then
 fi
 
 if [[ "$EXISTING_DEPLOY" == "true" ]]; then
-  echo "==> Existing AgentRadar deployment detected in '$RG' (upgrade mode)"
+  echo "==> Existing Visentra deployment detected in '$RG' (upgrade mode)"
   echo "    JWT_SECRET, ENCRYPTION_KEY, POSTGRES_PASSWORD, and BOOTSTRAP_ADMIN_PASSWORD"
   echo "    must be supplied explicitly so connectors and login stay intact."
   missing=()
@@ -309,7 +309,7 @@ EOF
 
 echo ""
 echo "============================================"
-echo " AgentRadar Discovery deployed to Azure"
+echo " Visentra Discovery deployed to Azure"
 echo " Data plane : $DP_MODE"
 echo " Web:  https://$WEB_FQDN"
 echo " API:  http://api-$NAME (internal; proxied via web /api)"

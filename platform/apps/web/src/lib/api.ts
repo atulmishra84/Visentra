@@ -163,7 +163,7 @@ export async function downloadAgentExport(format: "csv" | "json", query?: Record
   const href = window.URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = href;
-  anchor.download = `agentradar-agents.${format}`;
+  anchor.download = `visentra-agents.${format}`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -187,7 +187,7 @@ export async function downloadUsageExport(
   const href = window.URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = href;
-  anchor.download = `agentradar-usage-${dimension}.csv`;
+  anchor.download = `visentra-usage-${dimension}.csv`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

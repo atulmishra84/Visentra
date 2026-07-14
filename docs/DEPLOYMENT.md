@@ -1,4 +1,4 @@
-# AgentRadar — Azure Standalone Deployment Guide
+# Visentra — Azure Standalone Deployment Guide
 
 ## What this package contains
 
@@ -7,7 +7,7 @@
 | `terraform/standalone/` | Full Terraform IaC — provisions all Azure infrastructure |
 | `bicep/standalone/` | Bicep alternative — same infrastructure, native Azure |
 | `github/workflows/deploy.yml` | GitHub Actions CI/CD — build → infra → deploy → migrate |
-| `helm/agentRadar/` | Helm chart — deploys AgentRadar onto AKS |
+| `helm/agentRadar/` | Helm chart — deploys Visentra onto AKS |
 | `scripts/bootstrap.sh` | One-command first-time setup |
 
 ---
@@ -159,7 +159,7 @@ RG=$(terraform -chdir=terraform/standalone output -raw resource_group_name)
 AKS=$(terraform -chdir=terraform/standalone output -raw aks_name)
 az aks get-credentials --resource-group $RG --name $AKS
 
-# Deploy AgentRadar
+# Deploy Visentra
 helm upgrade --install agentRadar ./helm/agentRadar \
   --namespace agentRadar \
   --create-namespace \
@@ -238,7 +238,7 @@ Now every push to `main` automatically builds images, updates infrastructure, an
 ## Updating / upgrading
 
 ```bash
-# Upgrade AgentRadar (after pushing new images)
+# Upgrade Visentra (after pushing new images)
 helm upgrade agentRadar ./helm/agentRadar \
   --namespace agentRadar \
   --set global.imageTag=v1.2.0 \

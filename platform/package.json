@@ -1,7 +1,7 @@
 {
   "name": "agentradar-platform",
   "private": true,
-  "description": "AgentRadar Discovery & Visibility greenfield platform",
+  "description": "Visentra Discovery & Visibility greenfield platform",
   "workspaces": [
     "apps/api",
     "apps/discovery",

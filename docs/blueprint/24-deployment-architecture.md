@@ -2,13 +2,13 @@
 
 ## Overview
 
-AgentRadar should support multi-tenant SaaS, customer-managed single-tenant, and hybrid collector deployment models. The platform must handle enterprise security, data residency, scalability, upgrades, and operational observability.
+Visentra should support multi-tenant SaaS, customer-managed single-tenant, and hybrid collector deployment models. The platform must handle enterprise security, data residency, scalability, upgrades, and operational observability.
 
 ## Deployment Models
 
 | Model | Description | Customer Fit |
 |---|---|---|
-| SaaS Multi-Tenant | AgentRadar hosted control plane and data plane. | Most customers. |
+| SaaS Multi-Tenant | Visentra hosted control plane and data plane. | Most customers. |
 | Single-Tenant SaaS | Dedicated tenant infrastructure. | Larger regulated enterprises. |
 | Customer-Managed | Customer runs platform in their cloud. | Highly regulated or data-residency-driven. |
 | Hybrid Collectors | Collectors run in customer environment and call SaaS outbound. | Default for endpoints/cloud/private networks. |

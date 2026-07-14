@@ -2,11 +2,11 @@
 
 ## Overview
 
-AgentRadar handles sensitive enterprise metadata about AI agents, devices, identities, repositories, cloud infrastructure, SaaS tenants, browser extensions, and model usage. The platform must define clear data boundaries while avoiding product governance/remediation features in V1/V2.
+Visentra handles sensitive enterprise metadata about AI agents, devices, identities, repositories, cloud infrastructure, SaaS tenants, browser extensions, and model usage. The platform must define clear data boundaries while avoiding product governance/remediation features in V1/V2.
 
 ## Product Boundary
 
-AgentRadar V1/V2 provides:
+Visentra V1/V2 provides:
 
 - Discovery.
 - Inventory.
@@ -16,7 +16,7 @@ AgentRadar V1/V2 provides:
 - Export.
 - Coverage analysis.
 
-AgentRadar V1/V2 does not provide:
+Visentra V1/V2 does not provide:
 
 - Policy enforcement.
 - Agent approval workflows.

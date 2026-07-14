@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar must scale to large enterprise environments with many devices, repositories, cloud accounts, containers, SaaS tenants, observations, entities, relationships, and events. The system should degrade gracefully when search, graph, or realtime paths are under pressure.
+Visentra must scale to large enterprise environments with many devices, repositories, cloud accounts, containers, SaaS tenants, observations, entities, relationships, and events. The system should degrade gracefully when search, graph, or realtime paths are under pressure.
 
 ## Initial Scale Targets
 

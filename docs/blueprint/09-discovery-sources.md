@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar discovery sources provide evidence that AI agents exist, where they run, who owns them, and which models, tools, MCP servers, repositories, clouds, devices, SaaS tenants, and identities they connect to. A source can be high-confidence, such as a SaaS admin API explicitly listing an agent, or low-confidence, such as a package dependency that suggests an agent framework.
+Visentra discovery sources provide evidence that AI agents exist, where they run, who owns them, and which models, tools, MCP servers, repositories, clouds, devices, SaaS tenants, and identities they connect to. A source can be high-confidence, such as a SaaS admin API explicitly listing an agent, or low-confidence, such as a package dependency that suggests an agent framework.
 
 Discovery must be additive and evidence-backed. No source should directly overwrite canonical truth without passing through normalization and identity resolution.
 

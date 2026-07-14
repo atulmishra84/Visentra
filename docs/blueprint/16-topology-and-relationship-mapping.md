@@ -2,7 +2,7 @@
 
 ## Overview
 
-Topology is the visual and queryable expression of AgentRadar's graph. It helps users understand how agents connect to models, tools, MCP servers, identities, repositories, devices, cloud resources, containers, SaaS apps, browser extensions, frameworks, and evidence.
+Topology is the visual and queryable expression of Visentra's graph. It helps users understand how agents connect to models, tools, MCP servers, identities, repositories, devices, cloud resources, containers, SaaS apps, browser extensions, frameworks, and evidence.
 
 ## Relationship Use Cases
 

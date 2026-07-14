@@ -1,12 +1,12 @@
 # 28. UI Wireframes
 
-Wireframes for primary AgentRadar screens. Components map to [17-frontend-components.md](./17-frontend-components.md), APIs to [11-apis.md](./11-apis.md), and live updates to [13-visibility-engine.md](./13-visibility-engine.md).
+Wireframes for primary Visentra screens. Components map to [17-frontend-components.md](./17-frontend-components.md), APIs to [11-apis.md](./11-apis.md), and live updates to [13-visibility-engine.md](./13-visibility-engine.md).
 
 ## Global shell
 
 ```text
 +--------------------------------------------------------------------------------+
-| AgentRadar | Dashboard Agents Assets Graph Search Discovery Coverage Exports   |
+| Visentra | Dashboard Agents Assets Graph Search Discovery Coverage Exports   |
 |            | [Tenant: Acme Corp v] [Global search..............] [User menu]   |
 +--------------------------------------------------------------------------------+
 | Breadcrumbs: Home / Current Page                                                |
@@ -21,7 +21,7 @@ Wireframes for primary AgentRadar screens. Components map to [17-frontend-compon
 
 ```text
 +--------------------------------------+
-| AgentRadar                           |
+| Visentra                           |
 | Enterprise AI inventory visibility   |
 |                                      |
 | [ Sign in with SSO ]                 |

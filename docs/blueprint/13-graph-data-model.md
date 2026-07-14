@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar uses Neo4j for graph-native relationship queries and topology exploration. The graph stores current and historical relationships among agents, agent instances, devices, IDEs, models, tools, MCP servers, cloud resources, containers, SaaS apps, identities, repositories, frameworks, sources, and evidence.
+Visentra uses Neo4j for graph-native relationship queries and topology exploration. The graph stores current and historical relationships among agents, agent instances, devices, IDEs, models, tools, MCP servers, cloud resources, containers, SaaS apps, identities, repositories, frameworks, sources, and evidence.
 
 ## Node Labels
 

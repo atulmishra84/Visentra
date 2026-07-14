@@ -1,6 +1,6 @@
 # 10 — Graph Database Schema (Neo4j)
 
-Canonical graph model for AgentRadar topology. Source of truth: [`platform/schemas/neo4j.cypher`](../../platform/schemas/neo4j.cypher).
+Canonical graph model for Visentra topology. Source of truth: [`platform/schemas/neo4j.cypher`](../../platform/schemas/neo4j.cypher).
 
 Related: [09-database-schema.md](./09-database-schema.md), [14-relationship-engine.md](./14-relationship-engine.md), [13-visibility-engine.md](./13-visibility-engine.md), [13-graph-data-model.md](./13-graph-data-model.md).
 

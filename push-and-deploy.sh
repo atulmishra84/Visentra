@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AgentRadar — Push images & deploy to AKS
+# Visentra — Push images & deploy to AKS
 # Run this after bootstrap.sh has provisioned infrastructure.
 #
 # Usage:
@@ -199,8 +199,8 @@ else
   log "cert-manager already present ✓"
 fi
 
-# ── Deploy AgentRadar via Helm ────────────────────────────
-step "8 — Deploying AgentRadar"
+# ── Deploy Visentra via Helm ────────────────────────────
+step "8 — Deploying Visentra"
 
 HELM_CHART="$SCRIPT_DIR/helm/agentRadar"
 [[ ! -d "$HELM_CHART" ]] && err "Helm chart not found at $HELM_CHART"
@@ -264,7 +264,7 @@ INGRESS_IP=$(kubectl get svc ingress-nginx-controller \
 
 echo ""
 echo -e "${GREEN}${BOLD}════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}${BOLD}  AgentRadar deployed successfully! ✓${NC}"
+echo -e "${GREEN}${BOLD}  Visentra deployed successfully! ✓${NC}"
 echo -e "${GREEN}${BOLD}════════════════════════════════════════════════════${NC}"
 echo ""
 echo "  Platform URL:  https://${DOMAIN}"

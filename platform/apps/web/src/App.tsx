@@ -6,6 +6,7 @@ import { DiscoveryDashboardPage } from "./pages/DiscoveryDashboardPage";
 import { DiscoveryEventsPage } from "./pages/DiscoveryEventsPage";
 import { ExecutiveDashboardPage } from "./pages/ExecutiveDashboardPage";
 import { InventoryPage } from "./pages/InventoryPage";
+import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { OperationsDashboardPage } from "./pages/OperationsDashboardPage";
 import { RelationshipExplorerPage } from "./pages/RelationshipExplorerPage";
@@ -24,7 +25,7 @@ function RequireAuth({ children }: { children: JSX.Element }) {
   const location = useLocation();
 
   if (loading) {
-    return <div className="loading-state">Restoring secure AgentRadar session...</div>;
+    return <div className="loading-state">Restoring secure Visentra session...</div>;
   }
 
   if (!isAuthenticated) {
@@ -37,6 +38,7 @@ function RequireAuth({ children }: { children: JSX.Element }) {
 export default function App() {
   return (
     <Routes>
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route
         element={
@@ -45,7 +47,6 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<Navigate to="/executive" replace />} />
         <Route path="/executive" element={<ExecutiveDashboardPage />} />
         <Route path="/operations" element={<OperationsDashboardPage />} />
         <Route path="/shadow-ai" element={<ShadowAiPage />} />
@@ -70,7 +71,7 @@ export default function App() {
         <Route path="/settings/connectors" element={<ConnectorsPage />} />
         <Route path="/settings/audit" element={<AuditPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/executive" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

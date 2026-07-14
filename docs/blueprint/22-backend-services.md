@@ -2,7 +2,7 @@
 
 ## Overview
 
-AgentRadar backend services are organized around ingestion, normalization, identity resolution, graph construction, search indexing, querying, export, collector management, authorization, and operations. Services communicate through REST/gRPC for request/response and NATS for durable event streams.
+Visentra backend services are organized around ingestion, normalization, identity resolution, graph construction, search indexing, querying, export, collector management, authorization, and operations. Services communicate through REST/gRPC for request/response and NATS for durable event streams.
 
 ## Service Inventory
 
