@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { connectGraphStream } from "../lib/api";
+import { VisentraLogo } from "./VisentraLogo";
 import { useAuth } from "../lib/auth";
 import { getPreferredTheme, toggleTheme, type ThemeMode } from "../lib/theme";
 
@@ -121,7 +122,7 @@ export function Layout() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-lockup">
-          <div className="brand-mark">AR</div>
+          <VisentraLogo size={36} className="brand-logo" />
           <div>
             <div className="brand-title">Visentra</div>
             <div className="brand-subtitle">Discovery & Visibility</div>

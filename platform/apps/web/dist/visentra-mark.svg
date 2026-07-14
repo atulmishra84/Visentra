@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="Visentra">
+  <defs>
+    <linearGradient id="v" x1="12" y1="8" x2="52" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#63F6E6"/>
+      <stop offset="1" stop-color="#41D6C3"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 10c12.15 0 22 9.85 22 22" stroke="url(#v)" stroke-width="3.2" stroke-linecap="round" opacity="0.55"/>
+  <path d="M32 16c8.837 0 16 7.163 16 16" stroke="url(#v)" stroke-width="3.2" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="48" cy="32" r="2.6" fill="#63F6E6"/>
+  <path d="M18 18 L32 48 L46 18" stroke="url(#v)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="32" cy="32" r="3.2" fill="#041018" stroke="#63F6E6" stroke-width="1.6"/>
+</svg>

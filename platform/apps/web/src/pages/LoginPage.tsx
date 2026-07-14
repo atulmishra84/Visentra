@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Navigate, useLocation, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
+import { VisentraLogo } from "../components/VisentraLogo";
 import { API_BASE_URL, apiRequest, setAuthToken } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { getPreferredTheme, toggleTheme, type ThemeMode } from "../lib/theme";
@@ -25,7 +26,6 @@ export function LoginPage() {
       .catch(() => setEntraEnabled(false));
   }, []);
 
-  // Complete Entra redirect: /login?code=...&state=...
   useEffect(() => {
     const code = searchParams.get("code");
     if (!code) return;
@@ -88,7 +88,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="login-page">
+    <div className="credentials-page">
       <button
         className="theme-toggle login-theme-toggle"
         type="button"
@@ -97,46 +97,26 @@ export function LoginPage() {
       >
         {theme === "light" ? "Dark mode" : "Light mode"}
       </button>
-      <section className="login-hero">
-        <div className="brand-lockup" style={{ borderBottom: 0 }}>
-          <div className="brand-mark">AR</div>
-          <div>
-            <div className="brand-title">Visentra</div>
-            <div className="brand-subtitle">Enterprise AI agent discovery</div>
-          </div>
-        </div>
 
-        <div>
-          <p className="eyebrow">Discovery & Visibility</p>
-          <h1>Know every agent, model, edge, and runtime in motion.</h1>
-          <p className="page-description">
-            A high-trust command center for inventory, topology, usage analytics, discovery events,
-            and enterprise search across the AI estate.
-          </p>
-        </div>
+      <div className="credentials-shell">
+        <Link className="credentials-back" to="/">
+          ← Back to Visentra
+        </Link>
 
-        <div className="three-grid">
-          <div className="panel">
-            <h3>Inventory</h3>
-            <p className="muted">Canonical agents with owners, frameworks, confidence, and recency.</p>
+        <form className="credentials-card" onSubmit={submit}>
+          <div className="credentials-brand">
+            <VisentraLogo size={48} />
+            <div>
+              <div className="brand-title">Visentra</div>
+              <div className="brand-subtitle">Sign in with your credentials</div>
+            </div>
           </div>
-          <div className="panel">
-            <h3>Topology</h3>
-            <p className="muted">Interactive relationship graph with live updates from the API stream.</p>
-          </div>
-          <div className="panel">
-            <h3>Usage</h3>
-            <p className="muted">Models, frameworks, cloud, IDE, and timeline analytics for teams.</p>
-          </div>
-        </div>
-      </section>
 
-      <section className="login-panel">
-        <form className="login-card" onSubmit={submit}>
-          <p className="eyebrow">Secure access</p>
-          <h2>Sign in to Visentra</h2>
+          <h1 className="credentials-title">Welcome back</h1>
+          <p className="muted credentials-copy">Enter your email and password to open the command center.</p>
+
           {!isProdBuild ? (
-            <p className="muted">
+            <p className="muted" style={{ marginTop: 8 }}>
               API base: <span className="mono">{API_BASE_URL}</span>
             </p>
           ) : null}
@@ -153,7 +133,11 @@ export function LoginPage() {
             </button>
           ) : null}
 
-          {entraEnabled ? <p className="muted" style={{ marginTop: 16, textAlign: "center" }}>or use local admin</p> : null}
+          {entraEnabled ? (
+            <p className="muted" style={{ marginTop: 16, textAlign: "center" }}>
+              or use local admin
+            </p>
+          ) : null}
 
           <div className="field" style={{ marginTop: 18 }}>
             <label htmlFor="email">Email</label>
@@ -187,11 +171,16 @@ export function LoginPage() {
             </div>
           )}
 
-          <button className="button primary" disabled={loading || ssoBusy} style={{ width: "100%", marginTop: 18 }} type="submit">
+          <button
+            className="button primary"
+            disabled={loading || ssoBusy}
+            style={{ width: "100%", marginTop: 18 }}
+            type="submit"
+          >
             {loading ? "Signing in..." : "Sign in"}
           </button>
         </form>
-      </section>
+      </div>
     </div>
   );
 }
