@@ -5,7 +5,7 @@ import { KpiCard } from "../components/KpiCard";
 import { apiRequest, compactDate, listFromPayload, numberAt, valueAt } from "../lib/api";
 
 type ChangeRow = Record<string, unknown>;
-type ChangeTab = "new" | "updated" | "drift" | "disappeared" | "owners";
+type ChangeTab = "new" | "updated" | "drift" | "disappeared" | "owners" | "dataclass";
 
 export function DiscoveryChangesPage() {
   const navigate = useNavigate();
@@ -48,6 +48,10 @@ export function DiscoveryChangesPage() {
     () => listFromPayload<ChangeRow>(payload, ["ownerChanges", "owners"]),
     [payload]
   );
+  const dataClassEscalations = useMemo(
+    () => listFromPayload<ChangeRow>(payload, ["dataClassEscalations", "dataClass", "dataclass"]),
+    [payload]
+  );
 
   const rows =
     tab === "new"
@@ -58,7 +62,9 @@ export function DiscoveryChangesPage() {
           ? disappeared
           : tab === "owners"
             ? ownerChanges
-            : configDrift;
+            : tab === "dataclass"
+              ? dataClassEscalations
+              : configDrift;
 
   const columns: Array<Column<ChangeRow>> = [
     {
@@ -81,7 +87,14 @@ export function DiscoveryChangesPage() {
     },
     {
       key: "detail",
-      header: tab === "drift" ? "Drift" : tab === "owners" ? "Change" : "Detail",
+      header:
+        tab === "drift"
+          ? "Drift"
+          : tab === "owners"
+            ? "Change"
+            : tab === "dataclass"
+              ? "Data class"
+              : "Detail",
       render: (row) => {
         if (tab === "drift") {
           const changes = (row.changes as Array<Record<string, unknown>> | undefined) || [];
@@ -93,6 +106,13 @@ export function DiscoveryChangesPage() {
         }
         if (tab === "owners") {
           return valueAt(row, ["summary"], `${valueAt(row, ["previousOwner"], "(none)")} → ${valueAt(row, ["owner"], "(none)")}`);
+        }
+        if (tab === "dataclass") {
+          return valueAt(
+            row,
+            ["summary"],
+            `${valueAt(row, ["previousDataClass"], "none")} → ${valueAt(row, ["primaryDataClass"], "—")}`
+          );
         }
         return valueAt(row, ["summary", "howIdentified", "evidenceClass"], "—");
       },
@@ -131,7 +151,7 @@ export function DiscoveryChangesPage() {
           <p className="eyebrow">Discovery</p>
           <h1>Change intelligence</h1>
           <p className="page-description">
-            New, updated, disappeared, owner-changed, and configuration drift over the last 7 days.
+            New, updated, disappeared, owner-changed, data-class escalations, and configuration drift over the last 7 days.
           </p>
         </div>
         <Link className="button" to="/operations">
@@ -155,6 +175,11 @@ export function DiscoveryChangesPage() {
           tone="warn"
         />
         <KpiCard
+          label="Data class escalations"
+          value={numberAt(summary, ["dataClassEscalations"], dataClassEscalations.length)}
+          tone="warn"
+        />
+        <KpiCard
           label="Config drift"
           value={numberAt(summary, ["configDrift", "drift"], configDrift.length)}
           tone="warn"
@@ -166,6 +191,7 @@ export function DiscoveryChangesPage() {
           [
             ["disappeared", "Disappeared"],
             ["owners", "Owner changes"],
+            ["dataclass", "Data class"],
             ["drift", "Config drift"],
             ["new", "Newly discovered"],
             ["updated", "Updated"]

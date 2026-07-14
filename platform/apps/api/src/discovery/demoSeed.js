@@ -134,7 +134,25 @@ export function buildDemoObservations() {
         evidenceClass: "cloud_ai_runtime",
         agentStatus: "confirmed",
         demoSeed: true,
-        managedCloudAgent: true
+        managedCloudAgent: true,
+        howIdentified: "Demo seed — Azure OpenAI CRM assistant",
+        agentConfig: {
+          tools: ["lookup_customer", "draft_reply"],
+          knowledgeSources: ["CRM contacts", "customer tickets"],
+          authMode: "managed_identity",
+          platform: "azure_openai",
+          instructionsPresent: true,
+          howConfigured: "Azure OpenAI Assistants"
+        },
+        agentAccess: {
+          scopes: { internet: true, crm: true, email: true },
+          identities: ["crm-ops@example.com"],
+          dataStores: ["CRM contacts"],
+          connectedApps: ["Azure OpenAI", "CRM"],
+          permissions: ["Contacts.Read", "Mail.Read"]
+        },
+        dataClasses: ["pii"],
+        primaryDataClass: "pii"
       },
       last_seen: now
     },
@@ -240,7 +258,19 @@ export function buildDemoObservations() {
           scopes: { email: true, sharepoint: true, internet: true, identity: true, calendar: true },
           identities: ["it-admin@example.com", "Copilot-ServicePrincipal"],
           dataStores: ["SharePoint", "OneDrive"],
-          connectedApps: ["Microsoft 365"]
+          connectedApps: ["Microsoft 365"],
+          permissions: ["Mail.Read", "Files.Read.All", "Sites.Read.All", "User.Read", "Calendars.Read"]
+        },
+        dataClasses: ["pii"],
+        primaryDataClass: "pii",
+        dataAccessClassification: {
+          dataClasses: ["pii"],
+          primaryDataClass: "pii",
+          confidence: "high",
+          evidence: [
+            { source: "entitlement", signal: "Mail.Read", detail: "PII-related entitlement: Mail.Read" },
+            { source: "knowledge", signal: "SharePoint", detail: "Knowledge/data store suggests PII: SharePoint" }
+          ]
         },
         ownership: {
           owner: "it-admin@example.com",
@@ -368,9 +398,11 @@ export function buildDemoObservations() {
       deployment_type: "serverless",
       running_status: "running",
       confidence_score: 0.89,
+      database_access: true,
       relationships: [
         { rel_type: "INVOKES_MODEL", to_type: "Model", to_key: "claude-3-sonnet", to_name: "claude-3-sonnet" },
-        { rel_type: "DEPLOYED_IN", to_type: "CloudResource", to_key: "bedrock-usw2", to_name: "Amazon Bedrock" }
+        { rel_type: "DEPLOYED_IN", to_type: "CloudResource", to_key: "bedrock-usw2", to_name: "Amazon Bedrock" },
+        { rel_type: "ACCESSES", to_type: "Database", to_key: "claims-ehr", to_name: "Claims EHR store" }
       ],
       metadata: {
         aiRelevant: true,
@@ -378,7 +410,102 @@ export function buildDemoObservations() {
         evidenceClass: "cloud_ai_runtime",
         agentStatus: "confirmed",
         demoSeed: true,
-        managedCloudAgent: true
+        managedCloudAgent: true,
+        howIdentified: "Demo seed — Bedrock claims / PHI",
+        hasInstructions: true,
+        agentConfig: {
+          tools: ["lookup_claim", "read_clinical_note", "summarize_encounter"],
+          knowledgeSources: ["patient-claims-db", "clinical-notes-ehr", "FHIR Patient API"],
+          triggers: ["claim_submitted"],
+          authMode: "iam_role",
+          platform: "bedrock",
+          instructionsPresent: true,
+          instructionSource: "bedrock_agent_instruction",
+          howConfigured: "Bedrock Agents + EHR connector"
+        },
+        agentAccess: {
+          scopes: { database: true, internet: true, phi: true, ehr: true },
+          identities: ["claims-eng@example.com"],
+          dataStores: ["patient-claims-db", "clinical-notes-ehr"],
+          connectedApps: ["Amazon Bedrock", "EHR"],
+          permissions: ["FHIR.Patient.Read", "EHR.Clinical.Read", "Claims.Read"]
+        },
+        dataClasses: ["phi", "pii"],
+        primaryDataClass: "phi",
+        dataAccessClassification: {
+          dataClasses: ["phi", "pii"],
+          primaryDataClass: "phi",
+          confidence: "high",
+          evidence: [
+            { source: "entitlement", signal: "FHIR.Patient.Read", detail: "PHI-related entitlement: FHIR.Patient.Read" },
+            { source: "knowledge", signal: "clinical-notes-ehr", detail: "Knowledge/data store suggests PHI: clinical-notes-ehr" }
+          ]
+        }
+      },
+      last_seen: now
+    },
+    {
+      collector_id: "demo",
+      fingerprint: "demo:saas:workday-hr-copilot",
+      name: "Workday HR Copilot — Employee Self-Service",
+      category: "saas",
+      owner: "hr-ops@example.com",
+      department: "Human Resources",
+      business_unit: "Corporate",
+      provider: "workday",
+      model: "gpt-4o",
+      framework: "Workday AI",
+      deployment_type: "saas",
+      running_status: "running",
+      confidence_score: 0.9,
+      email_access: true,
+      relationships: [
+        { rel_type: "ACCESSES", to_type: "ExternalService", to_key: "workday", to_name: "Workday" },
+        { rel_type: "INVOKES_MODEL", to_type: "Model", to_key: "gpt-4o", to_name: "gpt-4o" },
+        { rel_type: "OWNS", to_type: "Developer", to_key: "hr-ops", to_name: "hr-ops@example.com" }
+      ],
+      metadata: {
+        aiRelevant: true,
+        inventoryClass: "saas_platform_agent",
+        evidenceClass: "platform_agent",
+        agentStatus: "confirmed",
+        demoSeed: true,
+        howIdentified: "Demo seed — Workday HR / PII",
+        hasInstructions: true,
+        agentConfig: {
+          tools: ["lookup_worker", "update_time_off", "answer_policy"],
+          knowledgeSources: ["HR employee directory", "payroll summaries", "benefits handbook"],
+          channels: ["Workday", "email"],
+          authMode: "oauth",
+          platform: "workday",
+          instructionsPresent: true,
+          howConfigured: "Workday AI assistant"
+        },
+        agentAccess: {
+          scopes: { email: true, crm: true, identity: true, internet: true },
+          identities: ["hr-ops@example.com"],
+          dataStores: ["HR employee directory", "payroll summaries"],
+          connectedApps: ["Workday"],
+          permissions: ["Worker.Read", "Directory.Read", "Payroll.Read"]
+        },
+        dataClasses: ["pii", "financial"],
+        primaryDataClass: "pii",
+        dataAccessClassification: {
+          dataClasses: ["pii", "financial"],
+          primaryDataClass: "pii",
+          confidence: "high",
+          evidence: [
+            { source: "knowledge", signal: "HR employee directory", detail: "Knowledge/data store suggests PII: HR employee directory" },
+            { source: "entitlement", signal: "Payroll.Read", detail: "Financial entitlement: Payroll.Read" }
+          ]
+        },
+        ownership: {
+          owner: "hr-ops@example.com",
+          ownershipStatus: "owned",
+          identityProvider: "workday",
+          team: "Human Resources"
+        },
+        ownershipStatus: "owned"
       },
       last_seen: now
     },

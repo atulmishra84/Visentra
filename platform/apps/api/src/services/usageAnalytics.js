@@ -546,7 +546,23 @@ export async function buildExecutiveInsights(pool, tenantId) {
                OR metadata->'ownership'->>'identityProvider' IS NOT NULL
                OR metadata->'agentAccess'->'scopes'->>'identity' = 'true'
              )
-         )::int AS identity_attributed
+         )::int AS identity_attributed,
+         COUNT(*) FILTER (
+           WHERE metadata->>'hasPii' = 'true'
+              OR metadata->'dataAccessClassification'->>'hasPii' = 'true'
+              OR LOWER(COALESCE(metadata->>'primaryDataClass','')) IN ('pii','phi')
+              OR metadata->'dataClasses' @> '"pii"'::jsonb
+              OR metadata->'dataClasses' @> '"phi"'::jsonb
+              OR metadata->'dataAccessClassification'->'dataClasses' @> '"pii"'::jsonb
+              OR metadata->'dataAccessClassification'->'dataClasses' @> '"phi"'::jsonb
+         )::int AS pii_access_agents,
+         COUNT(*) FILTER (
+           WHERE metadata->>'hasPhi' = 'true'
+              OR metadata->'dataAccessClassification'->>'hasPhi' = 'true'
+              OR LOWER(COALESCE(metadata->>'primaryDataClass','')) = 'phi'
+              OR metadata->'dataClasses' @> '"phi"'::jsonb
+              OR metadata->'dataAccessClassification'->'dataClasses' @> '"phi"'::jsonb
+         )::int AS phi_access_agents
        FROM agents WHERE tenant_id=$1`,
       [tenantId]
     ),
@@ -604,7 +620,11 @@ export async function buildExecutiveInsights(pool, tenantId) {
     hasInstructionsAgents: c.has_instructions,
     highAccessSensitivity: c.high_access_sensitivity,
     identityAttributedAgents: c.identity_attributed,
-    identityAttributed: c.identity_attributed
+    identityAttributed: c.identity_attributed,
+    piiAccessAgents: c.pii_access_agents,
+    phiAccessAgents: c.phi_access_agents,
+    agentsWithPii: c.pii_access_agents,
+    agentsWithPhi: c.phi_access_agents
   };
 }
 

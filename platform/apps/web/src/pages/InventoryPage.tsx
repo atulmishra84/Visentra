@@ -65,7 +65,9 @@ function facetsFromSearchParams(params: URLSearchParams): Facets {
     "access",
     "accessSensitivity",
     "overPermissioned",
-    "hasInstructions"
+    "hasInstructions",
+    "dataClass",
+    "primaryDataClass"
   ];
   const next: Facets = {};
   for (const key of keys) {
@@ -158,6 +160,19 @@ export function InventoryPage({ title }: { title: string }) {
       evidenceClass: uniqueMetaOptions(agents, "evidenceClass"),
       agentStatus: uniqueMetaOptions(agents, "agentStatus"),
       accessSensitivity: uniqueMetaOptions(agents, "accessSensitivity"),
+      dataClass: (() => {
+        const values = new Set<string>(["pii", "phi", "secrets", "financial", "none"]);
+        agents.forEach((row) => {
+          const primary = metaAt(row, "primaryDataClass");
+          if (primary) values.add(primary);
+          const meta = (row.metadata || {}) as Record<string, unknown>;
+          const classes = Array.isArray(meta.dataClasses) ? meta.dataClasses : [];
+          classes.forEach((c) => {
+            if (c) values.add(String(c));
+          });
+        });
+        return [...values].sort((left, right) => left.localeCompare(right));
+      })(),
       access: (() => {
         const values = new Set<string>();
         agents.forEach((row) => {
@@ -235,6 +250,22 @@ export function InventoryPage({ title }: { title: string }) {
         );
       },
       sortValue: (agent) => metaAt(agent, "accessSensitivity")
+    },
+    {
+      key: "dataClass",
+      header: "Data class",
+      render: (agent) => {
+        const primary = metaAt(agent, "primaryDataClass", "none");
+        const conf = metaAt(agent, "dataAccessConfidence", "");
+        const tone = primary === "phi" || primary === "pii" ? "bad" : "";
+        return (
+          <span className={`badge ${tone}`}>
+            {primary.toUpperCase()}
+            {conf ? ` · ${conf}` : ""}
+          </span>
+        );
+      },
+      sortValue: (agent) => metaAt(agent, "primaryDataClass")
     },
     {
       key: "how",

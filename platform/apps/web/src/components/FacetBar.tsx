@@ -13,6 +13,8 @@ export type Facets = {
   accessSensitivity?: string;
   overPermissioned?: string;
   hasInstructions?: string;
+  dataClass?: string;
+  primaryDataClass?: string;
 };
 
 type FacetBarProps = {
@@ -25,6 +27,7 @@ const facetFields: Array<keyof Facets> = [
   "category",
   "evidenceClass",
   "agentStatus",
+  "dataClass",
   "accessSensitivity",
   "access",
   "overPermissioned",
@@ -51,6 +54,7 @@ function labelFor(key: keyof Facets): string {
   if (key === "accessSensitivity") return "Access sensitivity";
   if (key === "overPermissioned") return "Over-permissioned";
   if (key === "hasInstructions") return "Has instructions";
+  if (key === "dataClass" || key === "primaryDataClass") return "Data class";
   return key[0].toUpperCase() + key.slice(1);
 }
 

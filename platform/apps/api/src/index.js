@@ -257,6 +257,43 @@ function agentFilters(query, startIdx = 2) {
   } else if (query.ownershipStatus === "ownerless") {
     clauses.push(`AND (owner IS NULL OR btrim(owner)='')`);
   }
+  if (query.dataClass || query.primaryDataClass) {
+    const dc = String(query.dataClass || query.primaryDataClass).toLowerCase();
+    clauses.push(
+      `AND (
+         LOWER(COALESCE(metadata->>'primaryDataClass','')) = $${i}
+         OR LOWER(COALESCE(metadata->'dataAccessClassification'->>'primaryDataClass','')) = $${i}
+         OR metadata->'dataClasses' @> to_jsonb(ARRAY[$${i}]::text[])
+         OR metadata->'dataAccessClassification'->'dataClasses' @> to_jsonb(ARRAY[$${i}]::text[])
+       )`
+    );
+    params.push(dc);
+    i += 1;
+  }
+  if (query.hasPii === "true" || query.hasPii === true) {
+    clauses.push(
+      `AND (
+         metadata->>'hasPii' = 'true'
+         OR metadata->'dataAccessClassification'->>'hasPii' = 'true'
+         OR LOWER(COALESCE(metadata->>'primaryDataClass','')) IN ('pii','phi')
+         OR metadata->'dataClasses' @> '"pii"'::jsonb
+         OR metadata->'dataClasses' @> '"phi"'::jsonb
+         OR metadata->'dataAccessClassification'->'dataClasses' @> '"pii"'::jsonb
+         OR metadata->'dataAccessClassification'->'dataClasses' @> '"phi"'::jsonb
+       )`
+    );
+  }
+  if (query.hasPhi === "true" || query.hasPhi === true) {
+    clauses.push(
+      `AND (
+         metadata->>'hasPhi' = 'true'
+         OR metadata->'dataAccessClassification'->>'hasPhi' = 'true'
+         OR LOWER(COALESCE(metadata->>'primaryDataClass','')) = 'phi'
+         OR metadata->'dataClasses' @> '"phi"'::jsonb
+         OR metadata->'dataAccessClassification'->'dataClasses' @> '"phi"'::jsonb
+       )`
+    );
+  }
   return { clauses: clauses.join(" "), params, nextIdx: i };
 }
 
@@ -711,7 +748,17 @@ app.get("/api/agents", auth, async (req, res) => {
         hasInstructions: meta.hasInstructions ?? depth.agentConfig.instructionsPresent,
         overPermissioned: meta.overPermissioned ?? depth.agentAccess.overPermissioned,
         authMode: meta.authMode || depth.agentConfig.authMode,
-        channels: meta.channels || depth.agentConfig.channels
+        channels: meta.channels || depth.agentConfig.channels,
+        dataAccessClassification: meta.dataAccessClassification || depth.dataAccessClassification,
+        primaryDataClass:
+          meta.primaryDataClass ||
+          depth.dataAccessClassification?.primaryDataClass ||
+          "none",
+        dataClasses: meta.dataClasses || depth.dataAccessClassification?.dataClasses || ["none"],
+        dataAccessConfidence:
+          meta.dataAccessConfidence || depth.dataAccessClassification?.confidence || "low",
+        hasPii: meta.hasPii ?? depth.dataAccessClassification?.hasPii ?? false,
+        hasPhi: meta.hasPhi ?? depth.dataAccessClassification?.hasPhi ?? false
       },
       ...depth
     };
@@ -1175,7 +1222,26 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
       confidence_score: 0.75,
       last_seen: d.changedAt
     }));
-    const mergedQueue = [...driftQueue, ...blastQueue, ...disappearedQueue, ...ownerQueue, ...queue].slice(0, 100);
+    const dataClassQueue = (changes.dataClassEscalations || []).slice(0, 15).map((d) => ({
+      id: d.id || d.agentId,
+      name: d.name,
+      owner: d.owner,
+      category: d.category,
+      queue: "data_class_escalated",
+      type: "data_class_escalated",
+      title: d.name,
+      summary: d.summary || "Sensitive data class escalated",
+      confidence_score: 0.8,
+      last_seen: d.changedAt
+    }));
+    const mergedQueue = [
+      ...driftQueue,
+      ...blastQueue,
+      ...disappearedQueue,
+      ...ownerQueue,
+      ...dataClassQueue,
+      ...queue
+    ].slice(0, 100);
     return res.json({
       dashboard: {
         ...base,
@@ -1187,6 +1253,7 @@ app.get("/api/dashboards/:name", auth, async (req, res) => {
         highBlastRadius: blastQueue.length,
         disappearedAgents: (changes.disappeared || []).length,
         ownerChanges: (changes.ownerChanges || []).length,
+        dataClassEscalations: (changes.dataClassEscalations || []).length,
         discoveryChanges: changes,
         blastRadius: blast,
         collectorHealth: COLLECTOR_IDS.map((id) => {
