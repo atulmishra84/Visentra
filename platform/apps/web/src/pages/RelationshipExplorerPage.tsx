@@ -27,13 +27,11 @@ export function RelationshipExplorerPage() {
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [anatomy, setAnatomy] = useState<AgentAnatomy | null>(null);
   const [anatomyLoading, setAnatomyLoading] = useState(false);
   const [anatomyError, setAnatomyError] = useState<string | null>(null);
-  const [focusedAgentId, setFocusedAgentId] = useState<string | null>(
-    () => searchParams.get("agentId") || null
-  );
+  const [focusedAgentId, setFocusedAgentId] = useState<string | null>(() => searchParams.get("agentId") || null);
+  const [showGraph, setShowGraph] = useState(false);
 
   const loadSeeds = async (q = "") => {
     try {
@@ -61,9 +59,7 @@ export function RelationshipExplorerPage() {
       setAnatomy(payload);
     } catch (requestError) {
       setAnatomy(null);
-      setAnatomyError(
-        requestError instanceof Error ? requestError.message : "Failed to load agent anatomy."
-      );
+      setAnatomyError(requestError instanceof Error ? requestError.message : "Failed to load agent anatomy.");
     } finally {
       setAnatomyLoading(false);
     }
@@ -77,13 +73,10 @@ export function RelationshipExplorerPage() {
       return type === "agent" || type.includes("agent");
     });
     if (agents.length === 1) return String(agents[0].id);
-    if (payload.meta?.seed && looksLikeAgentId(String(payload.meta.seed))) {
-      return String(payload.meta.seed);
-    }
+    if (payload.meta?.seed && looksLikeAgentId(String(payload.meta.seed))) return String(payload.meta.seed);
     const byName = agents.find(
       (node) =>
-        valueAt(node, ["name", "label"], "").toLowerCase() === nextSeed.toLowerCase() ||
-        String(node.id) === nextSeed
+        valueAt(node, ["name", "label"], "").toLowerCase() === nextSeed.toLowerCase() || String(node.id) === nextSeed
     );
     return byName ? String(byName.id) : null;
   };
@@ -91,24 +84,15 @@ export function RelationshipExplorerPage() {
   const loadGraph = async (nextSeed = seed) => {
     setLoading(true);
     setError(null);
-    setMessage(null);
     try {
-      const payload = await apiRequest<GraphPayload & { meta?: { message?: string; matched?: number; seed?: string } }>(
-        "/api/graph",
-        {
-          query: {
-            agentId: nextSeed || undefined,
-            depth,
-            limit: nextSeed ? 80 : 50
-          }
+      const payload = await apiRequest<GraphPayload>("/api/graph", {
+        query: {
+          agentId: nextSeed || undefined,
+          depth,
+          limit: nextSeed ? 80 : 50
         }
-      );
+      });
       setGraph(payload);
-      if (payload.meta?.message) setMessage(payload.meta.message);
-      else if (!(payload.nodes || []).length) {
-        setMessage("No relationships found. Open Inventory, pick an asset, then expand from here.");
-      }
-
       const agentId = nextSeed ? resolveFocusedAgent(payload, nextSeed) : null;
       await loadAnatomy(agentId);
       const nextParams = new URLSearchParams();
@@ -127,7 +111,6 @@ export function RelationshipExplorerPage() {
   useEffect(() => {
     void loadSeeds();
     void loadGraph(seed);
-    // Initial graph should load once; subsequent requests are form-driven.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -152,29 +135,28 @@ export function RelationshipExplorerPage() {
   };
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Relationships</p>
-          <h1>Relationship Explorer</h1>
-          <p className="page-description">
-            Inspect agent anatomy — users &amp; inputs, channels, actions, and data — with inherent risk profiling.
-            Leave seed blank for a topology overview.
-          </p>
-        </div>
-        <button className="button" type="button" onClick={() => void loadGraph(seed)}>
-          Refresh
-        </button>
-      </header>
+    <div className="page relationships-page">
+      {!focusedAgentId ? (
+        <header className="page-header">
+          <div>
+            <p className="eyebrow">Relationships</p>
+            <h1>Relationship Explorer</h1>
+            <p className="page-description">
+              Pick an agent to open its anatomy map — users, channels, actions, data, and inherent risk around the
+              agent + LLM.
+            </p>
+          </div>
+        </header>
+      ) : null}
 
-      <form className="facet-bar" onSubmit={submit}>
-        <div className="field" style={{ minWidth: 360 }}>
-          <label htmlFor="seed">Seed (name, fingerprint, or inventory ID)</label>
+      <form className="facet-bar relationships-seed-bar" onSubmit={submit}>
+        <div className="field" style={{ minWidth: 320 }}>
+          <label htmlFor="seed">Focus agent</label>
           <input
             className="input"
             id="seed"
             list="relationship-seeds"
-            placeholder="e.g. HR Copilot or leave blank for overview"
+            placeholder="Search name or paste agent ID"
             value={seed}
             onChange={(event) => {
               setSeed(event.target.value);
@@ -190,7 +172,7 @@ export function RelationshipExplorerPage() {
           </datalist>
         </div>
         <div className="field">
-          <label htmlFor="depth">Depth</label>
+          <label htmlFor="depth">Graph depth</label>
           <select className="select" id="depth" value={depth} onChange={(event) => setDepth(Number(event.target.value))}>
             <option value={1}>1 hop</option>
             <option value={2}>2 hops</option>
@@ -198,7 +180,7 @@ export function RelationshipExplorerPage() {
           </select>
         </div>
         <button className="button primary" type="submit">
-          Expand
+          Open anatomy
         </button>
         <button
           className="button ghost"
@@ -208,23 +190,24 @@ export function RelationshipExplorerPage() {
             void loadGraph("");
           }}
         >
-          Overview
+          Clear
+        </button>
+        <button className="button ghost" type="button" onClick={() => setShowGraph((v) => !v)}>
+          {showGraph ? "Hide graph" : "Show graph"}
         </button>
       </form>
 
-      {seeds.length ? (
+      {!focusedAgentId && seeds.length ? (
         <div className="toolbar" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           {seeds.slice(0, 8).map((option) => (
             <button key={option.id} className="button ghost" type="button" onClick={() => pickSeed(option)}>
               {valueAt(option as Record<string, unknown>, ["name"], option.id).slice(0, 36)}
-              {option.edge_count ? ` · ${option.edge_count}` : ""}
             </button>
           ))}
         </div>
       ) : null}
 
       {error ? <div className="error-state">{error}</div> : null}
-      {message ? <div className="status-pill" style={{ marginBottom: 12 }}>{message}</div> : null}
 
       <AgentAnatomyPanel
         anatomy={anatomy}
@@ -240,20 +223,22 @@ export function RelationshipExplorerPage() {
         }
       />
 
-      <section className="panel" style={{ marginTop: 16 }}>
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">Topology</p>
-            <h2>Neighborhood graph</h2>
+      {showGraph ? (
+        <section className="panel" style={{ marginTop: 16 }}>
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Topology</p>
+              <h2>Neighborhood graph</h2>
+            </div>
           </div>
-        </div>
-        <TopologyGraph
-          graph={graph}
-          loading={loading}
-          emptyMessage="No relationships yet. Run discovery, then pick a seed with edges from the chips above."
-          onNodeSelect={onNodeSelect}
-        />
-      </section>
+          <TopologyGraph
+            graph={graph}
+            loading={loading}
+            emptyMessage="No relationships yet. Run discovery, then pick a seed."
+            onNodeSelect={onNodeSelect}
+          />
+        </section>
+      ) : null}
 
       <DetailDrawer
         data={selected}

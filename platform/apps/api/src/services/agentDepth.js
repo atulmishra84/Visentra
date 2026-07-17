@@ -653,6 +653,36 @@ export function buildAgentMeshPlacement(obs = {}) {
 /**
  * Aggregate Global Agent Mesh matrix for a tenant.
  */
+function meshNodeStatus(row, meta, isShadow, dac, depth) {
+  const running = String(row.running_status || meta.runningStatus || "").toLowerCase();
+  const sensitivity = depth.agentAccess?.sensitivity || meta.accessSensitivity;
+  const flagged =
+    isShadow ||
+    meta.overPermissioned === true ||
+    depth.agentAccess?.overPermissioned === true ||
+    dac.hasPhi ||
+    meta.hasPhi ||
+    sensitivity === "high" ||
+    (Array.isArray(row.risk_indicators) &&
+      row.risk_indicators.some((x) => /critical|high|flagged|over.?permission/i.test(String(x))));
+  if (isShadow) return "shadow";
+  if (flagged) return "flagged";
+  if (running === "stopped" || running === "unknown" || running === "idle") return "inactive";
+  return "active";
+}
+
+function meshCategoryLabel(row, meta) {
+  return (
+    row.department ||
+    meta.team ||
+    meta.function ||
+    row.business_unit ||
+    row.category ||
+    meta.inventoryClass ||
+    "General"
+  );
+}
+
 export async function computeAgentMesh(pool, tenantId, { shadowOnly = false } = {}) {
   const result = await pool.query(`SELECT * FROM agents WHERE tenant_id=$1`, [tenantId]);
   const planes = AGENT_PLANES.map((id) => ({ id, label: PLANE_LABELS[id] }));
@@ -661,14 +691,30 @@ export async function computeAgentMesh(pool, tenantId, { shadowOnly = false } = 
   for (const p of AGENT_PLANES) {
     cells[p] = {};
     for (const l of ENVIRONMENT_LANES) {
-      cells[p][l] = { count: 0, shadowCount: 0, piiCount: 0, phiCount: 0, agents: [] };
+      cells[p][l] = { count: 0, shadowCount: 0, piiCount: 0, phiCount: 0, flaggedCount: 0, agents: [] };
     }
   }
 
   let total = 0;
   let shadowTotal = 0;
+  let flaggedTotal = 0;
   const planeTotals = Object.fromEntries(AGENT_PLANES.map((p) => [p, 0]));
   const laneTotals = Object.fromEntries(ENVIRONMENT_LANES.map((l) => [l, 0]));
+  const clusterBuckets = Object.fromEntries(
+    ENVIRONMENT_LANES.map((l) => [
+      l,
+      {
+        lane: l,
+        label: LANE_LABELS[l],
+        agents: [],
+        categories: new Map(),
+        count: 0,
+        flaggedCount: 0,
+        shadowCount: 0,
+        deviceCount: 0
+      }
+    ])
+  );
 
   for (const row of result.rows) {
     const depth = summarizeAgentDepth(row);
@@ -684,25 +730,49 @@ export async function computeAgentMesh(pool, tenantId, { shadowOnly = false } = 
     const plane = AGENT_PLANES.includes(mesh.agentPlane) ? mesh.agentPlane : "endpoint";
     const lane = ENVIRONMENT_LANES.includes(mesh.environmentLane) ? mesh.environmentLane : "production";
     const cell = cells[plane][lane];
+    const dac = depth.dataAccessClassification || {};
+    const status = meshNodeStatus(row, meta, isShadow, dac, depth);
+    const category = String(meshCategoryLabel(row, meta));
+    const isDevice = lane === "endpoints" || plane === "endpoint";
+    const node = {
+      id: row.id,
+      name: row.name,
+      owner: row.owner,
+      category,
+      plane,
+      lane,
+      status,
+      kind: isDevice && lane === "endpoints" ? "device" : "agent",
+      shadow: isShadow,
+      flagged: status === "flagged",
+      primaryDataClass: meta.primaryDataClass || dac.primaryDataClass || "none",
+      model: row.model || null,
+      framework: row.framework || null,
+      href: `/agents/${row.id}`,
+      relationshipsHref: `/relationships?agentId=${row.id}`
+    };
+
     cell.count += 1;
     if (isShadow) {
       cell.shadowCount += 1;
       shadowTotal += 1;
     }
-    const dac = depth.dataAccessClassification || {};
+    if (status === "flagged" || status === "shadow") {
+      cell.flaggedCount += 1;
+      flaggedTotal += 1;
+    }
     if (dac.hasPii || meta.hasPii) cell.piiCount += 1;
     if (dac.hasPhi || meta.hasPhi) cell.phiCount += 1;
-    if (cell.agents.length < 8) {
-      cell.agents.push({
-        id: row.id,
-        name: row.name,
-        owner: row.owner,
-        category: row.category,
-        shadow: isShadow,
-        primaryDataClass: meta.primaryDataClass || dac.primaryDataClass || "none",
-        href: `/agents/${row.id}`
-      });
-    }
+    if (cell.agents.length < 24) cell.agents.push(node);
+
+    const bucket = clusterBuckets[lane];
+    bucket.count += 1;
+    if (isShadow) bucket.shadowCount += 1;
+    if (status === "flagged" || status === "shadow") bucket.flaggedCount += 1;
+    if (node.kind === "device") bucket.deviceCount += 1;
+    bucket.agents.push(node);
+    bucket.categories.set(category, (bucket.categories.get(category) || 0) + 1);
+
     total += 1;
     planeTotals[plane] += 1;
     laneTotals[lane] += 1;
@@ -719,13 +789,34 @@ export async function computeAgentMesh(pool, tenantId, { shadowOnly = false } = 
     }))
   }));
 
+  const clusters = ENVIRONMENT_LANES.map((laneId) => {
+    const bucket = clusterBuckets[laneId];
+    const categories = [...bucket.categories.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, count]) => ({ name, count }));
+    return {
+      lane: bucket.lane,
+      label: bucket.label,
+      count: bucket.count,
+      flaggedCount: bucket.flaggedCount,
+      shadowCount: bucket.shadowCount,
+      deviceCount: bucket.deviceCount,
+      categories,
+      nodes: bucket.agents.slice(0, 48),
+      href: `/inventory?environmentLane=${laneId}${shadowOnly ? "&shadow=true" : ""}`
+    };
+  }).filter((c) => c.count > 0 || c.lane === "production" || c.lane === "saas");
+
   return {
     planes,
     lanes,
     matrix,
+    clusters,
     totals: {
       agents: total,
       shadow: shadowTotal,
+      flagged: flaggedTotal,
       byPlane: planeTotals,
       byLane: laneTotals
     },
@@ -1082,6 +1173,14 @@ export function buildAgentAnatomy(agent, relationships = [], blast = null) {
         pathCount: 0
       };
 
+  const mesh = depth.mesh || buildAgentMeshPlacement(agent);
+  const flagged =
+    Boolean(shadow) ||
+    Boolean(access.overPermissioned || meta.overPermissioned) ||
+    Boolean(dac.hasPhi || meta.hasPhi) ||
+    access.sensitivity === "high" ||
+    (risk.tier && ["critical", "elevated"].includes(String(risk.tier)));
+
   return {
     center: {
       agentId: agent.id,
@@ -1095,17 +1194,36 @@ export function buildAgentAnatomy(agent, relationships = [], blast = null) {
         label: modelName ? `${modelProvider !== "llm" ? modelProvider + " · " : ""}${modelName}` : "No model detected"
       }
     },
+    profile: {
+      function: agent.department || agent.business_unit || meta.function || agent.category || "General",
+      summary:
+        meta.howIdentified ||
+        meta.summary ||
+        `Discovered ${agent.category || "agent"} using ${agent.framework || modelName || "unknown runtime"}.`,
+      owner: agent.owner || ownership.owner || null,
+      ownershipStatus: ownership.ownershipStatus || meta.ownershipStatus || null,
+      agentType: agent.deployment_type || meta.deploymentType || agent.category || "unknown",
+      infraType: agent.cloud_provider || meta.platform || mesh.agentPlane || "unknown",
+      environment: mesh.laneLabel || mesh.environmentLane || meta.environment || "unknown",
+      location: agent.region || meta.region || agent.hostname || "—",
+      created: agent.first_discovered || agent.created_at || null,
+      registered: agent.last_seen || null,
+      mode: Array.isArray(config.channels) && config.channels.length ? "Chat" : "Agent",
+      plane: mesh.planeLabel || mesh.agentPlane,
+      flagged,
+      shadowAi: Boolean(shadow)
+    },
     groups: {
       usersInputs: {
         id: "usersInputs",
-        label: "Users & inputs",
-        description: "Who can access or trigger this agent",
+        label: "Users & Input",
+        description: "Who can access this agent",
         items: usersDeduped
       },
       channels: {
         id: "channels",
         label: "Channels",
-        description: "Where this agent can communicate",
+        description: "Who the agent can communicate with",
         items: channelsDeduped
       },
       actions: {
@@ -1137,7 +1255,8 @@ export function buildAgentAnatomy(agent, relationships = [], blast = null) {
       hasPhi: Boolean(dac.hasPhi || meta.hasPhi),
       shadowAi: Boolean(shadow),
       ownershipStatus: ownership.ownershipStatus || meta.ownershipStatus || null,
-      grantCount: access.grantCount || 0
+      grantCount: access.grantCount || 0,
+      flagged
     },
     generatedAt: new Date().toISOString()
   };
