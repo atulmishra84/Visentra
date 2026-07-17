@@ -15,6 +15,8 @@ export type Facets = {
   hasInstructions?: string;
   dataClass?: string;
   primaryDataClass?: string;
+  agentPlane?: string;
+  environmentLane?: string;
 };
 
 type FacetBarProps = {
@@ -25,6 +27,8 @@ type FacetBarProps = {
 
 const facetFields: Array<keyof Facets> = [
   "category",
+  "agentPlane",
+  "environmentLane",
   "evidenceClass",
   "agentStatus",
   "dataClass",
@@ -42,6 +46,18 @@ const facetFields: Array<keyof Facets> = [
 
 const BOOL_FACETS = new Set<keyof Facets>(["overPermissioned", "hasInstructions"]);
 
+const MESH_OPTION_LABELS: Record<string, string> = {
+  containerized: "Containerized",
+  serverless: "Serverless",
+  saas_third_party: "SaaS & third-party",
+  endpoint: "Endpoint",
+  development: "Development",
+  staging: "Staging",
+  production: "Production",
+  saas: "SaaS",
+  endpoints: "Endpoints"
+};
+
 function labelFor(key: keyof Facets): string {
   if (key === "q") return "Search";
   if (key === "cloud") return "Provider";
@@ -55,7 +71,16 @@ function labelFor(key: keyof Facets): string {
   if (key === "overPermissioned") return "Over-permissioned";
   if (key === "hasInstructions") return "Has instructions";
   if (key === "dataClass" || key === "primaryDataClass") return "Data class";
+  if (key === "agentPlane") return "Agent plane";
+  if (key === "environmentLane") return "Environment";
   return key[0].toUpperCase() + key.slice(1);
+}
+
+function optionLabel(field: keyof Facets, option: string): string {
+  if (field === "agentPlane" || field === "environmentLane") {
+    return MESH_OPTION_LABELS[option] || option;
+  }
+  return option;
 }
 
 export function FacetBar({ facets, options = {}, onChange }: FacetBarProps) {
@@ -97,7 +122,7 @@ export function FacetBar({ facets, options = {}, onChange }: FacetBarProps) {
             ) : (
               (options[field] ?? []).map((option) => (
                 <option key={option} value={option}>
-                  {option}
+                  {optionLabel(field, option)}
                 </option>
               ))
             )}

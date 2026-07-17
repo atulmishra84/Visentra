@@ -112,6 +112,9 @@ export function AgentDetailPage() {
           </p>
         </div>
         <div className="toolbar">
+          <Link className="button primary" to={`/relationships?agentId=${encodeURIComponent(String(agent.id ?? id))}`}>
+            Open anatomy
+          </Link>
           <Link className="button" to={`/topology?agentId=${encodeURIComponent(String(agent.id ?? id))}`}>
             Open in topology
           </Link>
@@ -140,6 +143,20 @@ export function AgentDetailPage() {
           label="Shadow AI"
           value={agent.shadowAi ? `${Math.round(numberAt(agent, ["shadowAiScore"], 0) * 100)}%` : "No"}
           tone={agent.shadowAi ? "warn" : "good"}
+        />
+        <KpiCard
+          label="Agent plane"
+          value={
+            valueAt((meta.mesh as Record<string, unknown>) || {}, ["planeLabel", "agentPlane"]) ||
+            valueAt(meta, ["agentPlane"], "—")
+          }
+        />
+        <KpiCard
+          label="Environment"
+          value={
+            valueAt((meta.mesh as Record<string, unknown>) || {}, ["laneLabel", "environmentLane"]) ||
+            valueAt(meta, ["environmentLane"], "—")
+          }
         />
       </section>
 

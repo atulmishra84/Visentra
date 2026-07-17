@@ -36,7 +36,9 @@ import {
 import {
   summarizeAgentDepth,
   computeBlastRadius,
-  computeDiscoveryChanges
+  computeDiscoveryChanges,
+  computeAgentMesh,
+  computeAgentAnatomy
 } from "./services/agentDepth.js";
 import {
   entraEnabled,
@@ -718,17 +720,12 @@ app.get("/api/auth/me", auth, async (req, res) => {
 app.get("/api/agents", auth, async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 500);
   const offset = Number(req.query.offset) || 0;
+  const planeFilter = String(req.query.agentPlane || "").trim();
+  const laneFilter = String(req.query.environmentLane || "").trim();
+  const needsMeshFilter = Boolean(planeFilter || laneFilter);
   const { clauses, params } = agentFilters(req.query);
-  const result = await pool.query(
-    `SELECT * FROM agents WHERE tenant_id=$1 ${clauses}
-     ORDER BY last_seen DESC LIMIT $${params.length + 2} OFFSET $${params.length + 3}`,
-    [req.tenantId, ...params, limit, offset]
-  );
-  const count = await pool.query(
-    `SELECT COUNT(*)::int AS total FROM agents WHERE tenant_id=$1 ${clauses}`,
-    [req.tenantId, ...params]
-  );
-  const agents = result.rows.map((row) => {
+
+  const enrichAgent = (row) => {
     const depth = summarizeAgentDepth(row);
     const meta = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
     return {
@@ -758,11 +755,42 @@ app.get("/api/agents", auth, async (req, res) => {
         dataAccessConfidence:
           meta.dataAccessConfidence || depth.dataAccessClassification?.confidence || "low",
         hasPii: meta.hasPii ?? depth.dataAccessClassification?.hasPii ?? false,
-        hasPhi: meta.hasPhi ?? depth.dataAccessClassification?.hasPhi ?? false
+        hasPhi: meta.hasPhi ?? depth.dataAccessClassification?.hasPhi ?? false,
+        mesh: meta.mesh || depth.mesh,
+        agentPlane: meta.agentPlane || depth.mesh?.agentPlane || null,
+        environmentLane: meta.environmentLane || depth.mesh?.environmentLane || null,
+        meshConfidence: meta.meshConfidence || depth.mesh?.confidence || "low"
       },
       ...depth
     };
-  });
+  };
+
+  // Plane/lane may be inferred at read time before re-ingest, so filter in memory.
+  if (needsMeshFilter) {
+    const result = await pool.query(
+      `SELECT * FROM agents WHERE tenant_id=$1 ${clauses} ORDER BY last_seen DESC`,
+      [req.tenantId, ...params]
+    );
+    const filtered = result.rows.map(enrichAgent).filter((row) => {
+      const meta = row.metadata || {};
+      if (planeFilter && meta.agentPlane !== planeFilter) return false;
+      if (laneFilter && meta.environmentLane !== laneFilter) return false;
+      return true;
+    });
+    const agents = filtered.slice(offset, offset + limit);
+    return res.json({ agents, items: agents, total: filtered.length, limit, offset });
+  }
+
+  const result = await pool.query(
+    `SELECT * FROM agents WHERE tenant_id=$1 ${clauses}
+     ORDER BY last_seen DESC LIMIT $${params.length + 2} OFFSET $${params.length + 3}`,
+    [req.tenantId, ...params, limit, offset]
+  );
+  const count = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM agents WHERE tenant_id=$1 ${clauses}`,
+    [req.tenantId, ...params]
+  );
+  const agents = result.rows.map(enrichAgent);
   res.json({ agents, items: agents, total: count.rows[0].total, limit, offset });
 });
 
@@ -812,6 +840,16 @@ app.get("/api/agents/:id", auth, async (req, res) => {
   });
 });
 
+app.get("/api/agents/:id/anatomy", auth, async (req, res) => {
+  try {
+    const payload = await computeAgentAnatomy(pool, req.tenantId, req.params.id);
+    if (!payload) return res.status(404).json({ error: { message: "Agent not found" } });
+    res.json({ anatomy: payload, ...payload });
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Agent anatomy query failed") } });
+  }
+});
+
 app.get("/api/risk/paths", auth, async (req, res) => {
   try {
     const payload = await computeBlastRadius(pool, req.tenantId, {
@@ -834,6 +872,16 @@ app.get("/api/discovery/changes", auth, async (req, res) => {
     res.json(payload);
   } catch (err) {
     res.status(500).json({ error: { message: publicErrorMessage(err, "Discovery changes query failed") } });
+  }
+});
+
+app.get("/api/mesh", auth, async (req, res) => {
+  try {
+    const shadowOnly = req.query.shadow === "true" || req.query.shadowOnly === "true";
+    const payload = await computeAgentMesh(pool, req.tenantId, { shadowOnly });
+    res.json({ mesh: payload, ...payload });
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Agent mesh query failed") } });
   }
 });
 

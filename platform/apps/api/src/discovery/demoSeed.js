@@ -7,6 +7,22 @@ export function demoSeedEnabled() {
   return String(process.env.DISCOVERY_DEMO_SEED || "").toLowerCase() === "true";
 }
 
+/** Attach explicit Global Agent Mesh plane + lane labels (high confidence). */
+function withMesh(meta, agentPlane, environmentLane, environment) {
+  return {
+    ...meta,
+    ...(environment ? { environment } : {}),
+    agentPlane,
+    environmentLane,
+    meshConfidence: "high",
+    mesh: {
+      agentPlane,
+      environmentLane,
+      confidence: "high"
+    }
+  };
+}
+
 /**
  * @returns {Array<Record<string, unknown>>}
  */
@@ -41,31 +57,36 @@ export function buildDemoObservations() {
         { rel_type: "CONNECTS_MCP", to_type: "MCPServer", to_key: "mcp-filesystem", to_name: "filesystem" },
         { rel_type: "OWNS", to_type: "Developer", to_key: "alex.chen", to_name: "Alex Chen" }
       ],
-      metadata: {
-        aiRelevant: true,
-        inventoryClass: "ide_ai_agent",
-        evidenceClass: "ide_agent",
-        agentStatus: "confirmed",
-        demoSeed: true,
-        howIdentified: "Demo seed — Cursor + MCP",
-        hasInstructions: true,
-        agentConfig: {
-          tools: ["edit", "terminal", "search"],
-          mcpServers: ["filesystem", "github", "postgres"],
-          knowledgeSources: ["workspace"],
-          triggers: [],
-          memoryStores: [],
-          instructionsPresent: true,
-          instructionSource: "cursor_rules",
-          howConfigured: "Cursor MCP + rules"
+      metadata: withMesh(
+        {
+          aiRelevant: true,
+          inventoryClass: "ide_ai_agent",
+          evidenceClass: "ide_agent",
+          agentStatus: "confirmed",
+          demoSeed: true,
+          howIdentified: "Demo seed — Cursor + MCP",
+          hasInstructions: true,
+          agentConfig: {
+            tools: ["edit", "terminal", "search"],
+            mcpServers: ["filesystem", "github", "postgres"],
+            knowledgeSources: ["workspace"],
+            triggers: [],
+            memoryStores: [],
+            instructionsPresent: true,
+            instructionSource: "cursor_rules",
+            howConfigured: "Cursor MCP + rules"
+          },
+          agentAccess: {
+            scopes: { filesystem: true, github: true, internet: true, mcp: true, database: true },
+            identities: ["alex.chen@example.com"],
+            dataStores: ["postgres"],
+            connectedApps: ["Cursor", "GitHub"]
+          }
         },
-        agentAccess: {
-          scopes: { filesystem: true, github: true, internet: true, mcp: true, database: true },
-          identities: ["alex.chen@example.com"],
-          dataStores: ["postgres"],
-          connectedApps: ["Cursor", "GitHub"]
-        }
-      },
+        "endpoint",
+        "development",
+        "development"
+      ),
       last_seen: now
     },
     {
@@ -97,13 +118,18 @@ export function buildDemoObservations() {
         { rel_type: "DEPLOYED_IN", to_type: "CloudResource", to_key: "aws-eks", to_name: "EKS cluster" },
         { rel_type: "SOURCED_FROM", to_type: "Repository", to_key: "support-agent", to_name: "support-agent" }
       ],
-      metadata: {
-        aiRelevant: true,
-        inventoryClass: "framework_agent",
-        evidenceClass: "process_agent",
-        agentStatus: "confirmed",
-        demoSeed: true
-      },
+      metadata: withMesh(
+        {
+          aiRelevant: true,
+          inventoryClass: "framework_agent",
+          evidenceClass: "process_agent",
+          agentStatus: "confirmed",
+          demoSeed: true
+        },
+        "containerized",
+        "production",
+        "production"
+      ),
       last_seen: now
     },
     {
@@ -128,32 +154,36 @@ export function buildDemoObservations() {
         { rel_type: "INVOKES_MODEL", to_type: "Model", to_key: "gpt-4o-azure", to_name: "gpt-4o" },
         { rel_type: "DEPLOYED_IN", to_type: "CloudResource", to_key: "aoai-eastus", to_name: "Azure OpenAI" }
       ],
-      metadata: {
-        aiRelevant: true,
-        inventoryClass: "ai_cloud_resource",
-        evidenceClass: "cloud_ai_runtime",
-        agentStatus: "confirmed",
-        demoSeed: true,
-        managedCloudAgent: true,
-        howIdentified: "Demo seed — Azure OpenAI CRM assistant",
-        agentConfig: {
-          tools: ["lookup_customer", "draft_reply"],
-          knowledgeSources: ["CRM contacts", "customer tickets"],
-          authMode: "managed_identity",
-          platform: "azure_openai",
-          instructionsPresent: true,
-          howConfigured: "Azure OpenAI Assistants"
+      metadata: withMesh(
+        {
+          aiRelevant: true,
+          inventoryClass: "ai_cloud_resource",
+          evidenceClass: "cloud_ai_runtime",
+          agentStatus: "confirmed",
+          demoSeed: true,
+          managedCloudAgent: true,
+          howIdentified: "Demo seed — Azure OpenAI CRM assistant",
+          agentConfig: {
+            tools: ["lookup_customer", "draft_reply"],
+            knowledgeSources: ["CRM contacts", "customer tickets"],
+            authMode: "managed_identity",
+            platform: "azure_openai",
+            instructionsPresent: true,
+            howConfigured: "Azure OpenAI Assistants"
+          },
+          agentAccess: {
+            scopes: { internet: true, crm: true, email: true },
+            identities: ["crm-ops@example.com"],
+            dataStores: ["CRM contacts"],
+            connectedApps: ["Azure OpenAI", "CRM"],
+            permissions: ["Contacts.Read", "Mail.Read"]
+          },
+          dataClasses: ["pii"],
+          primaryDataClass: "pii"
         },
-        agentAccess: {
-          scopes: { internet: true, crm: true, email: true },
-          identities: ["crm-ops@example.com"],
-          dataStores: ["CRM contacts"],
-          connectedApps: ["Azure OpenAI", "CRM"],
-          permissions: ["Contacts.Read", "Mail.Read"]
-        },
-        dataClasses: ["pii"],
-        primaryDataClass: "pii"
-      },
+        "saas_third_party",
+        "saas"
+      ),
       last_seen: now
     },
     {
@@ -173,13 +203,18 @@ export function buildDemoObservations() {
         { rel_type: "EXPOSES_TOOL", to_type: "Tool", to_key: "list_issues", to_name: "list_issues" },
         { rel_type: "ACCESSES", to_type: "ExternalService", to_key: "github", to_name: "GitHub" }
       ],
-      metadata: {
-        aiRelevant: true,
-        inventoryClass: "mcp_server",
-        evidenceClass: "ide_agent",
-        agentStatus: "confirmed",
-        demoSeed: true
-      },
+      metadata: withMesh(
+        {
+          aiRelevant: true,
+          inventoryClass: "mcp_server",
+          evidenceClass: "ide_agent",
+          agentStatus: "confirmed",
+          demoSeed: true
+        },
+        "containerized",
+        "development",
+        "development"
+      ),
       last_seen: now
     },
     {
@@ -202,14 +237,18 @@ export function buildDemoObservations() {
         { rel_type: "RUNS_ON", to_type: "Device", to_key: "dev-desktop-07", to_name: "dev-desktop-07" },
         { rel_type: "INVOKES_MODEL", to_type: "Model", to_key: "llama3", to_name: "llama3" }
       ],
-      metadata: {
-        aiRelevant: true,
-        inventoryClass: "process_ai_agent",
-        evidenceClass: "process_agent",
-        agentStatus: "confirmed",
-        demoSeed: true,
-        shadowAi: true
-      },
+      metadata: withMesh(
+        {
+          aiRelevant: true,
+          inventoryClass: "process_ai_agent",
+          evidenceClass: "process_agent",
+          agentStatus: "confirmed",
+          demoSeed: true,
+          shadowAi: true
+        },
+        "endpoint",
+        "endpoints"
+      ),
       risk_indicators: ["shadow", "unmanaged", "ownerless"],
       last_seen: now
     },
@@ -235,54 +274,58 @@ export function buildDemoObservations() {
         { rel_type: "OWNS", to_type: "Developer", to_key: "it-admin", to_name: "it-admin@example.com" },
         { rel_type: "USES_IDENTITY", to_type: "ServicePrincipal", to_key: "copilot-sp", to_name: "Copilot-ServicePrincipal" }
       ],
-      metadata: {
-        aiRelevant: true,
-        inventoryClass: "saas_platform_agent",
-        evidenceClass: "platform_agent",
-        agentStatus: "confirmed",
-        demoSeed: true,
-        hasInstructions: true,
-        howIdentified: "Demo seed — M365 Copilot",
-        agentConfig: {
-          tools: ["draft_email", "summarize", "search_files"],
-          knowledgeSources: ["SharePoint", "OneDrive", "Outlook"],
-          triggers: ["user_prompt"],
-          channels: ["Teams", "Outlook", "Word"],
-          authMode: "entra_sso",
-          platform: "m365_copilot",
-          instructionsPresent: true,
-          instructionSource: "copilot_studio",
-          howConfigured: "M365 Copilot tenant config"
-        },
-        agentAccess: {
-          scopes: { email: true, sharepoint: true, internet: true, identity: true, calendar: true },
-          identities: ["it-admin@example.com", "Copilot-ServicePrincipal"],
-          dataStores: ["SharePoint", "OneDrive"],
-          connectedApps: ["Microsoft 365"],
-          permissions: ["Mail.Read", "Files.Read.All", "Sites.Read.All", "User.Read", "Calendars.Read"]
-        },
-        dataClasses: ["pii"],
-        primaryDataClass: "pii",
-        dataAccessClassification: {
+      metadata: withMesh(
+        {
+          aiRelevant: true,
+          inventoryClass: "saas_platform_agent",
+          evidenceClass: "platform_agent",
+          agentStatus: "confirmed",
+          demoSeed: true,
+          hasInstructions: true,
+          howIdentified: "Demo seed — M365 Copilot",
+          agentConfig: {
+            tools: ["draft_email", "summarize", "search_files"],
+            knowledgeSources: ["SharePoint", "OneDrive", "Outlook"],
+            triggers: ["user_prompt"],
+            channels: ["Teams", "Outlook", "Word"],
+            authMode: "entra_sso",
+            platform: "m365_copilot",
+            instructionsPresent: true,
+            instructionSource: "copilot_studio",
+            howConfigured: "M365 Copilot tenant config"
+          },
+          agentAccess: {
+            scopes: { email: true, sharepoint: true, internet: true, identity: true, calendar: true },
+            identities: ["it-admin@example.com", "Copilot-ServicePrincipal"],
+            dataStores: ["SharePoint", "OneDrive"],
+            connectedApps: ["Microsoft 365"],
+            permissions: ["Mail.Read", "Files.Read.All", "Sites.Read.All", "User.Read", "Calendars.Read"]
+          },
           dataClasses: ["pii"],
           primaryDataClass: "pii",
-          confidence: "high",
-          evidence: [
-            { source: "entitlement", signal: "Mail.Read", detail: "PII-related entitlement: Mail.Read" },
-            { source: "knowledge", signal: "SharePoint", detail: "Knowledge/data store suggests PII: SharePoint" }
-          ]
-        },
-        ownership: {
-          owner: "it-admin@example.com",
-          identities: ["it-admin@example.com", "Copilot-ServicePrincipal"],
-          identityProvider: "entra",
+          dataAccessClassification: {
+            dataClasses: ["pii"],
+            primaryDataClass: "pii",
+            confidence: "high",
+            evidence: [
+              { source: "entitlement", signal: "Mail.Read", detail: "PII-related entitlement: Mail.Read" },
+              { source: "knowledge", signal: "SharePoint", detail: "Knowledge/data store suggests PII: SharePoint" }
+            ]
+          },
+          ownership: {
+            owner: "it-admin@example.com",
+            identities: ["it-admin@example.com", "Copilot-ServicePrincipal"],
+            identityProvider: "entra",
+            ownershipStatus: "owned",
+            team: "IT"
+          },
           ownershipStatus: "owned",
-          team: "IT"
+          authMode: "entra_sso",
+          channels: ["Teams", "Outlook", "Word"]
         },
-        ownershipStatus: "owned",
-        authMode: "entra_sso",
-        channels: ["Teams", "Outlook", "Word"]
-      },
+        "saas_third_party",
+        "saas"
+      ),
       last_seen: now
     },
     {
@@ -304,35 +347,39 @@ export function buildDemoObservations() {
         { rel_type: "PROVIDED_BY", to_type: "Provider", to_key: "openai", to_name: "OpenAI" },
         { rel_type: "OWNS", to_type: "Developer", to_key: "marketing", to_name: "marketing@example.com" }
       ],
-      metadata: {
-        aiRelevant: true,
-        inventoryClass: "saas_browser_agent",
-        evidenceClass: "platform_agent",
-        agentStatus: "candidate",
-        demoSeed: true,
-        howIdentified: "Demo seed — ChatGPT Enterprise",
-        agentConfig: {
-          tools: ["browse", "analyze", "generate"],
-          knowledgeSources: ["uploaded_files"],
-          channels: ["web"],
-          authMode: "workspace_sso",
-          platform: "openai",
-          instructionsPresent: false,
-          howConfigured: "ChatGPT Enterprise workspace"
+      metadata: withMesh(
+        {
+          aiRelevant: true,
+          inventoryClass: "saas_browser_agent",
+          evidenceClass: "platform_agent",
+          agentStatus: "candidate",
+          demoSeed: true,
+          howIdentified: "Demo seed — ChatGPT Enterprise",
+          agentConfig: {
+            tools: ["browse", "analyze", "generate"],
+            knowledgeSources: ["uploaded_files"],
+            channels: ["web"],
+            authMode: "workspace_sso",
+            platform: "openai",
+            instructionsPresent: false,
+            howConfigured: "ChatGPT Enterprise workspace"
+          },
+          agentAccess: {
+            scopes: { internet: true, identity: true },
+            identities: ["marketing@example.com"],
+            connectedApps: ["ChatGPT Enterprise"]
+          },
+          ownership: {
+            owner: "marketing@example.com",
+            ownershipStatus: "owned",
+            identityProvider: "openai",
+            team: "Marketing"
+          },
+          ownershipStatus: "owned"
         },
-        agentAccess: {
-          scopes: { internet: true, identity: true },
-          identities: ["marketing@example.com"],
-          connectedApps: ["ChatGPT Enterprise"]
-        },
-        ownership: {
-          owner: "marketing@example.com",
-          ownershipStatus: "owned",
-          identityProvider: "openai",
-          team: "Marketing"
-        },
-        ownershipStatus: "owned"
-      },
+        "saas_third_party",
+        "saas"
+      ),
       last_seen: now
     },
     {
@@ -353,31 +400,35 @@ export function buildDemoObservations() {
         { rel_type: "ACCESSES", to_type: "ExternalService", to_key: "slack", to_name: "Slack" },
         { rel_type: "INVOKES_MODEL", to_type: "Model", to_key: "gpt-4o-mini", to_name: "gpt-4o-mini" }
       ],
-      metadata: {
-        aiRelevant: true,
-        inventoryClass: "saas_platform_agent",
-        evidenceClass: "platform_agent",
-        agentStatus: "candidate",
-        demoSeed: true,
-        shadowAi: true,
-        howIdentified: "Demo seed — stale unsanctioned Slack bot",
-        agentConfig: {
-          tools: ["post_message", "read_channel"],
-          channels: ["#sales-autopilot"],
-          authMode: "bot_token",
-          platform: "slack",
-          instructionsPresent: true,
-          instructionSource: "bot_manifest",
-          howConfigured: "Unofficial Slack bot"
+      metadata: withMesh(
+        {
+          aiRelevant: true,
+          inventoryClass: "saas_platform_agent",
+          evidenceClass: "platform_agent",
+          agentStatus: "candidate",
+          demoSeed: true,
+          shadowAi: true,
+          howIdentified: "Demo seed — stale unsanctioned Slack bot",
+          agentConfig: {
+            tools: ["post_message", "read_channel"],
+            channels: ["#sales-autopilot"],
+            authMode: "bot_token",
+            platform: "slack",
+            instructionsPresent: true,
+            instructionSource: "bot_manifest",
+            howConfigured: "Unofficial Slack bot"
+          },
+          agentAccess: {
+            scopes: { internet: true, slack: true },
+            identities: [],
+            connectedApps: ["Slack"]
+          },
+          ownership: { owner: null, ownershipStatus: "ownerless", team: "Sales" },
+          ownershipStatus: "ownerless"
         },
-        agentAccess: {
-          scopes: { internet: true, slack: true },
-          identities: [],
-          connectedApps: ["Slack"]
-        },
-        ownership: { owner: null, ownershipStatus: "ownerless", team: "Sales" },
-        ownershipStatus: "ownerless"
-      },
+        "saas_third_party",
+        "saas"
+      ),
       // Stale last_seen so Change Intelligence marks it disappeared in a 7-day window
       last_seen: new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString(),
       first_discovered: new Date(Date.now() - 40 * 24 * 3600 * 1000).toISOString()
@@ -404,44 +455,49 @@ export function buildDemoObservations() {
         { rel_type: "DEPLOYED_IN", to_type: "CloudResource", to_key: "bedrock-usw2", to_name: "Amazon Bedrock" },
         { rel_type: "ACCESSES", to_type: "Database", to_key: "claims-ehr", to_name: "Claims EHR store" }
       ],
-      metadata: {
-        aiRelevant: true,
-        inventoryClass: "ai_cloud_resource",
-        evidenceClass: "cloud_ai_runtime",
-        agentStatus: "confirmed",
-        demoSeed: true,
-        managedCloudAgent: true,
-        howIdentified: "Demo seed — Bedrock claims / PHI",
-        hasInstructions: true,
-        agentConfig: {
-          tools: ["lookup_claim", "read_clinical_note", "summarize_encounter"],
-          knowledgeSources: ["patient-claims-db", "clinical-notes-ehr", "FHIR Patient API"],
-          triggers: ["claim_submitted"],
-          authMode: "iam_role",
-          platform: "bedrock",
-          instructionsPresent: true,
-          instructionSource: "bedrock_agent_instruction",
-          howConfigured: "Bedrock Agents + EHR connector"
-        },
-        agentAccess: {
-          scopes: { database: true, internet: true, phi: true, ehr: true },
-          identities: ["claims-eng@example.com"],
-          dataStores: ["patient-claims-db", "clinical-notes-ehr"],
-          connectedApps: ["Amazon Bedrock", "EHR"],
-          permissions: ["FHIR.Patient.Read", "EHR.Clinical.Read", "Claims.Read"]
-        },
-        dataClasses: ["phi", "pii"],
-        primaryDataClass: "phi",
-        dataAccessClassification: {
+      metadata: withMesh(
+        {
+          aiRelevant: true,
+          inventoryClass: "ai_cloud_resource",
+          evidenceClass: "cloud_ai_runtime",
+          agentStatus: "confirmed",
+          demoSeed: true,
+          managedCloudAgent: true,
+          howIdentified: "Demo seed — Bedrock claims / PHI",
+          hasInstructions: true,
+          agentConfig: {
+            tools: ["lookup_claim", "read_clinical_note", "summarize_encounter"],
+            knowledgeSources: ["patient-claims-db", "clinical-notes-ehr", "FHIR Patient API"],
+            triggers: ["claim_submitted"],
+            authMode: "iam_role",
+            platform: "bedrock",
+            instructionsPresent: true,
+            instructionSource: "bedrock_agent_instruction",
+            howConfigured: "Bedrock Agents + EHR connector"
+          },
+          agentAccess: {
+            scopes: { database: true, internet: true, phi: true, ehr: true },
+            identities: ["claims-eng@example.com"],
+            dataStores: ["patient-claims-db", "clinical-notes-ehr"],
+            connectedApps: ["Amazon Bedrock", "EHR"],
+            permissions: ["FHIR.Patient.Read", "EHR.Clinical.Read", "Claims.Read"]
+          },
           dataClasses: ["phi", "pii"],
           primaryDataClass: "phi",
-          confidence: "high",
-          evidence: [
-            { source: "entitlement", signal: "FHIR.Patient.Read", detail: "PHI-related entitlement: FHIR.Patient.Read" },
-            { source: "knowledge", signal: "clinical-notes-ehr", detail: "Knowledge/data store suggests PHI: clinical-notes-ehr" }
-          ]
-        }
-      },
+          dataAccessClassification: {
+            dataClasses: ["phi", "pii"],
+            primaryDataClass: "phi",
+            confidence: "high",
+            evidence: [
+              { source: "entitlement", signal: "FHIR.Patient.Read", detail: "PHI-related entitlement: FHIR.Patient.Read" },
+              { source: "knowledge", signal: "clinical-notes-ehr", detail: "Knowledge/data store suggests PHI: clinical-notes-ehr" }
+            ]
+          }
+        },
+        "serverless",
+        "production",
+        "production"
+      ),
       last_seen: now
     },
     {
@@ -464,49 +520,53 @@ export function buildDemoObservations() {
         { rel_type: "INVOKES_MODEL", to_type: "Model", to_key: "gpt-4o", to_name: "gpt-4o" },
         { rel_type: "OWNS", to_type: "Developer", to_key: "hr-ops", to_name: "hr-ops@example.com" }
       ],
-      metadata: {
-        aiRelevant: true,
-        inventoryClass: "saas_platform_agent",
-        evidenceClass: "platform_agent",
-        agentStatus: "confirmed",
-        demoSeed: true,
-        howIdentified: "Demo seed — Workday HR / PII",
-        hasInstructions: true,
-        agentConfig: {
-          tools: ["lookup_worker", "update_time_off", "answer_policy"],
-          knowledgeSources: ["HR employee directory", "payroll summaries", "benefits handbook"],
-          channels: ["Workday", "email"],
-          authMode: "oauth",
-          platform: "workday",
-          instructionsPresent: true,
-          howConfigured: "Workday AI assistant"
-        },
-        agentAccess: {
-          scopes: { email: true, crm: true, identity: true, internet: true },
-          identities: ["hr-ops@example.com"],
-          dataStores: ["HR employee directory", "payroll summaries"],
-          connectedApps: ["Workday"],
-          permissions: ["Worker.Read", "Directory.Read", "Payroll.Read"]
-        },
-        dataClasses: ["pii", "financial"],
-        primaryDataClass: "pii",
-        dataAccessClassification: {
+      metadata: withMesh(
+        {
+          aiRelevant: true,
+          inventoryClass: "saas_platform_agent",
+          evidenceClass: "platform_agent",
+          agentStatus: "confirmed",
+          demoSeed: true,
+          howIdentified: "Demo seed — Workday HR / PII",
+          hasInstructions: true,
+          agentConfig: {
+            tools: ["lookup_worker", "update_time_off", "answer_policy"],
+            knowledgeSources: ["HR employee directory", "payroll summaries", "benefits handbook"],
+            channels: ["Workday", "email"],
+            authMode: "oauth",
+            platform: "workday",
+            instructionsPresent: true,
+            howConfigured: "Workday AI assistant"
+          },
+          agentAccess: {
+            scopes: { email: true, crm: true, identity: true, internet: true },
+            identities: ["hr-ops@example.com"],
+            dataStores: ["HR employee directory", "payroll summaries"],
+            connectedApps: ["Workday"],
+            permissions: ["Worker.Read", "Directory.Read", "Payroll.Read"]
+          },
           dataClasses: ["pii", "financial"],
           primaryDataClass: "pii",
-          confidence: "high",
-          evidence: [
-            { source: "knowledge", signal: "HR employee directory", detail: "Knowledge/data store suggests PII: HR employee directory" },
-            { source: "entitlement", signal: "Payroll.Read", detail: "Financial entitlement: Payroll.Read" }
-          ]
+          dataAccessClassification: {
+            dataClasses: ["pii", "financial"],
+            primaryDataClass: "pii",
+            confidence: "high",
+            evidence: [
+              { source: "knowledge", signal: "HR employee directory", detail: "Knowledge/data store suggests PII: HR employee directory" },
+              { source: "entitlement", signal: "Payroll.Read", detail: "Financial entitlement: Payroll.Read" }
+            ]
+          },
+          ownership: {
+            owner: "hr-ops@example.com",
+            ownershipStatus: "owned",
+            identityProvider: "workday",
+            team: "Human Resources"
+          },
+          ownershipStatus: "owned"
         },
-        ownership: {
-          owner: "hr-ops@example.com",
-          ownershipStatus: "owned",
-          identityProvider: "workday",
-          team: "Human Resources"
-        },
-        ownershipStatus: "owned"
-      },
+        "saas_third_party",
+        "saas"
+      ),
       last_seen: now
     },
     {
@@ -524,14 +584,19 @@ export function buildDemoObservations() {
       relationships: [
         { rel_type: "SOURCED_FROM", to_type: "Repository", to_key: "agents-playbook", to_name: "agents-playbook" }
       ],
-      metadata: {
-        aiRelevant: true,
-        inventoryClass: "repo_candidate",
-        evidenceClass: "repo_candidate",
-        agentStatus: "candidate",
-        demoSeed: true,
-        agentMarkers: ["AGENTS.md", ".github/copilot-instructions.md"]
-      },
+      metadata: withMesh(
+        {
+          aiRelevant: true,
+          inventoryClass: "repo_candidate",
+          evidenceClass: "repo_candidate",
+          agentStatus: "candidate",
+          demoSeed: true,
+          agentMarkers: ["AGENTS.md", ".github/copilot-instructions.md"]
+        },
+        "endpoint",
+        "development",
+        "development"
+      ),
       risk_indicators: ["unmanaged"],
       last_seen: now
     },
@@ -547,6 +612,8 @@ export function buildDemoObservations() {
       provider: "openai",
       programming_language: "Python",
       repository: "github.com/example/research-swarm",
+      deployment_type: "container",
+      container: "research-swarm:0.9.1",
       running_status: "scheduled",
       confidence_score: 0.84,
       tools: ["web_search", "summarize", "cite"],
@@ -555,13 +622,18 @@ export function buildDemoObservations() {
         { rel_type: "INVOKES_MODEL", to_type: "Model", to_key: "gpt-4o-mini", to_name: "gpt-4o-mini" },
         { rel_type: "USES_TOOL", to_type: "Tool", to_key: "web_search", to_name: "web_search" }
       ],
-      metadata: {
-        aiRelevant: true,
-        inventoryClass: "framework_agent",
-        evidenceClass: "process_agent",
-        agentStatus: "confirmed",
-        demoSeed: true
-      },
+      metadata: withMesh(
+        {
+          aiRelevant: true,
+          inventoryClass: "framework_agent",
+          evidenceClass: "process_agent",
+          agentStatus: "confirmed",
+          demoSeed: true
+        },
+        "containerized",
+        "staging",
+        "staging"
+      ),
       last_seen: now
     }
   ];

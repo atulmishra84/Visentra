@@ -40,6 +40,22 @@ function uniqueMetaOptions(rows: Agent[], key: string): string[] {
   return [...values].sort((left, right) => left.localeCompare(right));
 }
 
+const MESH_LABELS: Record<string, string> = {
+  containerized: "Containerized",
+  serverless: "Serverless",
+  saas_third_party: "SaaS",
+  endpoint: "Endpoint",
+  development: "Dev",
+  staging: "Staging",
+  production: "Prod",
+  saas: "SaaS",
+  endpoints: "Endpoints"
+};
+
+function meshLabel(value: string): string {
+  return MESH_LABELS[value] || value;
+}
+
 function categoryBadge(category: string) {
   const c = category.toLowerCase();
   if (c === "cloud") return "cloud";
@@ -67,7 +83,9 @@ function facetsFromSearchParams(params: URLSearchParams): Facets {
     "overPermissioned",
     "hasInstructions",
     "dataClass",
-    "primaryDataClass"
+    "primaryDataClass",
+    "agentPlane",
+    "environmentLane"
   ];
   const next: Facets = {};
   for (const key of keys) {
@@ -160,6 +178,21 @@ export function InventoryPage({ title }: { title: string }) {
       evidenceClass: uniqueMetaOptions(agents, "evidenceClass"),
       agentStatus: uniqueMetaOptions(agents, "agentStatus"),
       accessSensitivity: uniqueMetaOptions(agents, "accessSensitivity"),
+      agentPlane: [
+        "containerized",
+        "serverless",
+        "saas_third_party",
+        "endpoint",
+        ...uniqueMetaOptions(agents, "agentPlane")
+      ].filter((v, i, arr) => arr.indexOf(v) === i),
+      environmentLane: [
+        "development",
+        "staging",
+        "production",
+        "saas",
+        "endpoints",
+        ...uniqueMetaOptions(agents, "environmentLane")
+      ].filter((v, i, arr) => arr.indexOf(v) === i),
       dataClass: (() => {
         const values = new Set<string>(["pii", "phi", "secrets", "financial", "none"]);
         agents.forEach((row) => {
@@ -266,6 +299,20 @@ export function InventoryPage({ title }: { title: string }) {
         );
       },
       sortValue: (agent) => metaAt(agent, "primaryDataClass")
+    },
+    {
+      key: "mesh",
+      header: "Mesh",
+      render: (agent) => {
+        const plane = metaAt(agent, "agentPlane", "—");
+        const lane = metaAt(agent, "environmentLane", "—");
+        return (
+          <span className="badge">
+            {meshLabel(plane)} · {meshLabel(lane)}
+          </span>
+        );
+      },
+      sortValue: (agent) => `${metaAt(agent, "agentPlane")}:${metaAt(agent, "environmentLane")}`
     },
     {
       key: "how",

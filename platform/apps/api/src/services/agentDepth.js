@@ -511,6 +511,229 @@ export function buildAgentAccess(obs = {}) {
   };
 }
 
+export const AGENT_PLANES = ["containerized", "serverless", "saas_third_party", "endpoint"];
+export const ENVIRONMENT_LANES = ["development", "staging", "production", "saas", "endpoints"];
+
+const PLANE_LABELS = {
+  containerized: "Containerized",
+  serverless: "Serverless",
+  saas_third_party: "SaaS & third-party",
+  endpoint: "Endpoint"
+};
+
+const LANE_LABELS = {
+  development: "Development",
+  staging: "Staging",
+  production: "Production",
+  saas: "SaaS",
+  endpoints: "Endpoints"
+};
+
+function textBlob(obs = {}, meta = {}) {
+  return [
+    obs.name,
+    obs.category,
+    obs.deployment_type,
+    obs.framework,
+    obs.provider,
+    obs.cloud_provider,
+    obs.container,
+    obs.hostname,
+    obs.ide,
+    meta.environment,
+    meta.env,
+    meta.stage,
+    meta.inventoryClass,
+    meta.platform,
+    meta.platformLabel,
+    ...(asList(meta.tags) || [])
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+/**
+ * Normalize deployment plane + environment lane for Global Agent Mesh.
+ * Shadow AI is an overlay, not a plane.
+ */
+export function buildAgentMeshPlacement(obs = {}) {
+  const meta = obs.metadata && typeof obs.metadata === "object" ? obs.metadata : {};
+  const existing = meta.mesh && typeof meta.mesh === "object" ? meta.mesh : {};
+  const blob = textBlob(obs, meta);
+  const category = String(obs.category || meta.inventoryClass || "").toLowerCase();
+  const deployment = String(obs.deployment_type || meta.deploymentType || "").toLowerCase();
+
+  let agentPlane =
+    existing.agentPlane ||
+    meta.agentPlane ||
+    null;
+
+  if (!agentPlane) {
+    if (
+      /saas|browser/.test(category) ||
+      deployment === "saas" ||
+      /m365|copilot|salesforce|workday|servicenow|slack|chatgpt|openai enterprise/.test(blob)
+    ) {
+      agentPlane = "saas_third_party";
+    } else if (
+      /ide|local_llm|browser/.test(category) ||
+      /ide|local|desktop/.test(deployment) ||
+      Boolean(obs.ide) ||
+      /cursor|ollama|laptop|endpoint|edr/.test(blob)
+    ) {
+      agentPlane = "endpoint";
+    } else if (
+      /serverless|function|lambda|cloud.run|bedrock agent/.test(blob) ||
+      deployment === "serverless"
+    ) {
+      agentPlane = "serverless";
+    } else if (
+      /container|k8s|kubernetes|eks|aks|gke|pod|docker/.test(blob) ||
+      deployment === "container" ||
+      Boolean(obs.container) ||
+      category === "cloud" ||
+      category === "framework" ||
+      category === "autonomous" ||
+      category === "mcp"
+    ) {
+      agentPlane = "containerized";
+    } else {
+      agentPlane = "endpoint";
+    }
+  }
+
+  if (!AGENT_PLANES.includes(agentPlane)) agentPlane = "endpoint";
+
+  let environmentLane = existing.environmentLane || meta.environmentLane || null;
+  const envHint = String(meta.environment || meta.env || meta.stage || obs.environment || "").toLowerCase();
+
+  if (!environmentLane) {
+    if (/stag|uat|preprod|pre-prod|qa/.test(envHint) || /stag|uat|preprod/.test(blob)) {
+      environmentLane = "staging";
+    } else if (/dev|develop|sandbox|test/.test(envHint) || (/dev|sandbox/.test(blob) && !/prod/.test(envHint))) {
+      environmentLane = "development";
+    } else if (agentPlane === "saas_third_party") {
+      environmentLane = "saas";
+    } else if (agentPlane === "endpoint") {
+      // IDE/local workspace → development; device edge → endpoints
+      environmentLane = /ide|cursor|workspace|repo_candidate|agents\.md/.test(blob) || category === "ide"
+        ? "development"
+        : "endpoints";
+    } else if (/prod|production|live/.test(envHint) || /prod|production/.test(blob)) {
+      environmentLane = "production";
+    } else if (category === "cloud" || category === "framework" || category === "autonomous" || category === "mcp") {
+      environmentLane = "production";
+    } else {
+      environmentLane = "production";
+    }
+  }
+
+  if (!ENVIRONMENT_LANES.includes(environmentLane)) environmentLane = "production";
+
+  const confidence =
+    existing.confidence ||
+    meta.meshConfidence ||
+    (meta.agentPlane && meta.environmentLane ? "high" : envHint ? "medium" : "low");
+
+  return {
+    agentPlane,
+    environmentLane,
+    planeLabel: PLANE_LABELS[agentPlane] || agentPlane,
+    laneLabel: LANE_LABELS[environmentLane] || environmentLane,
+    confidence,
+    shadowOverlay: Boolean(
+      meta.shadowAi === true ||
+        (Array.isArray(obs.risk_indicators) &&
+          obs.risk_indicators.some((x) => /shadow|unmanaged/i.test(String(x))))
+    )
+  };
+}
+
+/**
+ * Aggregate Global Agent Mesh matrix for a tenant.
+ */
+export async function computeAgentMesh(pool, tenantId, { shadowOnly = false } = {}) {
+  const result = await pool.query(`SELECT * FROM agents WHERE tenant_id=$1`, [tenantId]);
+  const planes = AGENT_PLANES.map((id) => ({ id, label: PLANE_LABELS[id] }));
+  const lanes = ENVIRONMENT_LANES.map((id) => ({ id, label: LANE_LABELS[id] }));
+  const cells = {};
+  for (const p of AGENT_PLANES) {
+    cells[p] = {};
+    for (const l of ENVIRONMENT_LANES) {
+      cells[p][l] = { count: 0, shadowCount: 0, piiCount: 0, phiCount: 0, agents: [] };
+    }
+  }
+
+  let total = 0;
+  let shadowTotal = 0;
+  const planeTotals = Object.fromEntries(AGENT_PLANES.map((p) => [p, 0]));
+  const laneTotals = Object.fromEntries(ENVIRONMENT_LANES.map((l) => [l, 0]));
+
+  for (const row of result.rows) {
+    const depth = summarizeAgentDepth(row);
+    const mesh = depth.mesh || buildAgentMeshPlacement({ ...row, metadata: row.metadata || {} });
+    const meta = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+    const isShadow =
+      mesh.shadowOverlay ||
+      meta.shadowAi === true ||
+      (Array.isArray(row.risk_indicators) &&
+        row.risk_indicators.some((x) => /shadow|unmanaged/i.test(String(x))));
+    if (shadowOnly && !isShadow) continue;
+
+    const plane = AGENT_PLANES.includes(mesh.agentPlane) ? mesh.agentPlane : "endpoint";
+    const lane = ENVIRONMENT_LANES.includes(mesh.environmentLane) ? mesh.environmentLane : "production";
+    const cell = cells[plane][lane];
+    cell.count += 1;
+    if (isShadow) {
+      cell.shadowCount += 1;
+      shadowTotal += 1;
+    }
+    const dac = depth.dataAccessClassification || {};
+    if (dac.hasPii || meta.hasPii) cell.piiCount += 1;
+    if (dac.hasPhi || meta.hasPhi) cell.phiCount += 1;
+    if (cell.agents.length < 8) {
+      cell.agents.push({
+        id: row.id,
+        name: row.name,
+        owner: row.owner,
+        category: row.category,
+        shadow: isShadow,
+        primaryDataClass: meta.primaryDataClass || dac.primaryDataClass || "none",
+        href: `/agents/${row.id}`
+      });
+    }
+    total += 1;
+    planeTotals[plane] += 1;
+    laneTotals[lane] += 1;
+  }
+
+  const matrix = planes.map((plane) => ({
+    plane: plane.id,
+    label: plane.label,
+    cells: lanes.map((lane) => ({
+      lane: lane.id,
+      label: lane.label,
+      ...cells[plane.id][lane.id],
+      href: `/inventory?agentPlane=${plane.id}&environmentLane=${lane.id}${shadowOnly ? "&shadow=true" : ""}`
+    }))
+  }));
+
+  return {
+    planes,
+    lanes,
+    matrix,
+    totals: {
+      agents: total,
+      shadow: shadowTotal,
+      byPlane: planeTotals,
+      byLane: laneTotals
+    },
+    shadowOnly: Boolean(shadowOnly),
+    generatedAt: new Date().toISOString()
+  };
+}
+
 /**
  * Enrich observation with normalized agentConfig + agentAccess before ingest.
  */
@@ -519,6 +742,7 @@ export function enrichObservationWithDepth(obs) {
   const agentAccess = buildAgentAccess(obs);
   const ownership = buildOwnership(obs);
   const dataAccessClassification = buildDataAccessClassification(obs, agentAccess, agentConfig);
+  const mesh = buildAgentMeshPlacement(obs);
   const howIdentified =
     (obs.metadata && obs.metadata.howIdentified) ||
     agentConfig.howConfigured ||
@@ -532,6 +756,7 @@ export function enrichObservationWithDepth(obs) {
       agentAccess,
       ownership,
       dataAccessClassification,
+      mesh,
       howIdentified,
       accessGrantCount: agentAccess.grantCount,
       accessSensitivity: agentAccess.sensitivity,
@@ -547,7 +772,10 @@ export function enrichObservationWithDepth(obs) {
       dataClasses: dataAccessClassification.dataClasses,
       dataAccessConfidence: dataAccessClassification.confidence,
       hasPii: dataAccessClassification.hasPii,
-      hasPhi: dataAccessClassification.hasPhi
+      hasPhi: dataAccessClassification.hasPhi,
+      agentPlane: mesh.agentPlane,
+      environmentLane: mesh.environmentLane,
+      meshConfidence: mesh.confidence
     }
   };
 }
@@ -563,11 +791,22 @@ export function summarizeAgentDepth(agent) {
   const dataAccessClassification =
     meta.dataAccessClassification ||
     buildDataAccessClassification({ ...agent, metadata: meta }, agentAccess, agentConfig);
+  const mesh =
+    meta.mesh ||
+    buildAgentMeshPlacement({
+      ...agent,
+      metadata: {
+        ...meta,
+        agentPlane: meta.agentPlane,
+        environmentLane: meta.environmentLane
+      }
+    });
   return {
     agentConfig,
     agentAccess,
     ownership,
     dataAccessClassification,
+    mesh,
     howIdentified: meta.howIdentified || null,
     evidenceClass: meta.evidenceClass || null,
     agentStatus: meta.agentStatus || null,
@@ -685,6 +924,254 @@ function riskHintForTarget(assetType, relType, access) {
   if (/Identity|Developer/i.test(t)) return "identity";
   if (access?.scopes?.secrets) return "secrets_adjacent";
   return relType ? String(relType).toLowerCase() : "related";
+}
+
+function anatomyNode(id, label, kind, detail = null, href = null) {
+  return {
+    id: String(id),
+    label: String(label || id),
+    kind: String(kind || "item"),
+    detail: detail ? String(detail) : null,
+    href: href || null
+  };
+}
+
+function dedupeAnatomyNodes(nodes) {
+  const seen = new Set();
+  const out = [];
+  for (const node of nodes) {
+    const key = String(node.label || node.id)
+      .toLowerCase()
+      .trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(node);
+  }
+  return out;
+}
+
+function inferModelProvider(model, provider) {
+  const blob = `${model || ""} ${provider || ""}`.toLowerCase();
+  if (/azure/.test(blob)) return "azure";
+  if (/anthropic|claude/.test(blob)) return "anthropic";
+  if (/openai|gpt|chatgpt/.test(blob)) return "openai";
+  if (/gemini|google/.test(blob)) return "google";
+  if (/bedrock|amazon|aws/.test(blob)) return "aws";
+  if (/ollama|llama|mistral/.test(blob)) return "local";
+  if (/copilot|microsoft/.test(blob)) return "microsoft";
+  if (provider) return String(provider).toLowerCase();
+  return "llm";
+}
+
+/**
+ * Build agent relationship anatomy: center agent+LLM with satellite groups
+ * (users/inputs, channels, actions, data) plus inherent risk profiling.
+ */
+export function buildAgentAnatomy(agent, relationships = [], blast = null) {
+  const depth = summarizeAgentDepth(agent);
+  const meta = agent.metadata && typeof agent.metadata === "object" ? agent.metadata : {};
+  const config = depth.agentConfig || {};
+  const access = depth.agentAccess || {};
+  const ownership = depth.ownership || {};
+  const dac = depth.dataAccessClassification || {};
+  const shadow =
+    meta.shadowAi === true ||
+    (Array.isArray(agent.risk_indicators) &&
+      agent.risk_indicators.some((x) => /shadow|unmanaged/i.test(String(x))));
+
+  const modelName =
+    (Array.isArray(config.models) && config.models[0]) ||
+    agent.model ||
+    meta.model ||
+    null;
+  const provider = agent.provider || meta.provider || null;
+  const modelProvider = inferModelProvider(modelName, provider);
+
+  const usersInputs = [];
+  if (agent.owner) {
+    usersInputs.push(anatomyNode(`owner:${agent.owner}`, agent.owner, "owner", "Owner"));
+  }
+  for (const id of asList(ownership.identities).concat(asList(access.identities))) {
+    usersInputs.push(anatomyNode(`identity:${id}`, id, "identity", "Identity / principal"));
+  }
+  for (const trigger of asList(config.triggers)) {
+    usersInputs.push(anatomyNode(`trigger:${trigger}`, trigger, "input", "Trigger / input"));
+  }
+
+  const channels = [];
+  for (const ch of asList(config.channels).concat(asList(meta.channels))) {
+    channels.push(anatomyNode(`channel:${ch}`, ch, "channel", "Communication channel"));
+  }
+
+  const actions = [];
+  for (const tool of asList(config.tools)) {
+    actions.push(anatomyNode(`tool:${tool}`, tool, "action", "Tool / capability"));
+  }
+  for (const mcp of asList(config.mcpServers)) {
+    actions.push(anatomyNode(`mcp:${mcp}`, mcp, "mcp", "MCP server"));
+  }
+
+  const data = [];
+  for (const store of asList(access.dataStores)) {
+    data.push(anatomyNode(`store:${store}`, store, "data", "Data store"));
+  }
+  for (const ks of asList(config.knowledgeSources)) {
+    data.push(anatomyNode(`knowledge:${ks}`, ks, "knowledge", "Knowledge source"));
+  }
+  for (const vs of asList(config.vectorStores)) {
+    data.push(anatomyNode(`vector:${vs}`, vs, "vector", "Vector store"));
+  }
+  for (const ms of asList(config.memoryStores)) {
+    data.push(anatomyNode(`memory:${ms}`, ms, "memory", "Memory store"));
+  }
+  for (const cls of asList(dac.dataClasses || meta.dataClasses)) {
+    if (cls && cls !== "none") {
+      data.push(anatomyNode(`class:${cls}`, String(cls).toUpperCase(), "data_class", "Data classification"));
+    }
+  }
+
+  for (const rel of relationships || []) {
+    const relType = String(rel.rel_type || rel.relType || "").toUpperCase();
+    const toType = String(rel.asset_type || rel.toType || rel.to_type || "");
+    const toName = rel.to_name || rel.toName || rel.name || rel.external_key || rel.toKey || "related";
+    const nodeId = rel.to_id || rel.toId || `${relType}:${toName}`;
+
+    if (/OWNS|USES_IDENTITY/.test(relType) || /Developer|Identity|ServicePrincipal|User/i.test(toType)) {
+      usersInputs.push(anatomyNode(nodeId, toName, /identity|serviceprincipal/i.test(toType) ? "identity" : "user", relType || toType));
+    } else if (/USES_TOOL|EXPOSES_TOOL|CONNECTS_MCP/.test(relType) || /Tool|MCP/i.test(toType)) {
+      actions.push(anatomyNode(nodeId, toName, /mcp/i.test(toType) ? "mcp" : "action", relType || toType));
+    } else if (
+      /ACCESSES|READS|WRITES/.test(relType) ||
+      /Database|Vector|Knowledge|SharePoint|File|Data/i.test(toType)
+    ) {
+      data.push(anatomyNode(nodeId, toName, "data", relType || toType));
+    } else if (/ExternalService|SaaS|Channel|IDE/i.test(toType) && !/Model/i.test(toType)) {
+      // Prefer channels/comms for SaaS/external that aren't models
+      if (/slack|teams|outlook|email|word|web|channel/i.test(toName) || /channel/i.test(relType)) {
+        channels.push(anatomyNode(nodeId, toName, "channel", relType || toType));
+      } else {
+        channels.push(anatomyNode(nodeId, toName, "app", "Connected app"));
+      }
+    }
+  }
+
+  for (const app of asList(access.connectedApps)) {
+    if (/slack|teams|outlook|email|word|web|channel|workday/i.test(app)) {
+      channels.push(anatomyNode(`app:${app}`, app, "channel", "Connected channel/app"));
+    }
+  }
+
+  const usersDeduped = dedupeAnatomyNodes(usersInputs).slice(0, 12);
+  const channelsDeduped = dedupeAnatomyNodes(channels).slice(0, 12);
+  const actionsDeduped = dedupeAnatomyNodes(actions).slice(0, 16);
+  const dataDeduped = dedupeAnatomyNodes(data).slice(0, 16);
+
+  const risk = blast
+    ? {
+        score: blast.score,
+        tier: blast.tier,
+        reasons: blast.reasons || [],
+        paths: (blast.paths || []).slice(0, 8),
+        pathCount: blast.pathCount ?? (blast.paths || []).length
+      }
+    : {
+        score: 0,
+        tier: "low",
+        reasons: [],
+        paths: [],
+        pathCount: 0
+      };
+
+  return {
+    center: {
+      agentId: agent.id,
+      name: agent.name,
+      category: agent.category || null,
+      framework: agent.framework || config.framework || null,
+      owner: agent.owner || ownership.owner || null,
+      model: {
+        name: modelName || "Unknown model",
+        provider: modelProvider,
+        label: modelName ? `${modelProvider !== "llm" ? modelProvider + " · " : ""}${modelName}` : "No model detected"
+      }
+    },
+    groups: {
+      usersInputs: {
+        id: "usersInputs",
+        label: "Users & inputs",
+        description: "Who can access or trigger this agent",
+        items: usersDeduped
+      },
+      channels: {
+        id: "channels",
+        label: "Channels",
+        description: "Where this agent can communicate",
+        items: channelsDeduped
+      },
+      actions: {
+        id: "actions",
+        label: "Actions",
+        description: "What this agent can do",
+        items: actionsDeduped
+      },
+      data: {
+        id: "data",
+        label: "Data",
+        description: "What this agent can access",
+        items: dataDeduped
+      }
+    },
+    counts: {
+      usersInputs: usersDeduped.length,
+      channels: channelsDeduped.length,
+      actions: actionsDeduped.length,
+      data: dataDeduped.length
+    },
+    risk: {
+      ...risk,
+      sensitivity: access.sensitivity || meta.accessSensitivity || "unknown",
+      overPermissioned: Boolean(access.overPermissioned || meta.overPermissioned),
+      primaryDataClass: dac.primaryDataClass || meta.primaryDataClass || "none",
+      dataClasses: dac.dataClasses || meta.dataClasses || [],
+      hasPii: Boolean(dac.hasPii || meta.hasPii),
+      hasPhi: Boolean(dac.hasPhi || meta.hasPhi),
+      shadowAi: Boolean(shadow),
+      ownershipStatus: ownership.ownershipStatus || meta.ownershipStatus || null,
+      grantCount: access.grantCount || 0
+    },
+    generatedAt: new Date().toISOString()
+  };
+}
+
+/**
+ * Load anatomy for one agent (relationships + blast radius).
+ */
+export async function computeAgentAnatomy(pool, tenantId, agentId) {
+  const agentResult = await pool.query(`SELECT * FROM agents WHERE tenant_id=$1 AND id=$2`, [
+    tenantId,
+    agentId
+  ]);
+  if (!agentResult.rows[0]) return null;
+
+  const agent = agentResult.rows[0];
+  const rels = await pool.query(
+    `SELECT r.*, s.name AS to_name, s.asset_type, s.external_key, s.attributes
+     FROM relationships r
+     JOIN assets s ON s.id = r.to_id
+     WHERE r.tenant_id=$1 AND r.from_id=$2
+     LIMIT 200`,
+    [tenantId, agent.id]
+  );
+
+  let blast = null;
+  try {
+    const radius = await computeBlastRadius(pool, tenantId, { agentId: agent.id, limit: 1 });
+    blast = radius.items[0] || null;
+  } catch {
+    blast = null;
+  }
+
+  return buildAgentAnatomy(agent, rels.rows, blast);
 }
 
 /**
