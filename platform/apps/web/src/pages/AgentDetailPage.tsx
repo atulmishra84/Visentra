@@ -112,6 +112,9 @@ export function AgentDetailPage() {
           </p>
         </div>
         <div className="toolbar">
+          <Link className="button primary" to={`/relationships?agentId=${encodeURIComponent(String(agent.id ?? id))}`}>
+            Open anatomy
+          </Link>
           <Link className="button" to={`/topology?agentId=${encodeURIComponent(String(agent.id ?? id))}`}>
             Open in topology
           </Link>

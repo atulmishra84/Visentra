@@ -37,7 +37,8 @@ import {
   summarizeAgentDepth,
   computeBlastRadius,
   computeDiscoveryChanges,
-  computeAgentMesh
+  computeAgentMesh,
+  computeAgentAnatomy
 } from "./services/agentDepth.js";
 import {
   entraEnabled,
@@ -837,6 +838,16 @@ app.get("/api/agents/:id", auth, async (req, res) => {
     ownership: depth.ownership,
     blastRadius: blast
   });
+});
+
+app.get("/api/agents/:id/anatomy", auth, async (req, res) => {
+  try {
+    const payload = await computeAgentAnatomy(pool, req.tenantId, req.params.id);
+    if (!payload) return res.status(404).json({ error: { message: "Agent not found" } });
+    res.json({ anatomy: payload, ...payload });
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Agent anatomy query failed") } });
+  }
 });
 
 app.get("/api/risk/paths", auth, async (req, res) => {
