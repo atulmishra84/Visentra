@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { runCollectors, DEFAULT_COLLECTORS } from "./collectors.js";
 import { applyShadowAiToObservation } from "../services/shadowAi.js";
 import { enrichObservationWithEvidence } from "./agentEvidence.js";
+import { promoteCorrelatedCandidates } from "./evidenceCorrelation.js";
 
 function asArray(v) {
   if (!v) return [];
@@ -73,7 +74,9 @@ const CONNECTOR_META_CLASSES = new Set([
   "saas_connector",
   "kubernetes_connector",
   "source_connector",
-  "identity_connector"
+  "identity_connector",
+  "platform_capability_hint",
+  "ai_model_catalog"
 ]);
 
 export function isConnectorMetaObservation(obs) {
@@ -322,7 +325,8 @@ export async function executeDiscoveryJob(pool, neo4j, job, { tenantId, triggere
   );
 
   try {
-    const observations = await runCollectors(collectors, { tenantId, ownerHint: triggeredBy, pool });
+    const rawObservations = await runCollectors(collectors, { tenantId, ownerHint: triggeredBy, pool });
+    const observations = promoteCorrelatedCandidates(rawObservations);
     const agentsFound = await ingestObservations(
       pool,
       neo4j,

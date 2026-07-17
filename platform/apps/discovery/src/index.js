@@ -7,9 +7,8 @@ const INTERVAL = Number(process.env.DISCOVERY_INTERVAL_MS || 300000);
 const EMAIL = process.env.BOOTSTRAP_ADMIN_EMAIL || "admin@agentradar.local";
 const PASSWORD = process.env.BOOTSTRAP_ADMIN_PASSWORD;
 const IS_PROD = process.env.NODE_ENV === "production";
-const DEMO_SEED = String(process.env.DISCOVERY_DEMO_SEED || "").toLowerCase() === "true";
 
-const BASE_COLLECTORS = [
+const COLLECTORS = [
   "cloud_stub",
   "edr",
   "saas_platform",
@@ -21,9 +20,6 @@ const BASE_COLLECTORS = [
   "mcp",
   "ci_platform"
 ];
-
-const PROD_COLLECTORS = BASE_COLLECTORS;
-const DEV_COLLECTORS = DEMO_SEED ? ["demo", ...BASE_COLLECTORS] : BASE_COLLECTORS;
 
 async function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -44,19 +40,18 @@ async function login() {
 }
 
 async function trigger(token) {
-  const collectors = IS_PROD ? PROD_COLLECTORS : DEV_COLLECTORS;
   const res = await fetch(`${API_URL}/api/discovery/jobs`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`
     },
-    body: JSON.stringify({ collectors })
+    body: JSON.stringify({ collectors: COLLECTORS })
   });
   if (!res.ok && res.status !== 202 && res.status !== 409) {
     throw new Error(`Trigger failed: ${res.status}`);
   }
-  console.log(new Date().toISOString(), "Discovery job triggered", res.status, collectors.join(","));
+  console.log(new Date().toISOString(), "Discovery job triggered", res.status, COLLECTORS.join(","));
 }
 
 async function main() {
@@ -65,8 +60,7 @@ async function main() {
     API_URL,
     "env=",
     IS_PROD ? "production" : "development",
-    "demoSeed=",
-    DEMO_SEED
+    "(demo seed disabled)"
   );
   for (let i = 0; i < 60; i++) {
     try {

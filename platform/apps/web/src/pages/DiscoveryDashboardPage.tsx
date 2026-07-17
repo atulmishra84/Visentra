@@ -5,14 +5,16 @@ import { DetailDrawer } from "../components/DetailDrawer";
 import { apiRequest, compactDate, listFromPayload, numberAt, valueAt } from "../lib/api";
 
 const DEFAULT_COLLECTORS = [
-  "demo",
   "cloud_stub",
   "edr",
   "saas_platform",
   "ide_filesystem",
   "process",
   "mcp",
-  "ci_platform"
+  "ci_platform",
+  "k8s_api",
+  "git_sources",
+  "identity_entra"
 ];
 
 export function DiscoveryDashboardPage() {

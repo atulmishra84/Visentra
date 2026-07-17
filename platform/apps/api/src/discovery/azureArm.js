@@ -102,13 +102,15 @@ function resourceToObservation(resource, conn, aiRelevant) {
       evidenceClass: aiRelevant ? "cloud_ai_runtime" : null,
       agentStatus: aiRelevant
         ? /Microsoft\.(CognitiveServices|MachineLearningServices|BotService|Search)\//i.test(type) ||
-          /openai|bot/i.test(String(resource.kind || ""))
+          /openai|bot|foundry|ai\.services|agents?/i.test(String(resource.kind || "")) ||
+          /\/projects$|\/agents|Foundry|AIServices/i.test(type)
           ? "confirmed"
           : "candidate"
         : null,
       managedCloudAgent:
         /Microsoft\.(CognitiveServices|MachineLearningServices|BotService)\//i.test(type) ||
-        /openai/i.test(String(resource.kind || "")),
+        /openai|foundry|agents?/i.test(String(resource.kind || "")) ||
+        /\/projects$|\/agents|Foundry|AIServices/i.test(type),
       tags
     },
     relationships: [

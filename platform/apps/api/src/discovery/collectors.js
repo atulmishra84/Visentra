@@ -144,7 +144,9 @@ export const collectors = {
                   ? "Cursor agent rules/prompts directory"
                   : hit.kind === "project"
                     ? "Project agent marker (.cursorrules / AGENTS.md / copilot-instructions)"
-                    : "Cursor IDE config present"
+                    : "Cursor IDE config present",
+            scannerHostOnly: true,
+            coverageNote: "Local IDE/MCP scan sees the API host only — use EDR connectors for fleet endpoints."
           }
         });
       }
@@ -206,7 +208,9 @@ export const collectors = {
             evidenceClass: "ide_agent",
             agentStatus: mcpNames.length ? "confirmed" : "candidate",
             mcpServerCount: mcpNames.length,
-            howIdentified: `${ide} config with ${mcpNames.length} MCP server(s)`
+            howIdentified: `${ide} config with ${mcpNames.length} MCP server(s)`,
+            scannerHostOnly: true,
+            coverageNote: "Local IDE/MCP scan sees the API host only — use EDR connectors for fleet endpoints."
           }
         });
       }
@@ -267,7 +271,9 @@ export const collectors = {
               inventoryClass: "process_ai_agent",
               evidenceClass: "process_agent",
               agentStatus: "confirmed",
-              processEvidence: cmdline.slice(0, 300)
+              processEvidence: cmdline.slice(0, 300),
+              scannerHostOnly: true,
+              coverageNote: "Local process scan sees the API host only — use EDR connectors for fleet endpoints."
             },
             relationships: [
               { rel_type: "RUNS_ON", to_type: "Device", to_key: os.hostname(), to_name: os.hostname() }
@@ -306,7 +312,9 @@ export const collectors = {
               aiRelevant: true,
               inventoryClass: "mcp_server",
               evidenceClass: "ide_agent",
-              agentStatus: "confirmed"
+              agentStatus: "confirmed",
+              scannerHostOnly: true,
+              coverageNote: "Local MCP scan sees the API host only — use EDR connectors for fleet endpoints."
             },
             relationships: [
               {
@@ -831,7 +839,14 @@ export const collectors = {
         const { discoverCiConnector } = await import("./ciPlatforms.js");
         const connectors = await listActiveCiConnectors(ctx.pool, ctx.tenantId);
         for (const conn of connectors) {
-          const label = conn.provider === "jenkins" ? "Jenkins" : conn.provider;
+          const label =
+            conn.provider === "jenkins"
+              ? "Jenkins"
+              : conn.provider === "github_actions"
+                ? "GitHub Actions"
+                : conn.provider === "gitlab_ci"
+                  ? "GitLab CI"
+                  : conn.provider;
           try {
             const { observations, stats } = await discoverCiConnector(conn);
             out.push(...observations);
@@ -892,14 +907,7 @@ export const collectors = {
     }
   },
 
-  demo: {
-    id: "demo",
-    async scan() {
-      const { demoSeedEnabled, buildDemoObservations } = await import("./demoSeed.js");
-      if (!demoSeedEnabled()) return [];
-      return buildDemoObservations();
-    }
-  }
+  // demo collector removed — inventory comes from live connectors/discovery only
 };
 
 export const DEFAULT_COLLECTORS = [
@@ -914,9 +922,6 @@ export const DEFAULT_COLLECTORS = [
   "saas_platform",
   "ci_platform"
 ];
-
-/** Collectors used for local compose MVP when DISCOVERY_DEMO_SEED=true */
-export const DEMO_MVP_COLLECTORS = ["demo", ...DEFAULT_COLLECTORS];
 
 /** @deprecated Use DEFAULT_COLLECTORS — kept for import compatibility */
 export const PRODUCTION_COLLECTORS = DEFAULT_COLLECTORS;
