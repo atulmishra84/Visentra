@@ -64,8 +64,8 @@ export function TopologyMapPage() {
       if (!detail?.type || detail.type === "connected") return;
       void loadGraph(seed, depth);
     };
-    window.addEventListener("agentradar:graph-event", listener);
-    return () => window.removeEventListener("agentradar:graph-event", listener);
+    window.addEventListener("visentra:graph-event", listener);
+    return () => window.removeEventListener("visentra:graph-event", listener);
   }, [depth, loadGraph, seed]);
 
   const applySeed = (nextSeed: string, nextDepth = depth) => {

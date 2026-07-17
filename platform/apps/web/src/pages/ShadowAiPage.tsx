@@ -97,7 +97,7 @@ export function ShadowAiPage() {
           <h1>Shadow AI</h1>
           <p className="page-description">
             Identify unsanctioned or unmanaged AI agents — ownerless IDE/local LLMs, consumer AI SaaS, browser
-            assistants, and AI cloud resources without attribution. Visibility only; AgentRadar does not block or
+            assistants, and AI cloud resources without attribution. Visibility only; Visentra does not block or
             remediate.
           </p>
         </div>

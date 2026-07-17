@@ -51,8 +51,8 @@ export function DiscoveryDashboardPage() {
     const listener = () => {
       void loadJobs();
     };
-    window.addEventListener("agentradar:graph-event", listener);
-    return () => window.removeEventListener("agentradar:graph-event", listener);
+    window.addEventListener("visentra:graph-event", listener);
+    return () => window.removeEventListener("visentra:graph-event", listener);
   }, []);
 
   const jobs = useMemo(

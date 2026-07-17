@@ -97,7 +97,7 @@ export function Layout() {
         const type = event.type;
         if (!type || type === "message" || type === "connected" || type === "error") return;
         window.dispatchEvent(
-          new CustomEvent("agentradar:graph-event", {
+          new CustomEvent("visentra:graph-event", {
             detail: {
               type,
               data: event.data
@@ -124,9 +124,9 @@ export function Layout() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-lockup">
-          <div className="brand-mark">AR</div>
+          <div className="brand-mark">VE</div>
           <div>
-            <div className="brand-title">AgentRadar</div>
+            <div className="brand-title">Visentra</div>
             <div className="brand-subtitle">Platform</div>
           </div>
         </div>

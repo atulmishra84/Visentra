@@ -26,7 +26,7 @@ function RequireAuth({ children }: { children: JSX.Element }) {
   const location = useLocation();
 
   if (loading) {
-    return <div className="loading-state">Restoring secure AgentRadar session...</div>;
+    return <div className="loading-state">Restoring secure Visentra session...</div>;
   }
 
   if (!isAuthenticated) {

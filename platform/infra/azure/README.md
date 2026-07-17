@@ -1,4 +1,4 @@
-# AgentRadar Discovery — Azure Container Apps deploy
+# Visentra Discovery — Azure Container Apps deploy
 
 Production-oriented path to a public Azure URL for the Discovery & Visibility MVP.
 

@@ -1,5 +1,5 @@
 /**
- * AI agent evidence model — how AgentRadar classifies discoveries.
+ * AI agent evidence model — how Visentra classifies discoveries.
  *
  * Evidence classes (strong → weak):
  *   platform_agent   — registered SaaS/platform agents (Copilot, Agentforce, …)

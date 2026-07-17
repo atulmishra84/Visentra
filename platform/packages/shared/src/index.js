@@ -1,4 +1,4 @@
-/** Shared constants for AgentRadar platform packages */
+/** Shared constants for Visentra platform packages */
 export const COLLECTOR_IDS = [
   "ide_filesystem",
   "process",

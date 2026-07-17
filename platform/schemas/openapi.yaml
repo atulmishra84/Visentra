@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: AgentRadar Discovery & Visibility API
+  title: Visentra Discovery & Visibility API
   version: 1.0.0
   description: |
     Enterprise AI Agent Discovery & Visibility Platform API (MVP).

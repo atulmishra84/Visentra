@@ -74,7 +74,7 @@ export function SearchPage() {
       </form>
 
       {loading ? (
-        <div className="loading-state">Searching AgentRadar...</div>
+        <div className="loading-state">Searching Visentra...</div>
       ) : error ? (
         <div className="error-state">{error}</div>
       ) : (
@@ -125,7 +125,7 @@ export function SearchPage() {
                 })}
               </div>
             ) : (
-              <div className="empty-state">Enter a query to search global AgentRadar visibility data.</div>
+              <div className="empty-state">Enter a query to search global Visentra visibility data.</div>
             )}
           </section>
         </section>
