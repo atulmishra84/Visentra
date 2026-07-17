@@ -37,6 +37,7 @@ const sections = [
     heading: "Settings",
     items: [
       { to: "/settings/connectors", label: "Connectors" },
+      { to: "/settings/sso", label: "IAM & SSO" },
       { to: "/settings/audit", label: "Audit Log" }
     ]
   }

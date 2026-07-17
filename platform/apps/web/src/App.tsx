@@ -13,6 +13,7 @@ import { SearchPage } from "./pages/SearchPage";
 import { TimelinePage } from "./pages/TimelinePage";
 import { TopologyMapPage } from "./pages/TopologyMapPage";
 import { ConnectorsPage } from "./pages/ConnectorsPage";
+import { SsoSettingsPage } from "./pages/SsoSettingsPage";
 import { ShadowAiPage } from "./pages/ShadowAiPage";
 import { CoveragePage } from "./pages/CoveragePage";
 import { AuditPage } from "./pages/AuditPage";
@@ -71,6 +72,7 @@ export default function App() {
         <Route path="/timeline" element={<TimelinePage />} />
         <Route path="/search" element={<SearchPage />} />
         <Route path="/settings/connectors" element={<ConnectorsPage />} />
+        <Route path="/settings/sso" element={<SsoSettingsPage />} />
         <Route path="/settings/audit" element={<AuditPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/executive" replace />} />

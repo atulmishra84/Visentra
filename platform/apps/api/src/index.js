@@ -42,13 +42,29 @@ import {
   computeAgentAnatomy
 } from "./services/agentDepth.js";
 import {
-  entraEnabled,
-  buildAuthorizeUrl,
-  exchangeCodeForTokens,
-  decodeIdToken,
-  mapEntraRole,
-  newOidcState
+  entraEnabled
 } from "./auth/entra.js";
+import {
+  buildOidcAuthorizeUrl,
+  exchangeOidcCode,
+  decodeIdToken as decodeOidcIdToken,
+  mapClaimsToRole,
+  extractIdentity,
+  emailDomainAllowed,
+  signSsoState,
+  verifySsoState,
+  newOidcState as newSsoNonce
+} from "./auth/oidc.js";
+import {
+  getSsoSchema,
+  listSsoProviders,
+  listPublicSsoProviders,
+  getRuntimeProvider,
+  createSsoProvider,
+  updateSsoProvider,
+  deleteSsoProvider,
+  testSsoProvider
+} from "./services/ssoProviders.js";
 import { migrateConnectorEncryption } from "./utils/crypto.js";
 import { publicErrorMessage } from "./utils/http.js";
 import {
@@ -608,25 +624,188 @@ app.post("/api/auth/login", loginRateLimit, async (req, res) => {
   });
 });
 
-app.get("/api/auth/sso/status", (_req, res) => {
-  res.json({
-    entraEnabled: entraEnabled(),
-    providers: entraEnabled() ? ["entra"] : []
-  });
+app.get("/api/auth/sso/status", async (_req, res) => {
+  try {
+    const providers = await listPublicSsoProviders(pool);
+    res.json({
+      entraEnabled: providers.some((p) => p.preset === "entra" || p.key === "entra"),
+      providers,
+      localLoginEnabled: true
+    });
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Unable to load SSO status") } });
+  }
 });
 
-app.get("/api/auth/sso/entra/start", loginRateLimit, (req, res) => {
+async function completeOidcLogin(req, res, provider, { code, state, nonce }) {
+  if (!code) return res.status(400).json({ error: { message: "code is required" } });
+  if (provider.protocol === "saml") {
+    return res.status(400).json({
+      error: {
+        message:
+          "SAML ACS login is not enabled in this build. Use an OIDC app on the same IdP (Okta/Auth0/Entra/Ping/Keycloak)."
+      }
+    });
+  }
+
+  let statePayload = null;
+  if (state) {
+    try {
+      statePayload = verifySsoState(state, JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: { message: "Invalid or expired SSO state" } });
+    }
+    if (statePayload.pid && String(statePayload.pid) !== String(provider.id) && provider.id !== "env-entra") {
+      // env-entra id may be aliased as "entra"
+      if (!(provider.id === "env-entra" && statePayload.pid === "entra")) {
+        return res.status(401).json({ error: { message: "SSO state provider mismatch" } });
+      }
+    }
+  }
+
+  const { tokens } = await exchangeOidcCode(provider, code);
+  const claims = decodeOidcIdToken(tokens.id_token);
+  const expectedNonce = nonce || statePayload?.nonce;
+  if (expectedNonce && claims.nonce && claims.nonce !== expectedNonce) {
+    return res.status(401).json({ error: { message: "Invalid OIDC nonce" } });
+  }
+
+  const identity = extractIdentity(claims, provider.claim_map || {});
+  if (!identity.email) {
+    return res.status(401).json({ error: { message: "OIDC token missing email claim" } });
+  }
+  if (!emailDomainAllowed(identity.email, provider.allowed_domains || [])) {
+    return res.status(403).json({ error: { message: "Email domain is not allowed for this SSO provider" } });
+  }
+
+  const role = mapClaimsToRole(claims, provider.claim_map || {});
+  const tenant = await pool.query(`SELECT id, slug FROM tenants ORDER BY created_at ASC LIMIT 1`);
+  const tenantId = tenant.rows[0]?.id;
+  if (!tenantId) return res.status(500).json({ error: { message: "No tenant provisioned" } });
+
+  const unusable = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
+  const authProvider = String(provider.preset || provider.key || "oidc").slice(0, 64);
+  const upsert = await pool.query(
+    `INSERT INTO users (tenant_id, email, name, role, password_hash, auth_provider, external_sub)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (tenant_id, email) DO UPDATE SET
+       name = EXCLUDED.name,
+       auth_provider = EXCLUDED.auth_provider,
+       external_sub = COALESCE(EXCLUDED.external_sub, users.external_sub),
+       last_login = NOW(),
+       updated_at = NOW()
+     RETURNING *`,
+    [
+      tenantId,
+      String(identity.email).toLowerCase(),
+      identity.name,
+      role,
+      unusable,
+      authProvider,
+      identity.externalSub || null
+    ]
+  );
+  const user = upsert.rows[0];
+  user.tenant_slug = tenant.rows[0].slug;
+  await writeAudit(pool, {
+    tenantId,
+    actorId: user.id,
+    actorEmail: user.email,
+    action: `auth.sso.${authProvider}`,
+    resourceType: "user",
+    resourceId: user.id,
+    details: { providerId: provider.id, externalSub: identity.externalSub || null },
+    ip: req.ip
+  });
+  const token = signToken(user);
+  return res.json({
+    token,
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      roles: [user.role],
+      tenant: user.tenant_slug,
+      tenantId: user.tenant_id,
+      authProvider
+    }
+  });
+}
+
+app.get("/api/auth/sso/:providerId/start", loginRateLimit, async (req, res) => {
+  try {
+    const provider = await getRuntimeProvider(pool, req.params.providerId);
+    if (!provider) {
+      return res.status(404).json({ error: { message: "SSO provider not found or disabled" } });
+    }
+    if (provider.protocol === "saml") {
+      return res.status(400).json({
+        error: {
+          message:
+            "SAML browser login is not enabled yet. Create an OIDC app on this IdP (or use Generic OpenID Connect)."
+        }
+      });
+    }
+    const nonce = newSsoNonce();
+    const state = signSsoState(
+      {
+        pid: provider.id,
+        nonce,
+        iat: Date.now(),
+        exp: Date.now() + 10 * 60 * 1000
+      },
+      JWT_SECRET
+    );
+    const { authorizeUrl } = await buildOidcAuthorizeUrl(provider, { state, nonce });
+    res.json({
+      authorizeUrl,
+      state,
+      nonce,
+      provider: { id: provider.id, name: provider.name, preset: provider.preset, protocol: provider.protocol }
+    });
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Unable to start SSO") } });
+  }
+});
+
+app.post("/api/auth/sso/callback", loginRateLimit, async (req, res) => {
+  try {
+    const { code, state, nonce, providerId } = req.body || {};
+    let resolvedProviderId = providerId;
+    if (!resolvedProviderId && state) {
+      try {
+        resolvedProviderId = verifySsoState(state, JWT_SECRET).pid;
+      } catch {
+        return res.status(401).json({ error: { message: "Invalid or expired SSO state" } });
+      }
+    }
+    if (!resolvedProviderId) {
+      return res.status(400).json({ error: { message: "providerId or signed state is required" } });
+    }
+    const provider = await getRuntimeProvider(pool, resolvedProviderId);
+    if (!provider) {
+      return res.status(404).json({ error: { message: "SSO provider not found or disabled" } });
+    }
+    await completeOidcLogin(req, res, provider, { code, state, nonce });
+  } catch (err) {
+    res.status(401).json({ error: { message: publicErrorMessage(err, "SSO failed") } });
+  }
+});
+
+app.get("/api/auth/sso/entra/start", loginRateLimit, async (req, res) => {
   if (!entraEnabled()) {
     return res.status(404).json({ error: { message: "Entra SSO is not configured" } });
   }
   try {
-    const state = newOidcState();
-    const nonce = newOidcState();
-    // Short-lived cookies for OIDC CSRF/nonce (SameSite=Lax for top-level redirect)
-    res.cookie?.("ar_oidc_state", state, { httpOnly: true, sameSite: "lax", maxAge: 600_000, secure: IS_PROD });
-    // Express may not have cookie-parser — also return state for SPA to echo back
-    const url = buildAuthorizeUrl({ state, nonce });
-    res.json({ authorizeUrl: url, state, nonce });
+    const provider = await getRuntimeProvider(pool, "env-entra");
+    const nonce = newSsoNonce();
+    const state = signSsoState(
+      { pid: provider.id, nonce, iat: Date.now(), exp: Date.now() + 10 * 60 * 1000 },
+      JWT_SECRET
+    );
+    const { authorizeUrl } = await buildOidcAuthorizeUrl(provider, { state, nonce });
+    res.json({ authorizeUrl, state, nonce });
   } catch (err) {
     res.status(500).json({ error: { message: publicErrorMessage(err, "Unable to start Entra SSO") } });
   }
@@ -636,64 +815,93 @@ app.post("/api/auth/sso/entra/callback", loginRateLimit, async (req, res) => {
   if (!entraEnabled()) {
     return res.status(404).json({ error: { message: "Entra SSO is not configured" } });
   }
-  const { code, state } = req.body || {};
-  if (!code) return res.status(400).json({ error: { message: "code is required" } });
   try {
-    const tokens = await exchangeCodeForTokens(code);
-    const claims = decodeIdToken(tokens.id_token);
-    if (state && claims.nonce && req.body?.nonce && claims.nonce !== req.body.nonce) {
-      return res.status(401).json({ error: { message: "Invalid OIDC nonce" } });
-    }
-    const email = claims.preferred_username || claims.email || claims.upn;
-    if (!email) return res.status(401).json({ error: { message: "Entra token missing email claim" } });
-    const name = claims.name || email;
-    const role = mapEntraRole(claims);
-
-    // Bind SSO users to the bootstrap tenant (single-tenant BYOC)
-    const tenant = await pool.query(`SELECT id, slug FROM tenants ORDER BY created_at ASC LIMIT 1`);
-    const tenantId = tenant.rows[0]?.id;
-    if (!tenantId) return res.status(500).json({ error: { message: "No tenant provisioned" } });
-
-    const unusable = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
-    const upsert = await pool.query(
-      `INSERT INTO users (tenant_id, email, name, role, password_hash, auth_provider)
-       VALUES ($1,$2,$3,$4,$5,'entra')
-       ON CONFLICT (tenant_id, email) DO UPDATE SET
-         name = EXCLUDED.name,
-         auth_provider = 'entra',
-         last_login = NOW(),
-         updated_at = NOW()
-       RETURNING *`,
-      [tenantId, String(email).toLowerCase(), name, role, unusable]
-    );
-    const user = upsert.rows[0];
-    user.tenant_slug = tenant.rows[0].slug;
-    await writeAudit(pool, {
-      tenantId,
-      actorId: user.id,
-      actorEmail: user.email,
-      action: "auth.sso.entra",
-      resourceType: "user",
-      resourceId: user.id,
-      details: { oid: claims.oid || null },
-      ip: req.ip
-    });
-    const token = signToken(user);
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        roles: [user.role],
-        tenant: user.tenant_slug,
-        tenantId: user.tenant_id,
-        authProvider: "entra"
-      }
+    const provider = await getRuntimeProvider(pool, "env-entra");
+    await completeOidcLogin(req, res, provider, {
+      code: req.body?.code,
+      state: req.body?.state,
+      nonce: req.body?.nonce
     });
   } catch (err) {
     res.status(401).json({ error: { message: publicErrorMessage(err, "Entra SSO failed") } });
+  }
+});
+
+app.get("/api/settings/sso/schema", auth, requireRole("platform_admin", "operator"), (_req, res) => {
+  res.json(getSsoSchema());
+});
+
+app.get("/api/settings/sso", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  try {
+    const providers = await listSsoProviders(pool, req.tenantId, { includeDisabled: true });
+    const publicProviders = await listPublicSsoProviders(pool);
+    res.json({ providers, publicProviders, schema: getSsoSchema() });
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Unable to list SSO providers") } });
+  }
+});
+
+app.post("/api/settings/sso", auth, requireRole("platform_admin"), async (req, res) => {
+  try {
+    const provider = await createSsoProvider(pool, req.tenantId, req.body || {});
+    await writeAudit(pool, {
+      tenantId: req.tenantId,
+      actorId: req.user.sub,
+      actorEmail: req.user.email,
+      action: "sso.create",
+      resourceType: "sso_provider",
+      resourceId: provider.id,
+      details: { preset: provider.preset, protocol: provider.protocol },
+      ip: req.ip
+    });
+    res.status(201).json({ provider });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: { message: publicErrorMessage(err, "Unable to create SSO provider") } });
+  }
+});
+
+app.put("/api/settings/sso/:id", auth, requireRole("platform_admin"), async (req, res) => {
+  try {
+    const provider = await updateSsoProvider(pool, req.tenantId, req.params.id, req.body || {});
+    await writeAudit(pool, {
+      tenantId: req.tenantId,
+      actorId: req.user.sub,
+      actorEmail: req.user.email,
+      action: "sso.update",
+      resourceType: "sso_provider",
+      resourceId: provider.id,
+      ip: req.ip
+    });
+    res.json({ provider });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: { message: publicErrorMessage(err, "Unable to update SSO provider") } });
+  }
+});
+
+app.delete("/api/settings/sso/:id", auth, requireRole("platform_admin"), async (req, res) => {
+  try {
+    const result = await deleteSsoProvider(pool, req.tenantId, req.params.id);
+    await writeAudit(pool, {
+      tenantId: req.tenantId,
+      actorId: req.user.sub,
+      actorEmail: req.user.email,
+      action: "sso.delete",
+      resourceType: "sso_provider",
+      resourceId: req.params.id,
+      ip: req.ip
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: { message: publicErrorMessage(err, "Unable to delete SSO provider") } });
+  }
+});
+
+app.post("/api/settings/sso/:id/test", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  try {
+    const result = await testSsoProvider(pool, req.tenantId, req.params.id);
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: { message: publicErrorMessage(err, "SSO provider test failed") } });
   }
 });
 
