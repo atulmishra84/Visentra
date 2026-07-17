@@ -85,7 +85,7 @@ services:
       ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       BOOTSTRAP_ADMIN_EMAIL: admin@agentradar.local
       BOOTSTRAP_ADMIN_PASSWORD: "AgentRadar!dev"
-      DISCOVERY_DEMO_SEED: "true"
+      DISCOVERY_DEMO_SEED: "false"
       DISCOVERY_AI_ONLY: "true"
       CORS_ORIGIN: http://localhost:5173
     ports:
@@ -112,7 +112,7 @@ services:
       OPENSEARCH_URL: http://opensearch:9200
       API_INTERNAL_URL: http://api:8080
       DISCOVERY_INTERVAL_MS: "300000"
-      DISCOVERY_DEMO_SEED: "true"
+      DISCOVERY_DEMO_SEED: "false"
       BOOTSTRAP_ADMIN_EMAIL: admin@agentradar.local
       BOOTSTRAP_ADMIN_PASSWORD: "AgentRadar!dev"
       RUN_ON_START: "true"

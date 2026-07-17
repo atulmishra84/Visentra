@@ -1,6 +1,5 @@
 /** Shared constants for AgentRadar platform packages */
 export const COLLECTOR_IDS = [
-  "demo",
   "ide_filesystem",
   "process",
   "mcp",

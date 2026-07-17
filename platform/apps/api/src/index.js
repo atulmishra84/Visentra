@@ -1521,6 +1521,8 @@ async function purgeDemoInventory(pool, neo4jDriver, tenantId) {
          OR fingerprint LIKE 'cloud-stub:vertex:demo%'
          OR fingerprint LIKE 'saas:%:tenant-demo%'
          OR fingerprint LIKE 'k8s-manifest:%'
+         OR fingerprint LIKE 'demo:%'
+         OR metadata->>'demoSeed' = 'true'
          OR metadata->>'discoveryMode' = 'credentialed-connector-pending-live-adapter'
        )`,
     [tenantId]
@@ -1683,40 +1685,10 @@ async function boot() {
   await migrateConnectorEncryption(pool);
   await initNeo4jConstraints();
 
-  // Demo seed: local compose or explicit DISCOVERY_DEMO_SEED=true on eval Azure.
-  const { demoSeedEnabled } = await import("./discovery/demoSeed.js");
-  if (demoSeedEnabled()) {
-    console.log(
-      `DISCOVERY_DEMO_SEED=true — loading demo inventory (${IS_PROD ? "production eval" : "local MVP"})`
-    );
-    const { DEMO_MVP_COLLECTORS } = await import("./discovery/collectors.js");
-    setImmediate(async () => {
-      try {
-        const job = await claimDiscoveryJob(pool, {
-          tenantId,
-          collectorIds: DEMO_MVP_COLLECTORS,
-          triggeredBy: "bootstrap-demo"
-        });
-        await executeDiscoveryJob(pool, neo4jDriver, job, {
-          tenantId,
-          triggeredBy: "bootstrap-demo",
-          broadcast
-        });
-        console.log("Demo seed discovery job completed");
-      } catch (err) {
-        if (err.status === 409) {
-          console.log("Demo seed skipped — discovery already running");
-        } else {
-          console.warn("Demo seed discovery failed:", err.message);
-        }
-      }
-    });
-    console.log("Boot complete. Demo seed enabled for local MVP.");
-  } else {
-    await purgeDemoInventory(pool, neo4jDriver, tenantId);
-    await purgeNonAiInventory(pool, neo4jDriver, tenantId);
-    console.log("Boot complete. Inventory starts from connectors/discovery only (no demo seed).");
-  }
+  // Always purge legacy demo/stub inventory. Live connectors are the only seed.
+  await purgeDemoInventory(pool, neo4jDriver, tenantId);
+  await purgeNonAiInventory(pool, neo4jDriver, tenantId);
+  console.log("Boot complete. Inventory starts from connectors/discovery only (no demo seed).");
 
   app.listen(PORT, () => {
     console.log(`AgentRadar API listening on :${PORT} (${IS_PROD ? "production" : "development"})`);
