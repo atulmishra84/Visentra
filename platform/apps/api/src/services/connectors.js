@@ -202,6 +202,28 @@ export const PROVIDER_FIELDS = {
       username: "Jenkins username (for API token auth)",
       apiToken: "Jenkins API token"
     }
+  },
+  github_actions: {
+    category: "ci",
+    config: ["org", "owner", "apiBase"],
+    secrets: ["token"],
+    labels: {
+      org: "GitHub organization (optional if scanning user repos)",
+      owner: "GitHub owner alias for org (optional)",
+      apiBase: "GitHub API base (default https://api.github.com)",
+      token: "GitHub PAT with actions:read and repo/workflow access"
+    }
+  },
+  gitlab_ci: {
+    category: "ci",
+    config: ["host", "group", "namespace"],
+    secrets: ["token"],
+    labels: {
+      host: "GitLab host (default gitlab.com)",
+      group: "GitLab group/namespace to scan (optional)",
+      namespace: "Alias for group (optional)",
+      token: "GitLab personal/project access token (read_api, read_repository)"
+    }
   }
 };
 
@@ -211,7 +233,7 @@ export const GIT_PROVIDERS = ["github", "gitlab"];
 export const IDENTITY_PROVIDERS = ["entra_identity", "kubernetes_identity"];
 export const EDR_PROVIDERS = ["crowdstrike", "defender", "intune", "cortex", "netskope"];
 export const SAAS_PROVIDERS = ["m365_copilot", "salesforce", "workday", "servicenow", "openai"];
-export const CI_PROVIDERS = ["jenkins"];
+export const CI_PROVIDERS = ["jenkins", "github_actions", "gitlab_ci"];
 export const ALL_PROVIDERS = [
   ...new Set([
     ...CLOUD_PROVIDERS,

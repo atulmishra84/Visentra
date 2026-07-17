@@ -4,13 +4,18 @@ import {
   DISCOVERY_AI_ONLY,
   isAiRelevantText,
   isAiAgentProcess,
-  shouldIngestAiOnly
+  shouldIngestAiOnly,
+  AI_PROCESS_QUERY_TERMS
 } from "./aiRelevance.js";
 
 const EDR_DEVICE_LIMIT = Number(process.env.EDR_DISCOVERY_MAX_DEVICES || 100);
 
 function deviceLooksAiAgent(parts) {
   return isAiRelevantText(...parts) || isAiAgentProcess(parts.filter(Boolean).join(" "));
+}
+
+function clipEvidence(value, max = 300) {
+  return String(value || "").slice(0, max);
 }
 
 function cortexAuthHeaders(apiKey, apiKeyId) {
@@ -252,8 +257,7 @@ export async function discoverCrowdstrike(conn) {
   // Optional: surface hosts with AI-agent process evidence (best-effort; ignore auth gaps)
   const processHosts = new Map();
   try {
-    const filter =
-      "cmdline:*ollama*+cmdline:*claude*+cmdline:*copilot*+cmdline:*langchain*+cmdline:*crewai*+cmdline:*autogen*+cmdline:*vllm*+cmdline:*openai*+cmdline:*mcp*";
+    const filter = AI_PROCESS_QUERY_TERMS.map((t) => `cmdline:*${t}*`).join("+");
     const procRes = await safeFetch(
       `${base}/processes/queries/processes/v1?limit=50&filter=${encodeURIComponent(filter)}`,
       {
@@ -421,8 +425,46 @@ export async function discoverDefender(conn) {
   if (!res.ok) return { observations, stats: { devices: 0, message: result.message } };
   const json = await res.json().catch(() => ({}));
   const machines = Array.isArray(json.value) ? json.value : [];
+
+  // Process-first: Advanced Hunting for AI agent process evidence (best-effort).
+  const processHosts = new Map();
+  try {
+    const terms = AI_PROCESS_QUERY_TERMS.map((t) => `FileName has "${t}" or ProcessCommandLine has "${t}"`).join(" or ");
+    const query =
+      `DeviceProcessEvents` +
+      `| where ${terms}` +
+      `| summarize evidence=any(ProcessCommandLine), file=any(FileName) by DeviceId, DeviceName` +
+      `| take 80`;
+    const hunt = await safeFetch(
+      "https://api.securitycenter.microsoft.com/api/advancedhunting/run",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${result.accessToken}`,
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        },
+        body: JSON.stringify({ Query: query })
+      },
+      ALLOW.defender
+    );
+    if (hunt.ok) {
+      const huntJson = await hunt.json().catch(() => ({}));
+      for (const row of huntJson.Results || huntJson.results || []) {
+        const evidence = clipEvidence(row.evidence || row.ProcessCommandLine || row.file || row.FileName);
+        const deviceId = row.DeviceId || row.deviceId;
+        if (!deviceId || !evidence) continue;
+        if (!isAiAgentProcess(evidence) && !isAiRelevantText(evidence)) continue;
+        processHosts.set(String(deviceId), evidence);
+      }
+    }
+  } catch {
+    /* advanced hunting optional */
+  }
+
   let aiAgents = 0;
   for (const m of machines) {
+    const processEvidence = processHosts.get(String(m.id)) || null;
     const pushed = maybePushAiEndpoint(observations, {
       provider: "defender",
       conn,
@@ -433,14 +475,39 @@ export async function discoverDefender(conn) {
       owner: null,
       ip: m.lastIpAddress || m.lastExternalIpAddress || null,
       status: m.healthStatus || m.onboardingStatus || "unknown",
-      signalParts: [m.computerDnsName, m.osPlatform, m.riskScore],
-      extra: { defenderMachineId: m.id, riskScore: m.riskScore }
+      processEvidence,
+      signalParts: [m.computerDnsName, m.osPlatform, m.riskScore, processEvidence],
+      extra: { defenderMachineId: m.id, riskScore: m.riskScore, processSource: processEvidence ? "advanced-hunting" : null }
+    });
+    if (pushed) aiAgents += 1;
+  }
+  for (const [deviceId, evidence] of processHosts) {
+    if (machines.some((m) => String(m.id) === String(deviceId))) continue;
+    const pushed = maybePushAiEndpoint(observations, {
+      provider: "defender",
+      conn,
+      id: deviceId,
+      name: `AI process host ${deviceId}`,
+      hostname: null,
+      os: null,
+      owner: null,
+      ip: null,
+      status: "running",
+      processEvidence: evidence,
+      signalParts: [evidence],
+      extra: { defenderMachineId: deviceId, source: "advanced-hunting" }
     });
     if (pushed) aiAgents += 1;
   }
   return {
     observations,
-    stats: { devices: machines.length, aiAgents, aiOnly: DISCOVERY_AI_ONLY, message: result.message }
+    stats: {
+      devices: machines.length,
+      aiAgents,
+      processHits: processHosts.size,
+      aiOnly: DISCOVERY_AI_ONLY,
+      message: result.message
+    }
   };
 }
 
@@ -515,8 +582,34 @@ export async function discoverIntune(conn) {
   if (!res.ok) return { observations, stats: { devices: 0, message: result.message } };
   const json = await res.json().catch(() => ({}));
   const devices = Array.isArray(json.value) ? json.value : [];
+
+  // Process/app-first: Intune detectedApps that look like AI agents (best-effort).
+  const processHosts = new Map();
+  try {
+    for (const term of AI_PROCESS_QUERY_TERMS.slice(0, 12)) {
+      const appsRes = await safeFetch(
+        `https://graph.microsoft.com/v1.0/deviceManagement/detectedApps?$filter=contains(displayName,'${term}')&$top=25&$expand=managedDevices($select=id,deviceName)`,
+        { headers: { Authorization: `Bearer ${result.accessToken}`, Accept: "application/json" } },
+        ALLOW.graphMicrosoft
+      ).catch(() => null);
+      if (!appsRes?.ok) continue;
+      const appsJson = await appsRes.json().catch(() => ({}));
+      for (const app of appsJson.value || []) {
+        const evidence = clipEvidence(`${app.displayName || term} ${app.version || ""}`.trim());
+        for (const device of app.managedDevices || []) {
+          const id = device.id;
+          if (!id) continue;
+          processHosts.set(String(id), evidence);
+        }
+      }
+    }
+  } catch {
+    /* detectedApps optional */
+  }
+
   let aiAgents = 0;
   for (const d of devices) {
+    const processEvidence = processHosts.get(String(d.id)) || null;
     const pushed = maybePushAiEndpoint(observations, {
       provider: "intune",
       conn,
@@ -527,14 +620,44 @@ export async function discoverIntune(conn) {
       owner: d.userPrincipalName || d.emailAddress || null,
       ip: null,
       status: d.complianceState || d.managementState || "unknown",
-      signalParts: [d.deviceName, d.model, d.manufacturer, d.userPrincipalName],
-      extra: { intuneDeviceId: d.id, model: d.model, manufacturer: d.manufacturer }
+      processEvidence,
+      signalParts: [d.deviceName, d.model, d.manufacturer, d.userPrincipalName, processEvidence],
+      extra: {
+        intuneDeviceId: d.id,
+        model: d.model,
+        manufacturer: d.manufacturer,
+        processSource: processEvidence ? "detectedApps" : null
+      }
+    });
+    if (pushed) aiAgents += 1;
+  }
+  for (const [deviceId, evidence] of processHosts) {
+    if (devices.some((d) => String(d.id) === String(deviceId))) continue;
+    const pushed = maybePushAiEndpoint(observations, {
+      provider: "intune",
+      conn,
+      id: deviceId,
+      name: `AI app host ${deviceId}`,
+      hostname: null,
+      os: null,
+      owner: null,
+      ip: null,
+      status: "running",
+      processEvidence: evidence,
+      signalParts: [evidence],
+      extra: { intuneDeviceId: deviceId, source: "detectedApps" }
     });
     if (pushed) aiAgents += 1;
   }
   return {
     observations,
-    stats: { devices: devices.length, aiAgents, aiOnly: DISCOVERY_AI_ONLY, message: result.message }
+    stats: {
+      devices: devices.length,
+      aiAgents,
+      processHits: processHosts.size,
+      aiOnly: DISCOVERY_AI_ONLY,
+      message: result.message
+    }
   };
 }
 
@@ -621,30 +744,117 @@ export async function discoverCortex(conn) {
   }, ALLOW.cortex);
   const json = await res.json().catch(() => ({}));
   const endpoints = json.reply?.endpoints || [];
+
+  // Process-first via XQL (best-effort; tenants without XQL stay on hostname heuristics).
+  const processHosts = new Map();
+  try {
+    const terms = AI_PROCESS_QUERY_TERMS.slice(0, 10)
+      .map((t) => `action_process_image_name contains "${t}" or action_process_image_command_line contains "${t}"`)
+      .join(" or ");
+    const xql =
+      `dataset = xdr_data | filter event_type = ENUM.PROCESS and (${terms})` +
+      ` | fields agent_id, agent_hostname, action_process_image_name, action_process_image_command_line` +
+      ` | limit 80`;
+    const start = await safeFetch(
+      `${result.baseUrl}/xql/start_xql_query/`,
+      {
+        method: "POST",
+        headers: cortexAuthHeaders(result.apiKey, result.apiKeyId),
+        body: JSON.stringify({ request_data: { query: xql, tenants: [] } })
+      },
+      ALLOW.cortex
+    ).catch(() => null);
+    const startJson = start?.ok ? await start.json().catch(() => ({})) : {};
+    const queryId = startJson.reply || startJson.reply?.query_id || startJson.query_id;
+    if (queryId) {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        await new Promise((r) => setTimeout(r, 700));
+        const get = await safeFetch(
+          `${result.baseUrl}/xql/get_query_results/`,
+          {
+            method: "POST",
+            headers: cortexAuthHeaders(result.apiKey, result.apiKeyId),
+            body: JSON.stringify({
+              request_data: { query_id: queryId, pending_flag: true, limit: 80, format: "json" }
+            })
+          },
+          ALLOW.cortex
+        ).catch(() => null);
+        if (!get?.ok) continue;
+        const getJson = await get.json().catch(() => ({}));
+        const status = String(getJson.reply?.status || getJson.status || "");
+        const rows = getJson.reply?.results?.data || getJson.reply?.data || getJson.results || [];
+        if (Array.isArray(rows) && rows.length) {
+          for (const row of rows) {
+            const id = row.agent_id || row.endpoint_id;
+            const evidence = clipEvidence(
+              row.action_process_image_command_line || row.action_process_image_name || row.cmdline
+            );
+            if (!id || !evidence) continue;
+            if (!isAiAgentProcess(evidence) && !isAiRelevantText(evidence)) continue;
+            processHosts.set(String(id), evidence);
+          }
+          break;
+        }
+        if (/SUCCESS|COMPLETED|DONE/i.test(status) && !rows?.length) break;
+      }
+    }
+  } catch {
+    /* XQL optional */
+  }
+
   let aiAgents = 0;
   if (Array.isArray(endpoints)) {
     for (const e of endpoints) {
+      const id = e.endpoint_id || e.agent_id || e.host_name;
+      const processEvidence = processHosts.get(String(e.endpoint_id)) || processHosts.get(String(e.agent_id)) || null;
       const pushed = maybePushAiEndpoint(observations, {
         provider: "cortex",
         conn,
-        id: e.endpoint_id || e.agent_id || e.host_name,
+        id,
         name: e.host_name || e.endpoint_name || e.endpoint_id,
         hostname: e.host_name,
         os: [e.os_type, e.os_version].filter(Boolean).join(" "),
         owner: e.users?.[0] || null,
         ip: e.ip || e.ipv6?.[0] || null,
         status: e.endpoint_status || "unknown",
-        signalParts: [e.host_name, e.endpoint_name, e.group_name, ...(e.users || [])],
-        extra: { cortexEndpointId: e.endpoint_id, groupName: e.group_name }
+        processEvidence,
+        signalParts: [e.host_name, e.endpoint_name, e.group_name, ...(e.users || []), processEvidence],
+        extra: {
+          cortexEndpointId: e.endpoint_id,
+          groupName: e.group_name,
+          processSource: processEvidence ? "xql" : null
+        }
       });
       if (pushed) aiAgents += 1;
     }
+  }
+  for (const [deviceId, evidence] of processHosts) {
+    if (Array.isArray(endpoints) && endpoints.some((e) => String(e.endpoint_id) === String(deviceId) || String(e.agent_id) === String(deviceId))) {
+      continue;
+    }
+    const pushed = maybePushAiEndpoint(observations, {
+      provider: "cortex",
+      conn,
+      id: deviceId,
+      name: `AI process host ${deviceId}`,
+      hostname: null,
+      os: null,
+      owner: null,
+      ip: null,
+      status: "running",
+      processEvidence: evidence,
+      signalParts: [evidence],
+      extra: { cortexEndpointId: deviceId, source: "xql" }
+    });
+    if (pushed) aiAgents += 1;
   }
   return {
     observations,
     stats: {
       devices: Array.isArray(endpoints) ? endpoints.length : 0,
       aiAgents,
+      processHits: processHosts.size,
       aiOnly: DISCOVERY_AI_ONLY,
       message: result.message
     }
@@ -774,6 +984,17 @@ export async function discoverNetskope(conn) {
     let aiAgents = 0;
     for (const c of clients.slice(0, EDR_DEVICE_LIMIT)) {
       const id = c.client_id || c.device_id || c.host_info?.hostname || c._id || JSON.stringify(c).slice(0, 40);
+      const appBlob = [
+        ...(Array.isArray(c.apps) ? c.apps.map((a) => a.name || a.app_name || a) : []),
+        ...(Array.isArray(c.applications) ? c.applications.map((a) => a.name || a.app_name || a) : []),
+        c.last_event?.app,
+        c.host_info?.device_make,
+        c.host_info?.device_model
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const processEvidence =
+        isAiAgentProcess(appBlob) || isAiRelevantText(appBlob) ? clipEvidence(appBlob) : null;
       const pushed = maybePushAiEndpoint(observations, {
         provider: "netskope",
         conn,
@@ -784,14 +1005,19 @@ export async function discoverNetskope(conn) {
         owner: c.username || c.userkey || null,
         ip: c.last_event?.ip_address || c.ip_address || null,
         status: c.client_status || c.status || "unknown",
+        processEvidence,
         signalParts: [
           c.host_info?.hostname,
           c.hostname,
           c.device_name,
           c.username,
-          c.host_info?.os
+          c.host_info?.os,
+          processEvidence
         ],
-        extra: { netskopeClientId: id }
+        extra: {
+          netskopeClientId: id,
+          processSource: processEvidence ? "client-apps" : null
+        }
       });
       if (pushed) aiAgents += 1;
     }

@@ -7,11 +7,35 @@ export const DISCOVERY_AI_ONLY = String(process.env.DISCOVERY_AI_ONLY || "true")
 
 /** Text / name / label signals for AI agents and AI workloads. */
 export const AI_TEXT_RE =
-  /(^|[-_\s/.:])(ai|ml|llm|gpt|agent|assistant|copilot|bedrock|openai|anthropic|claude|langchain|langgraph|crewai|autogen|llama|ollama|vllm|gemini|vertex|foundry|mcp|cursor|genai|rag|embedding|vector|sagemaker|cognitive|bot|illuminate|agentforce|now.?assist)([-_\s/.:]|$)/i;
+  /(^|[-_\s/.:])(ai|ml|llm|gpt|agent|assistant|copilot|bedrock|openai|anthropic|claude|langchain|langgraph|crewai|autogen|llama|ollama|vllm|gemini|vertex|foundry|mcp|cursor|genai|rag|embedding|vector|sagemaker|cognitive|bot|illuminate|agentforce|now.?assist|dialogflow|agent.?builder|windsurf|aider|continue|n8n|semantic.?kernel|open.?interpreter|chatgpt|custom.?gpt)([-_\s/.:]|$)/i;
 
 /** Process / cmdline signals for IDE agents and local AI runtimes. */
 export const AI_AGENT_PROCESS_RE =
-  /ollama|langgraph|crewai|autogen|vllm|openai|anthropic|claude|cursor-agent|\bcursor\b|copilot|chatgpt|gemini|bedrock|langchain|mcp-server|@modelcontextprotocol|continue\.dev|\baider\b|windsurf|open-interpreter|semantic.?kernel|botframework|power.?virtual|agentforce|npx\s+.*mcp|jenkins/i;
+  /ollama|langgraph|crewai|autogen|vllm|openai|anthropic|claude|cursor-agent|\bcursor\b|copilot|chatgpt|gemini|bedrock|langchain|mcp-server|@modelcontextprotocol|continue\.dev|\baider\b|windsurf|open-interpreter|semantic.?kernel|botframework|power.?virtual|agentforce|npx\s+.*mcp|jenkins|dialogflow|foundry|codeium|tabnine|amazon.?q|aws.?q|github.?copilot|copilot-language-server|claude-code|aider|n8n|openinterpreter|lmstudio|llama\.cpp|llama-server|text-generation-webui/i;
+
+/** Shared process-query terms for EDR advanced hunting / process APIs. */
+export const AI_PROCESS_QUERY_TERMS = [
+  "ollama",
+  "claude",
+  "copilot",
+  "langchain",
+  "langgraph",
+  "crewai",
+  "autogen",
+  "vllm",
+  "openai",
+  "chatgpt",
+  "mcp",
+  "cursor",
+  "aider",
+  "windsurf",
+  "continue",
+  "bedrock",
+  "semantic-kernel",
+  "open-interpreter",
+  "n8n",
+  "lmstudio"
+];
 
 export function isAiRelevantText(...parts) {
   return AI_TEXT_RE.test(parts.filter(Boolean).join(" "));
@@ -27,13 +51,16 @@ export function isAiAgentProcess(text) {
  */
 export const AZURE_AI_TYPE_ALWAYS = [
   "Microsoft.CognitiveServices/accounts",
+  "Microsoft.CognitiveServices/accounts/projects",
   "Microsoft.MachineLearningServices/workspaces",
   "Microsoft.BotService/botServices",
   "Microsoft.Search/searchServices",
   "Microsoft.MachineLearningServices/workspaces/onlineEndpoints",
   "Microsoft.MachineLearningServices/workspaces/batchEndpoints",
   "Microsoft.MachineLearningServices/workspaces/computes",
-  "Microsoft.MachineLearningServices/workspaces/connections"
+  "Microsoft.MachineLearningServices/workspaces/connections",
+  "Microsoft.MachineLearningServices/workspaces/agents",
+  "Microsoft.MachineLearningServices/workspaces/serverlessEndpoints"
 ];
 
 /** Types that may host AI agents — only ingest when name/tags/kind look AI-related. */
@@ -70,8 +97,8 @@ export function isAzureAiResource(resource) {
     .join(" ");
 
   if (azureTypeMatches(type, AZURE_AI_TYPE_ALWAYS)) return true;
-  if (/openai|MachineLearning|CognitiveServices|BotService/i.test(type)) return true;
-  if (/openai|ai\.|ml\.|foundry|copilot|llm|gpt|claude|bedrock|agent|cognitive/i.test(kind)) return true;
+  if (/openai|MachineLearning|CognitiveServices|BotService|Foundry|AIServices/i.test(type)) return true;
+  if (/openai|ai\.|ml\.|foundry|copilot|llm|gpt|claude|bedrock|agent|cognitive|assistants?/i.test(kind)) return true;
 
   const signal = isAiRelevantText(name, kind, tagBlob, type.split("/").pop());
   if (azureTypeMatches(type, AZURE_AI_TYPE_CONDITIONAL) && signal) return true;
