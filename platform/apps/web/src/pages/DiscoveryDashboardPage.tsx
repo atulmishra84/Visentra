@@ -139,9 +139,17 @@ export function DiscoveryDashboardPage() {
             API credentials and surface endpoint visibility sources.
           </p>
         </div>
-        <button className="button primary" disabled={running} type="button" onClick={() => void triggerDiscovery()}>
-          {running ? "Starting scan..." : "Run discovery scan"}
-        </button>
+        <div className="toolbar">
+          <Link className="button" to="/discovery/events">
+            Discovery events
+          </Link>
+          <Link className="button" to="/discovery/changes">
+            Change intelligence
+          </Link>
+          <button className="button primary" disabled={running} type="button" onClick={() => void triggerDiscovery()}>
+            {running ? "Starting scan..." : "Run discovery scan"}
+          </button>
+        </div>
       </header>
 
       {error ? <div className="error-state">{error}</div> : null}
@@ -175,7 +183,8 @@ export function DiscoveryDashboardPage() {
             1) Test connector in Settings<br />
             2) Click <strong>Run discovery scan</strong><br />
             3) Check Inventory for `Azure scan — …` and AI resources<br />
-            4) Check Discovery Events for scan counts
+            4) Check{" "}
+            <Link to="/discovery/events">Discovery Events</Link> for scan counts
           </p>
         </div>
         <div className="panel">

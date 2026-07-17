@@ -12,6 +12,7 @@ import {
   type Agent,
   valueAt
 } from "../lib/api";
+import { AGENT_PLANES, ENVIRONMENT_LANES, meshBadgeLabel } from "../lib/mesh";
 
 function uniqueOptions(rows: Agent[], key: string): string[] {
   const values = new Set<string>();
@@ -40,21 +41,6 @@ function uniqueMetaOptions(rows: Agent[], key: string): string[] {
   return [...values].sort((left, right) => left.localeCompare(right));
 }
 
-const MESH_LABELS: Record<string, string> = {
-  containerized: "Containerized",
-  serverless: "Serverless",
-  saas_third_party: "SaaS",
-  endpoint: "Endpoint",
-  development: "Dev",
-  staging: "Staging",
-  production: "Prod",
-  saas: "SaaS",
-  endpoints: "Endpoints"
-};
-
-function meshLabel(value: string): string {
-  return MESH_LABELS[value] || value;
-}
 
 function categoryBadge(category: string) {
   const c = category.toLowerCase();
@@ -178,21 +164,12 @@ export function InventoryPage({ title }: { title: string }) {
       evidenceClass: uniqueMetaOptions(agents, "evidenceClass"),
       agentStatus: uniqueMetaOptions(agents, "agentStatus"),
       accessSensitivity: uniqueMetaOptions(agents, "accessSensitivity"),
-      agentPlane: [
-        "containerized",
-        "serverless",
-        "saas_third_party",
-        "endpoint",
-        ...uniqueMetaOptions(agents, "agentPlane")
-      ].filter((v, i, arr) => arr.indexOf(v) === i),
-      environmentLane: [
-        "development",
-        "staging",
-        "production",
-        "saas",
-        "endpoints",
-        ...uniqueMetaOptions(agents, "environmentLane")
-      ].filter((v, i, arr) => arr.indexOf(v) === i),
+      agentPlane: [...AGENT_PLANES, ...uniqueMetaOptions(agents, "agentPlane")].filter(
+        (v, i, arr) => arr.indexOf(v) === i
+      ),
+      environmentLane: [...ENVIRONMENT_LANES, ...uniqueMetaOptions(agents, "environmentLane")].filter(
+        (v, i, arr) => arr.indexOf(v) === i
+      ),
       dataClass: (() => {
         const values = new Set<string>(["pii", "phi", "secrets", "financial", "none"]);
         agents.forEach((row) => {
@@ -308,7 +285,7 @@ export function InventoryPage({ title }: { title: string }) {
         const lane = metaAt(agent, "environmentLane", "—");
         return (
           <span className="badge">
-            {meshLabel(plane)} · {meshLabel(lane)}
+            {meshBadgeLabel(plane)} · {meshBadgeLabel(lane)}
           </span>
         );
       },

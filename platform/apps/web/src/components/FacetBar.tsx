@@ -1,3 +1,5 @@
+import { meshOptionLabel } from "../lib/mesh";
+
 export type Facets = {
   q?: string;
   owner?: string;
@@ -46,18 +48,6 @@ const facetFields: Array<keyof Facets> = [
 
 const BOOL_FACETS = new Set<keyof Facets>(["overPermissioned", "hasInstructions"]);
 
-const MESH_OPTION_LABELS: Record<string, string> = {
-  containerized: "Containerized",
-  serverless: "Serverless",
-  saas_third_party: "SaaS & third-party",
-  endpoint: "Endpoint",
-  development: "Development",
-  staging: "Staging",
-  production: "Production",
-  saas: "SaaS",
-  endpoints: "Endpoints"
-};
-
 function labelFor(key: keyof Facets): string {
   if (key === "q") return "Search";
   if (key === "cloud") return "Provider";
@@ -78,7 +68,7 @@ function labelFor(key: keyof Facets): string {
 
 function optionLabel(field: keyof Facets, option: string): string {
   if (field === "agentPlane" || field === "environmentLane") {
-    return MESH_OPTION_LABELS[option] || option;
+    return meshOptionLabel(option);
   }
   return option;
 }

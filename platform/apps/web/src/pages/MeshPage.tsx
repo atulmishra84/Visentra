@@ -1,23 +1,69 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { KpiCard } from "../components/KpiCard";
 import { apiRequest, numberAt, valueAt } from "../lib/api";
 
-type MeshCell = {
+type MeshNode = {
+  id?: string;
+  name?: string;
+  category?: string;
+  status?: "active" | "flagged" | "inactive" | "shadow" | string;
+  kind?: "agent" | "device" | string;
+  href?: string;
+  relationshipsHref?: string;
+};
+
+type MeshCluster = {
   lane?: string;
   label?: string;
   count?: number;
+  flaggedCount?: number;
   shadowCount?: number;
-  piiCount?: number;
-  phiCount?: number;
+  deviceCount?: number;
+  categories?: Array<{ name?: string; count?: number }>;
+  nodes?: MeshNode[];
   href?: string;
 };
 
-type MeshRow = {
-  plane?: string;
-  label?: string;
-  cells?: MeshCell[];
-};
+/** Deterministic pseudo-random in [0,1) from a string. */
+function hashUnit(input: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) / 4294967296;
+}
+
+function nodePosition(node: MeshNode, index: number, total: number, lane?: string) {
+  const id = String(node.id || node.name || index);
+  const ring = 0.28 + hashUnit(`${id}:r`) * 0.55;
+  const base = (index / Math.max(total, 1)) * Math.PI * 2;
+  const jitter = (hashUnit(`${id}:a`) - 0.5) * 0.55;
+  // Endpoints: cleaner oval ring
+  const angle = lane === "endpoints" ? (index / Math.max(total, 1)) * Math.PI * 2 : base + jitter;
+  const rx = lane === "endpoints" ? 0.62 : ring;
+  const ry = lane === "endpoints" ? 0.42 : ring * (0.75 + hashUnit(`${id}:y`) * 0.35);
+  return {
+    left: `${50 + Math.cos(angle) * rx * 42}%`,
+    top: `${50 + Math.sin(angle) * ry * 42}%`
+  };
+}
+
+function categoryPosition(name: string, index: number, total: number) {
+  const angle = -Math.PI / 2 + (index / Math.max(total, 1)) * Math.PI * 2;
+  const radius = 34;
+  return {
+    left: `${50 + Math.cos(angle) * radius}%`,
+    top: `${50 + Math.sin(angle) * radius}%`
+  };
+}
+
+function MeshGlyph({ status, kind }: { status?: string; kind?: string }) {
+  if (kind === "device") {
+    return <span className="gm-glyph device" aria-hidden />;
+  }
+  return <span className={`gm-glyph ${status || "active"}`} aria-hidden />;
+}
 
 export function MeshPage() {
   const navigate = useNavigate();
@@ -25,6 +71,7 @@ export function MeshPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [shadowOnly, setShadowOnly] = useState(false);
+  const [hovered, setHovered] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -42,40 +89,57 @@ export function MeshPage() {
     };
   }, [shadowOnly]);
 
-  const matrix = useMemo(() => (payload?.matrix as MeshRow[] | undefined) || [], [payload]);
-  const lanes = useMemo(
-    () => (payload?.lanes as Array<{ id?: string; label?: string }> | undefined) || [],
-    [payload]
-  );
+  const clusters = useMemo(() => {
+    const fromApi = (payload?.clusters as MeshCluster[] | undefined) || [];
+    if (fromApi.length) return fromApi;
+    return [];
+  }, [payload]);
+
   const totals = (payload?.totals as Record<string, unknown> | undefined) || {};
-  const byPlane = (totals.byPlane as Record<string, number> | undefined) || {};
 
   if (loading) {
     return (
-      <div className="page">
-        <div className="loading-state">Loading global agent mesh...</div>
+      <div className="page gm-page">
+        <div className="loading-state">Loading global mesh...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="page">
+      <div className="page gm-page">
         <div className="error-state">{error}</div>
       </div>
     );
   }
 
   return (
-    <div className="page">
-      <header className="page-header">
+    <div className="page gm-page">
+      <header className="gm-header">
         <div>
-          <p className="eyebrow">Estate map</p>
-          <h1>Global Agent Mesh</h1>
-          <p className="page-description">
-            Agents segregated by deployment plane and environment lane. Shadow is an overlay — toggle to focus
-            unsanctioned agents.
+          <h1 className="gm-title">Global Mesh</h1>
+          <p className="gm-subtitle">
+            {numberAt(totals, ["agents"], 0)} agents across environments
+            {numberAt(totals, ["flagged"], 0) ? ` · ${numberAt(totals, ["flagged"], 0)} flagged` : ""}
+            {numberAt(totals, ["shadow"], 0) ? ` · ${numberAt(totals, ["shadow"], 0)} shadow` : ""}
           </p>
+        </div>
+        <div className="gm-legend" aria-label="Mesh legend">
+          <span>
+            <i className="gm-glyph active" /> Active
+          </span>
+          <span>
+            <i className="gm-glyph flagged" /> Flagged
+          </span>
+          <span>
+            <i className="gm-glyph inactive" /> Inactive
+          </span>
+          <span>
+            <i className="gm-glyph shadow" /> Shadow
+          </span>
+          <span>
+            <i className="gm-glyph device" /> Device
+          </span>
         </div>
         <div className="toolbar">
           <button
@@ -85,74 +149,95 @@ export function MeshPage() {
           >
             {shadowOnly ? "Shadow only · on" : "Shadow only"}
           </button>
-          <Link className="button" to="/inventory">
-            Open inventory
+          <Link className="button ghost" to="/inventory">
+            Inventory
           </Link>
         </div>
       </header>
 
-      <section className="card-grid">
-        <KpiCard label="Agents in mesh" value={numberAt(totals, ["agents"], 0)} />
-        <KpiCard label="Shadow overlay" value={numberAt(totals, ["shadow"], 0)} tone="warn" />
-        <KpiCard label="Containerized" value={byPlane.containerized || 0} />
-        <KpiCard label="Serverless" value={byPlane.serverless || 0} />
-        <KpiCard label="SaaS & third-party" value={byPlane.saas_third_party || 0} />
-        <KpiCard label="Endpoint" value={byPlane.endpoint || 0} />
-      </section>
+      <div className="gm-canvas" role="img" aria-label="Global agent mesh constellation">
+        <div className="gm-dotgrid" />
+        {clusters.map((cluster) => {
+          const nodes = cluster.nodes || [];
+          const categories = cluster.categories || [];
+          const flagged = numberAt(cluster, ["flaggedCount"], 0);
+          const shadow = numberAt(cluster, ["shadowCount"], 0);
+          const count = numberAt(cluster, ["count"], nodes.length);
+          const isEndpoints = cluster.lane === "endpoints";
 
-      <section className="panel mesh-panel">
-        <div className="mesh-scroll">
-          <table className="mesh-table">
-            <thead>
-              <tr>
-                <th scope="col">Plane \\ Lane</th>
-                {lanes.map((lane) => (
-                  <th scope="col" key={String(lane.id || lane.label)}>
-                    {valueAt(lane, ["label", "id"], "—")}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {matrix.map((row) => (
-                <tr key={String(row.plane || row.label)}>
-                  <th scope="row">{valueAt(row, ["label", "plane"], "—")}</th>
-                  {(row.cells || []).map((cell) => {
-                    const count = numberAt(cell, ["count"], 0);
-                    const shadow = numberAt(cell, ["shadowCount"], 0);
-                    const pii = numberAt(cell, ["piiCount"], 0);
-                    const phi = numberAt(cell, ["phiCount"], 0);
-                    const tone = count === 0 ? "empty" : phi > 0 ? "phi" : pii > 0 ? "pii" : shadow > 0 ? "shadow" : "ok";
-                    return (
-                      <td key={`${row.plane}-${cell.lane}`}>
-                        <button
-                          type="button"
-                          className={`mesh-cell ${tone}`}
-                          disabled={count === 0}
-                          onClick={() => {
-                            const href = valueAt(cell, ["href"]);
-                            if (href) navigate(href);
-                          }}
-                        >
-                          <strong>{count}</strong>
-                          <span>
-                            {shadow ? `${shadow} shadow` : "—"}
-                            {phi ? ` · ${phi} PHI` : pii ? ` · ${pii} PII` : ""}
-                          </span>
-                        </button>
-                      </td>
-                    );
-                  })}
-                </tr>
+          return (
+            <section
+              key={String(cluster.lane || cluster.label)}
+              className={`gm-cluster lane-${cluster.lane || "unknown"}`}
+              onClick={() => {
+                if (cluster.href) navigate(cluster.href);
+              }}
+            >
+              <div className="gm-cluster-core">
+                <h2>{valueAt(cluster, ["label"], "Environment")}</h2>
+                <p>
+                  {isEndpoints ? (
+                    <>
+                      <strong>{numberAt(cluster, ["deviceCount"], count)}</strong> Devices
+                    </>
+                  ) : (
+                    <>
+                      <strong>{count}</strong> Agents
+                      {flagged ? (
+                        <>
+                          , <em>{flagged} Flagged</em>
+                        </>
+                      ) : null}
+                      {shadow && cluster.lane === "saas" ? (
+                        <>
+                          , <span className="gm-shadow-count">{shadow} Shadow</span>
+                        </>
+                      ) : null}
+                    </>
+                  )}
+                </p>
+              </div>
+
+              {categories.map((cat, index) => (
+                <div
+                  key={`${cluster.lane}-${cat.name}`}
+                  className="gm-category"
+                  style={categoryPosition(String(cat.name), index, categories.length)}
+                >
+                  {valueAt(cat, ["name"], "General")}
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="muted" style={{ marginTop: 14 }}>
-          Click a cell to open Inventory filtered by plane and environment. Shadow overlay does not create a fifth
-          plane.
-        </p>
-      </section>
+
+              {nodes.map((node, index) => {
+                const pos = nodePosition(node, index, nodes.length, cluster.lane);
+                const tipId = String(node.id || `${cluster.lane}-${index}`);
+                return (
+                  <button
+                    key={tipId}
+                    type="button"
+                    className={`gm-node ${node.kind || "agent"} status-${node.status || "active"} ${
+                      hovered === tipId ? "is-hot" : ""
+                    }`}
+                    style={pos}
+                    title={valueAt(node, ["name"], "Agent")}
+                    onMouseEnter={() => setHovered(tipId)}
+                    onMouseLeave={() => setHovered(null)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      navigate(valueAt(node, ["relationshipsHref", "href"], "/relationships"));
+                    }}
+                  >
+                    <MeshGlyph status={node.status} kind={node.kind} />
+                    {hovered === tipId ? (
+                      <span className="gm-tooltip">{valueAt(node, ["name"], "Agent")}</span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </section>
+          );
+        })}
+      </div>
     </div>
   );
 }

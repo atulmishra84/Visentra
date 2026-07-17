@@ -115,8 +115,11 @@ export function AgentDetailPage() {
           <Link className="button primary" to={`/relationships?agentId=${encodeURIComponent(String(agent.id ?? id))}`}>
             Open anatomy
           </Link>
-          <Link className="button" to={`/topology?agentId=${encodeURIComponent(String(agent.id ?? id))}`}>
-            Open in topology
+          <Link
+            className="button"
+            to={`/relationships?agentId=${encodeURIComponent(String(agent.id ?? id))}&graph=1`}
+          >
+            Show neighborhood graph
           </Link>
           <Link className="button" to="/inventory">
             Back to inventory

@@ -4,6 +4,14 @@
  */
 
 import crypto from "crypto";
+import {
+  AGENT_PLANES,
+  ENVIRONMENT_LANES,
+  PLANE_LABELS,
+  LANE_LABELS
+} from "../meshConstants.js";
+
+export { AGENT_PLANES, ENVIRONMENT_LANES, PLANE_LABELS, LANE_LABELS };
 
 const ACCESS_KEYS = [
   "internet",
@@ -511,23 +519,19 @@ export function buildAgentAccess(obs = {}) {
   };
 }
 
-export const AGENT_PLANES = ["containerized", "serverless", "saas_third_party", "endpoint"];
-export const ENVIRONMENT_LANES = ["development", "staging", "production", "saas", "endpoints"];
-
-const PLANE_LABELS = {
-  containerized: "Containerized",
-  serverless: "Serverless",
-  saas_third_party: "SaaS & third-party",
-  endpoint: "Endpoint"
-};
-
-const LANE_LABELS = {
-  development: "Development",
-  staging: "Staging",
-  production: "Production",
-  saas: "SaaS",
-  endpoints: "Endpoints"
-};
+/** True when agent/metadata carries shadow or unmanaged signals. */
+export function isShadowSignal(rowOrObs = {}, meta = {}) {
+  const m =
+    meta && typeof meta === "object"
+      ? meta
+      : rowOrObs.metadata && typeof rowOrObs.metadata === "object"
+        ? rowOrObs.metadata
+        : {};
+  if (m.shadowAi === true) return true;
+  if (m.mesh && m.mesh.shadowOverlay === true) return true;
+  const indicators = rowOrObs.risk_indicators || m.risk_indicators;
+  return Array.isArray(indicators) && indicators.some((x) => /shadow|unmanaged/i.test(String(x)));
+}
 
 function textBlob(obs = {}, meta = {}) {
   return [
@@ -642,67 +646,128 @@ export function buildAgentMeshPlacement(obs = {}) {
     planeLabel: PLANE_LABELS[agentPlane] || agentPlane,
     laneLabel: LANE_LABELS[environmentLane] || environmentLane,
     confidence,
-    shadowOverlay: Boolean(
-      meta.shadowAi === true ||
-        (Array.isArray(obs.risk_indicators) &&
-          obs.risk_indicators.some((x) => /shadow|unmanaged/i.test(String(x))))
-    )
+    shadowOverlay: isShadowSignal(obs, meta)
   };
 }
 
 /**
  * Aggregate Global Agent Mesh matrix for a tenant.
  */
+function meshNodeStatus(row, meta, isShadow, dac, depth) {
+  const running = String(row.running_status || meta.runningStatus || "").toLowerCase();
+  const sensitivity = depth.agentAccess?.sensitivity || meta.accessSensitivity;
+  const flagged =
+    isShadow ||
+    meta.overPermissioned === true ||
+    depth.agentAccess?.overPermissioned === true ||
+    dac.hasPhi ||
+    meta.hasPhi ||
+    sensitivity === "high" ||
+    (Array.isArray(row.risk_indicators) &&
+      row.risk_indicators.some((x) => /critical|high|flagged|over.?permission/i.test(String(x))));
+  if (isShadow) return "shadow";
+  if (flagged) return "flagged";
+  if (running === "stopped" || running === "unknown" || running === "idle") return "inactive";
+  return "active";
+}
+
+function meshCategoryLabel(row, meta) {
+  return (
+    row.department ||
+    meta.team ||
+    meta.function ||
+    row.business_unit ||
+    row.category ||
+    meta.inventoryClass ||
+    "General"
+  );
+}
+
 export async function computeAgentMesh(pool, tenantId, { shadowOnly = false } = {}) {
   const result = await pool.query(`SELECT * FROM agents WHERE tenant_id=$1`, [tenantId]);
   const planes = AGENT_PLANES.map((id) => ({ id, label: PLANE_LABELS[id] }));
   const lanes = ENVIRONMENT_LANES.map((id) => ({ id, label: LANE_LABELS[id] }));
+  // Aggregate counts only — constellation nodes live on clusters (avoid dual agent lists).
   const cells = {};
   for (const p of AGENT_PLANES) {
     cells[p] = {};
     for (const l of ENVIRONMENT_LANES) {
-      cells[p][l] = { count: 0, shadowCount: 0, piiCount: 0, phiCount: 0, agents: [] };
+      cells[p][l] = { count: 0, shadowCount: 0, piiCount: 0, phiCount: 0, flaggedCount: 0 };
     }
   }
 
   let total = 0;
   let shadowTotal = 0;
+  let flaggedTotal = 0;
   const planeTotals = Object.fromEntries(AGENT_PLANES.map((p) => [p, 0]));
   const laneTotals = Object.fromEntries(ENVIRONMENT_LANES.map((l) => [l, 0]));
+  const clusterBuckets = Object.fromEntries(
+    ENVIRONMENT_LANES.map((l) => [
+      l,
+      {
+        lane: l,
+        label: LANE_LABELS[l],
+        agents: [],
+        categories: new Map(),
+        count: 0,
+        flaggedCount: 0,
+        shadowCount: 0,
+        deviceCount: 0
+      }
+    ])
+  );
 
   for (const row of result.rows) {
     const depth = summarizeAgentDepth(row);
     const mesh = depth.mesh || buildAgentMeshPlacement({ ...row, metadata: row.metadata || {} });
     const meta = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
-    const isShadow =
-      mesh.shadowOverlay ||
-      meta.shadowAi === true ||
-      (Array.isArray(row.risk_indicators) &&
-        row.risk_indicators.some((x) => /shadow|unmanaged/i.test(String(x))));
+    const isShadow = Boolean(mesh.shadowOverlay) || isShadowSignal(row, meta);
     if (shadowOnly && !isShadow) continue;
 
     const plane = AGENT_PLANES.includes(mesh.agentPlane) ? mesh.agentPlane : "endpoint";
     const lane = ENVIRONMENT_LANES.includes(mesh.environmentLane) ? mesh.environmentLane : "production";
     const cell = cells[plane][lane];
+    const dac = depth.dataAccessClassification || {};
+    const status = meshNodeStatus(row, meta, isShadow, dac, depth);
+    const category = String(meshCategoryLabel(row, meta));
+    const node = {
+      id: row.id,
+      name: row.name,
+      owner: row.owner,
+      category,
+      plane,
+      lane,
+      status,
+      kind: lane === "endpoints" ? "device" : "agent",
+      shadow: isShadow,
+      flagged: status === "flagged",
+      primaryDataClass: meta.primaryDataClass || dac.primaryDataClass || "none",
+      model: row.model || null,
+      framework: row.framework || null,
+      href: `/agents/${row.id}`,
+      relationshipsHref: `/relationships?agentId=${row.id}`
+    };
+
     cell.count += 1;
     if (isShadow) {
       cell.shadowCount += 1;
       shadowTotal += 1;
     }
-    const dac = depth.dataAccessClassification || {};
+    if (status === "flagged" || status === "shadow") {
+      cell.flaggedCount += 1;
+      flaggedTotal += 1;
+    }
     if (dac.hasPii || meta.hasPii) cell.piiCount += 1;
     if (dac.hasPhi || meta.hasPhi) cell.phiCount += 1;
-    if (cell.agents.length < 8) {
-      cell.agents.push({
-        id: row.id,
-        name: row.name,
-        owner: row.owner,
-        category: row.category,
-        shadow: isShadow,
-        primaryDataClass: meta.primaryDataClass || dac.primaryDataClass || "none",
-        href: `/agents/${row.id}`
-      });
-    }
+
+    const bucket = clusterBuckets[lane];
+    bucket.count += 1;
+    if (isShadow) bucket.shadowCount += 1;
+    if (status === "flagged" || status === "shadow") bucket.flaggedCount += 1;
+    if (node.kind === "device") bucket.deviceCount += 1;
+    if (bucket.agents.length < 48) bucket.agents.push(node);
+    bucket.categories.set(category, (bucket.categories.get(category) || 0) + 1);
+
     total += 1;
     planeTotals[plane] += 1;
     laneTotals[lane] += 1;
@@ -719,18 +784,79 @@ export async function computeAgentMesh(pool, tenantId, { shadowOnly = false } = 
     }))
   }));
 
+  const clusters = ENVIRONMENT_LANES.map((laneId) => {
+    const bucket = clusterBuckets[laneId];
+    const categories = [...bucket.categories.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, count]) => ({ name, count }));
+    return {
+      lane: bucket.lane,
+      label: bucket.label,
+      count: bucket.count,
+      flaggedCount: bucket.flaggedCount,
+      shadowCount: bucket.shadowCount,
+      deviceCount: bucket.deviceCount,
+      categories,
+      nodes: bucket.agents,
+      href: `/inventory?environmentLane=${laneId}${shadowOnly ? "&shadow=true" : ""}`
+    };
+  }).filter((c) => c.count > 0 || c.lane === "production" || c.lane === "saas");
+
   return {
     planes,
     lanes,
     matrix,
+    clusters,
     totals: {
       agents: total,
       shadow: shadowTotal,
+      flagged: flaggedTotal,
       byPlane: planeTotals,
       byLane: laneTotals
     },
     shadowOnly: Boolean(shadowOnly),
     generatedAt: new Date().toISOString()
+  };
+}
+
+/**
+ * Flatten depth objects onto metadata for list/detail API consumers.
+ */
+export function flattenDepthMetadata(meta = {}, depth = {}) {
+  const agentConfig = depth.agentConfig || meta.agentConfig || {};
+  const agentAccess = depth.agentAccess || meta.agentAccess || {};
+  const ownership = depth.ownership || meta.ownership || {};
+  const dac = depth.dataAccessClassification || meta.dataAccessClassification || {};
+  const mesh = depth.mesh || meta.mesh || {};
+  return {
+    ...meta,
+    agentConfig: meta.agentConfig || depth.agentConfig,
+    agentAccess: meta.agentAccess || depth.agentAccess,
+    ownership: meta.ownership || depth.ownership,
+    dataAccessClassification: meta.dataAccessClassification || depth.dataAccessClassification,
+    mesh: meta.mesh || depth.mesh,
+    howIdentified: meta.howIdentified || depth.howIdentified || null,
+    evidenceClass: meta.evidenceClass || depth.evidenceClass || null,
+    agentStatus: meta.agentStatus || depth.agentStatus || null,
+    accessGrantCount: meta.accessGrantCount ?? agentAccess.grantCount,
+    accessSensitivity: meta.accessSensitivity || agentAccess.sensitivity,
+    ownershipStatus: meta.ownershipStatus || ownership.ownershipStatus,
+    configToolCount: meta.configToolCount ?? (agentConfig.tools || []).length,
+    configMcpCount: meta.configMcpCount ?? (agentConfig.mcpServers || []).length,
+    hasInstructions: meta.hasInstructions ?? agentConfig.instructionsPresent,
+    overPermissioned: meta.overPermissioned ?? agentAccess.overPermissioned,
+    identityCount: meta.identityCount ?? (ownership.identities || []).length,
+    authMode: meta.authMode || agentConfig.authMode,
+    channels: meta.channels || agentConfig.channels,
+    primaryDataClass: meta.primaryDataClass || dac.primaryDataClass || "none",
+    dataClasses: meta.dataClasses || dac.dataClasses || ["none"],
+    dataAccessConfidence: meta.dataAccessConfidence || dac.confidence || "low",
+    hasPii: meta.hasPii ?? dac.hasPii ?? false,
+    hasPhi: meta.hasPhi ?? dac.hasPhi ?? false,
+    agentPlane: meta.agentPlane || mesh.agentPlane || null,
+    environmentLane: meta.environmentLane || mesh.environmentLane || null,
+    meshConfidence: meta.meshConfidence || mesh.confidence || "low"
   };
 }
 
@@ -748,35 +874,18 @@ export function enrichObservationWithDepth(obs) {
     agentConfig.howConfigured ||
     `${obs.collector_id || "collector"}:${(obs.metadata && obs.metadata.evidenceClass) || "unknown"}`;
 
+  const depth = {
+    agentConfig,
+    agentAccess,
+    ownership,
+    dataAccessClassification,
+    mesh,
+    howIdentified
+  };
+
   return {
     ...obs,
-    metadata: {
-      ...(obs.metadata || {}),
-      agentConfig,
-      agentAccess,
-      ownership,
-      dataAccessClassification,
-      mesh,
-      howIdentified,
-      accessGrantCount: agentAccess.grantCount,
-      accessSensitivity: agentAccess.sensitivity,
-      configToolCount: agentConfig.tools.length,
-      configMcpCount: agentConfig.mcpServers.length,
-      hasInstructions: agentConfig.instructionsPresent,
-      overPermissioned: agentAccess.overPermissioned,
-      ownershipStatus: ownership.ownershipStatus,
-      identityCount: ownership.identities.length,
-      authMode: agentConfig.authMode,
-      channels: agentConfig.channels,
-      primaryDataClass: dataAccessClassification.primaryDataClass,
-      dataClasses: dataAccessClassification.dataClasses,
-      dataAccessConfidence: dataAccessClassification.confidence,
-      hasPii: dataAccessClassification.hasPii,
-      hasPhi: dataAccessClassification.hasPhi,
-      agentPlane: mesh.agentPlane,
-      environmentLane: mesh.environmentLane,
-      meshConfidence: mesh.confidence
-    }
+    metadata: flattenDepthMetadata(obs.metadata || {}, depth)
   };
 }
 
@@ -811,6 +920,17 @@ export function summarizeAgentDepth(agent) {
     evidenceClass: meta.evidenceClass || null,
     agentStatus: meta.agentStatus || null,
     evidenceReason: meta.evidenceReason || null
+  };
+}
+
+/** Attach depth summaries to an agent row for list APIs. */
+export function enrichAgentRow(row) {
+  const depth = summarizeAgentDepth(row);
+  const meta = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+  return {
+    ...row,
+    metadata: flattenDepthMetadata(meta, depth),
+    ...depth
   };
 }
 
@@ -862,11 +982,7 @@ export async function computeBlastRadius(pool, tenantId, { agentId = null, limit
     const dac = depth.dataAccessClassification || {};
     const dataClassScore =
       dac.primaryDataClass === "phi" ? 18 : dac.primaryDataClass === "pii" ? 12 : dac.primaryDataClass === "secrets" ? 10 : 0;
-    const shadowScore =
-      (agent.metadata && agent.metadata.shadowAi === true) ||
-      (Array.isArray(agent.risk_indicators) && agent.risk_indicators.some((x) => /shadow|unmanaged/i.test(String(x))))
-        ? 15
-        : 0;
+    const shadowScore = isShadowSignal(agent) ? 15 : 0;
     const ownerlessScore = !agent.owner || !String(agent.owner).trim() ? 10 : 0;
     const internetExternal =
       depth.agentAccess.scopes?.internet && paths.some((p) => /ExternalService|API|SaaS/i.test(p.toType)) ? 10 : 0;
@@ -974,10 +1090,7 @@ export function buildAgentAnatomy(agent, relationships = [], blast = null) {
   const access = depth.agentAccess || {};
   const ownership = depth.ownership || {};
   const dac = depth.dataAccessClassification || {};
-  const shadow =
-    meta.shadowAi === true ||
-    (Array.isArray(agent.risk_indicators) &&
-      agent.risk_indicators.some((x) => /shadow|unmanaged/i.test(String(x))));
+  const shadow = isShadowSignal(agent, meta);
 
   const modelName =
     (Array.isArray(config.models) && config.models[0]) ||
@@ -1082,6 +1195,14 @@ export function buildAgentAnatomy(agent, relationships = [], blast = null) {
         pathCount: 0
       };
 
+  const mesh = depth.mesh || buildAgentMeshPlacement(agent);
+  const flagged =
+    Boolean(shadow) ||
+    Boolean(access.overPermissioned || meta.overPermissioned) ||
+    Boolean(dac.hasPhi || meta.hasPhi) ||
+    access.sensitivity === "high" ||
+    (risk.tier && ["critical", "elevated"].includes(String(risk.tier)));
+
   return {
     center: {
       agentId: agent.id,
@@ -1095,17 +1216,36 @@ export function buildAgentAnatomy(agent, relationships = [], blast = null) {
         label: modelName ? `${modelProvider !== "llm" ? modelProvider + " · " : ""}${modelName}` : "No model detected"
       }
     },
+    profile: {
+      function: agent.department || agent.business_unit || meta.function || agent.category || "General",
+      summary:
+        meta.howIdentified ||
+        meta.summary ||
+        `Discovered ${agent.category || "agent"} using ${agent.framework || modelName || "unknown runtime"}.`,
+      owner: agent.owner || ownership.owner || null,
+      ownershipStatus: ownership.ownershipStatus || meta.ownershipStatus || null,
+      agentType: agent.deployment_type || meta.deploymentType || agent.category || "unknown",
+      infraType: agent.cloud_provider || meta.platform || mesh.agentPlane || "unknown",
+      environment: mesh.laneLabel || mesh.environmentLane || meta.environment || "unknown",
+      location: agent.region || meta.region || agent.hostname || "—",
+      created: agent.first_discovered || agent.created_at || null,
+      registered: agent.last_seen || null,
+      mode: Array.isArray(config.channels) && config.channels.length ? "Chat" : "Agent",
+      plane: mesh.planeLabel || mesh.agentPlane,
+      flagged,
+      shadowAi: Boolean(shadow)
+    },
     groups: {
       usersInputs: {
         id: "usersInputs",
-        label: "Users & inputs",
-        description: "Who can access or trigger this agent",
+        label: "Users & Input",
+        description: "Who can access this agent",
         items: usersDeduped
       },
       channels: {
         id: "channels",
         label: "Channels",
-        description: "Where this agent can communicate",
+        description: "Who the agent can communicate with",
         items: channelsDeduped
       },
       actions: {
@@ -1137,7 +1277,8 @@ export function buildAgentAnatomy(agent, relationships = [], blast = null) {
       hasPhi: Boolean(dac.hasPhi || meta.hasPhi),
       shadowAi: Boolean(shadow),
       ownershipStatus: ownership.ownershipStatus || meta.ownershipStatus || null,
-      grantCount: access.grantCount || 0
+      grantCount: access.grantCount || 0,
+      flagged
     },
     generatedAt: new Date().toISOString()
   };

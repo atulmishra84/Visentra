@@ -1,16 +1,9 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { DetailDrawer } from "../components/DetailDrawer";
+import { GraphSeedBar, type GraphSeedOption } from "../components/GraphSeedBar";
 import { TopologyGraph } from "../components/TopologyGraph";
 import { apiRequest, type GraphNode, type GraphPayload, valueAt } from "../lib/api";
-
-type SeedOption = {
-  id: string;
-  name?: string;
-  category?: string;
-  framework?: string;
-  edge_count?: number;
-};
 
 export function TopologyMapPage() {
   const [params, setParams] = useSearchParams();
@@ -19,14 +12,14 @@ export function TopologyMapPage() {
   const [seed, setSeed] = useState(agentId);
   const [depth, setDepth] = useState(Number(params.get("depth") || 2));
   const [graph, setGraph] = useState<GraphPayload | undefined>();
-  const [seeds, setSeeds] = useState<SeedOption[]>([]);
+  const [seeds, setSeeds] = useState<GraphSeedOption[]>([]);
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadSeeds = useCallback(async (q = "") => {
     try {
-      const payload = await apiRequest<{ seeds?: SeedOption[] }>("/api/graph/seeds", {
+      const payload = await apiRequest<{ seeds?: GraphSeedOption[] }>("/api/graph/seeds", {
         query: { q: q || undefined }
       });
       setSeeds(payload.seeds || []);
@@ -75,27 +68,18 @@ export function TopologyMapPage() {
     return () => window.removeEventListener("agentradar:graph-event", listener);
   }, [depth, loadGraph, seed]);
 
+  const applySeed = (nextSeed: string, nextDepth = depth) => {
+    const next = new URLSearchParams(params);
+    if (nextSeed.trim()) next.set("agentId", nextSeed.trim());
+    else next.delete("agentId");
+    next.set("depth", String(nextDepth));
+    setParams(next);
+    void loadGraph(nextSeed.trim(), nextDepth);
+  };
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const next = new URLSearchParams(params);
-    if (seed.trim()) next.set("agentId", seed.trim());
-    else next.delete("agentId");
-    next.set("depth", String(depth));
-    setParams(next);
-    void loadGraph(seed.trim(), depth);
-  };
-
-  const pickSeed = (option: SeedOption) => {
-    setSeed(option.id);
-    const next = new URLSearchParams(params);
-    next.set("agentId", option.id);
-    next.set("depth", String(depth));
-    setParams(next);
-    void loadGraph(option.id, depth);
-  };
-
-  const onNodeSelect = (node: GraphNode) => {
-    setSelected(node);
+    applySeed(seed, depth);
   };
 
   return (
@@ -110,7 +94,10 @@ export function TopologyMapPage() {
           </p>
         </div>
         <div className="toolbar">
-          <Link className="button ghost" to="/relationships">
+          <Link
+            className="button ghost"
+            to={agentId ? `/relationships?agentId=${encodeURIComponent(agentId)}` : "/relationships"}
+          >
             Relationship Explorer
           </Link>
           <button className="button" type="button" onClick={() => void loadGraph(seed, depth)}>
@@ -119,72 +106,27 @@ export function TopologyMapPage() {
         </div>
       </header>
 
-      <form className="facet-bar" onSubmit={submit}>
-        <div className="field" style={{ minWidth: 320, flex: 1 }}>
-          <label htmlFor="topology-seed">Focus seed (optional)</label>
-          <input
-            className="input"
-            id="topology-seed"
-            list="topology-seeds"
-            placeholder="Leave blank for overview, or paste agent name / ID"
-            value={seed}
-            onChange={(event) => {
-              setSeed(event.target.value);
-              void loadSeeds(event.target.value);
-            }}
-          />
-          <datalist id="topology-seeds">
-            {seeds.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.name} ({option.category || "asset"})
-              </option>
-            ))}
-          </datalist>
-        </div>
-        <div className="field">
-          <label htmlFor="topology-depth">Depth</label>
-          <select
-            className="select"
-            id="topology-depth"
-            value={depth}
-            onChange={(event) => setDepth(Number(event.target.value))}
-          >
-            <option value={1}>1 hop</option>
-            <option value={2}>2 hops</option>
-            <option value={3}>3 hops</option>
-          </select>
-        </div>
-        <button className="button primary" type="submit">
-          Apply
-        </button>
-        <button
-          className="button ghost"
-          type="button"
-          onClick={() => {
-            setSeed("");
-            const next = new URLSearchParams(params);
-            next.delete("agentId");
-            setParams(next);
-            void loadGraph("", depth);
-          }}
-        >
-          Overview
-        </button>
-      </form>
-
-      {seeds.length ? (
-        <div className="toolbar" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          {seeds.slice(0, 8).map((option) => (
-            <button key={option.id} className="button ghost" type="button" onClick={() => pickSeed(option)}>
-              {valueAt(option as Record<string, unknown>, ["name"], option.id).slice(0, 36)}
-              {option.edge_count ? ` · ${option.edge_count}` : ""}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <GraphSeedBar
+        idPrefix="topology"
+        seed={seed}
+        depth={depth}
+        seeds={seeds}
+        onSeedChange={setSeed}
+        onDepthChange={setDepth}
+        onSubmit={submit}
+        onClear={() => {
+          setSeed("");
+          applySeed("", depth);
+        }}
+        onPickSeed={(option) => {
+          setSeed(option.id);
+          applySeed(option.id, depth);
+        }}
+        onSearchSeeds={(q) => void loadSeeds(q)}
+      />
 
       {error ? <div className="error-state">{error}</div> : null}
-      <TopologyGraph graph={graph} loading={loading} onNodeSelect={onNodeSelect} />
+      <TopologyGraph graph={graph} loading={loading} onNodeSelect={setSelected} />
 
       <DetailDrawer
         data={selected}
@@ -208,10 +150,7 @@ export function TopologyMapPage() {
               onClick={() => {
                 const id = String(selected.id);
                 setSeed(id);
-                const next = new URLSearchParams(params);
-                next.set("agentId", id);
-                setParams(next);
-                void loadGraph(id, depth);
+                applySeed(id, depth);
                 setSelected(null);
               }}
             >
