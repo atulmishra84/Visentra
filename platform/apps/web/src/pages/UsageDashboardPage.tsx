@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { KpiCard } from "../components/KpiCard";
 import {
   apiRequest,
@@ -19,6 +19,13 @@ type UsageRow = Record<string, unknown> & {
   count?: number;
   inventoryQuery?: Record<string, string | undefined>;
 };
+
+const USAGE_TABS: Array<{ kind: UsageDashboardPageProps["kind"]; label: string; to: string }> = [
+  { kind: "models", label: "Models", to: "/usage/models" },
+  { kind: "frameworks", label: "Frameworks", to: "/usage/frameworks" },
+  { kind: "cloud", label: "Cloud", to: "/usage/cloud" },
+  { kind: "ide", label: "IDE", to: "/usage/ide" }
+];
 
 const KIND_FACET: Record<UsageDashboardPageProps["kind"], string> = {
   models: "model",
@@ -247,7 +254,7 @@ export function UsageDashboardPage({ kind, title }: UsageDashboardPageProps) {
       <header className="page-header">
         <div>
           <p className="eyebrow">Usage Analytics</p>
-          <h1>{title}</h1>
+          <h1>Usage Analytics</h1>
           <p className="page-description">
             Inventory distribution by {KIND_FACET[kind]}, with evidence mix, discovery trends
             {kind === "models" || kind === "cloud" ? ", and provider usage signals" : ""}.
@@ -259,6 +266,18 @@ export function UsageDashboardPage({ kind, title }: UsageDashboardPageProps) {
           </button>
         </div>
       </header>
+
+      <nav className="segmented-nav" aria-label="Usage dimension">
+        {USAGE_TABS.map((tab) => (
+          <Link
+            key={tab.kind}
+            className={`segmented-nav-item${tab.kind === kind ? " active" : ""}`}
+            to={tab.to}
+          >
+            {tab.label}
+          </Link>
+        ))}
+      </nav>
 
       <div className="toolbar usage-controls">
         <label className="toggle">

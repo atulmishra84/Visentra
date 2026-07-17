@@ -19,28 +19,18 @@ const sections = [
     heading: "Inventory",
     items: [
       { to: "/inventory", label: "Asset Inventory" },
-      { to: "/inventory/explorer", label: "Inventory Explorer" },
-      { to: "/topology", label: "Topology Map" },
       { to: "/relationships", label: "Relationship Explorer" }
     ]
   },
   {
     heading: "Usage Analytics",
-    items: [
-      { to: "/usage/models", label: "Model Usage" },
-      { to: "/usage/frameworks", label: "Framework Usage" },
-      { to: "/usage/cloud", label: "Cloud Usage" },
-      { to: "/usage/ide", label: "IDE Usage" }
-    ]
+    items: [{ to: "/usage", label: "Usage Analytics" }]
   },
   {
     heading: "Activity",
     items: [
       { to: "/timeline", label: "Agent Timeline" },
-      { to: "/discovery/events", label: "Discovery Events" },
-      { to: "/discovery/changes", label: "Change Intelligence" },
-      { to: "/coverage", label: "Coverage Map" },
-      { to: "/search", label: "Global Search" }
+      { to: "/coverage", label: "Coverage Map" }
     ]
   },
   {
@@ -52,8 +42,15 @@ const sections = [
   }
 ];
 
+/** Routes kept off the sidebar but still belonging to a section for expand-on-navigate. */
+const sectionAliases: Array<{ heading: string; match: (pathname: string) => boolean }> = [
+  { heading: "Dashboards", match: (p) => p.startsWith("/discovery/") },
+  { heading: "Inventory", match: (p) => p === "/topology" || p.startsWith("/topology/") },
+  { heading: "Usage Analytics", match: (p) => p.startsWith("/usage/") },
+  { heading: "Activity", match: (p) => p === "/search" || p.startsWith("/search?") }
+];
+
 function activeSectionHeading(pathname: string): string | null {
-  // Longest matching path wins so /discovery/changes maps to Activity, not Dashboards Discovery.
   let best: { heading: string; len: number } | null = null;
   for (const section of sections) {
     for (const item of section.items) {
@@ -64,7 +61,11 @@ function activeSectionHeading(pathname: string): string | null {
       }
     }
   }
-  return best?.heading ?? null;
+  if (best) return best.heading;
+  for (const alias of sectionAliases) {
+    if (alias.match(pathname)) return alias.heading;
+  }
+  return null;
 }
 
 export function Layout() {
@@ -149,7 +150,12 @@ export function Layout() {
                 </button>
                 <div className="nav-panel" id={panelId} hidden={!open}>
                   {section.items.map((item) => (
-                    <NavLink className="nav-link" key={item.to} to={item.to} end={item.to === "/discovery"}>
+                    <NavLink
+                      className="nav-link"
+                      key={item.to}
+                      to={item.to}
+                      end={item.to === "/inventory"}
+                    >
                       {item.label}
                     </NavLink>
                   ))}

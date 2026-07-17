@@ -94,7 +94,10 @@ export function TopologyMapPage() {
           </p>
         </div>
         <div className="toolbar">
-          <Link className="button ghost" to="/relationships">
+          <Link
+            className="button ghost"
+            to={agentId ? `/relationships?agentId=${encodeURIComponent(agentId)}` : "/relationships"}
+          >
             Relationship Explorer
           </Link>
           <button className="button" type="button" onClick={() => void loadGraph(seed, depth)}>

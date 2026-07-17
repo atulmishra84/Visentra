@@ -571,6 +571,40 @@ h2 {
   margin-bottom: 14px;
 }
 
+.segmented-nav {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 16px;
+  padding: 4px;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 88%, var(--bg));
+}
+
+.segmented-nav-item {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.92rem;
+  font-weight: 500;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.segmented-nav-item:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel-border) 35%, transparent);
+}
+
+.segmented-nav-item.active {
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--panel-border) 80%, transparent);
+}
+
 .usage-controls .toggle {
   display: inline-flex;
   align-items: center;

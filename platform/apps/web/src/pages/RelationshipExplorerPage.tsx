@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { AgentAnatomyPanel, type AgentAnatomy } from "../components/AgentAnatomyPanel";
 import { DetailDrawer } from "../components/DetailDrawer";
 import { GraphSeedBar, type GraphSeedOption } from "../components/GraphSeedBar";
@@ -23,7 +23,7 @@ export function RelationshipExplorerPage() {
   const [anatomyLoading, setAnatomyLoading] = useState(false);
   const [anatomyError, setAnatomyError] = useState<string | null>(null);
   const [focusedAgentId, setFocusedAgentId] = useState<string | null>(() => searchParams.get("agentId") || null);
-  const [showGraph, setShowGraph] = useState(false);
+  const [showGraph, setShowGraph] = useState(() => searchParams.get("graph") === "1");
 
   const loadSeeds = async (q = "") => {
     try {
@@ -157,9 +157,23 @@ export function RelationshipExplorerPage() {
         }}
         onSearchSeeds={(q) => void loadSeeds(q)}
         extraActions={
-          <button className="button ghost" type="button" onClick={() => setShowGraph((v) => !v)}>
-            {showGraph ? "Hide graph" : "Show graph"}
-          </button>
+          <>
+            <button className="button ghost" type="button" onClick={() => setShowGraph((v) => !v)}>
+              {showGraph ? "Hide graph" : "Show graph"}
+            </button>
+            <Link
+              className="button ghost"
+              to={
+                focusedAgentId
+                  ? `/topology?agentId=${encodeURIComponent(focusedAgentId)}`
+                  : seed
+                    ? `/topology?agentId=${encodeURIComponent(seed)}`
+                    : "/topology"
+              }
+            >
+              Full topology map
+            </Link>
+          </>
         }
       />
 

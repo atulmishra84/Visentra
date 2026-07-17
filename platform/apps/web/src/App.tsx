@@ -56,10 +56,11 @@ export default function App() {
         <Route path="/discovery/changes" element={<DiscoveryChangesPage />} />
         <Route path="/coverage" element={<CoveragePage />} />
         <Route path="/inventory" element={<InventoryPage title="Asset Inventory" />} />
-        <Route path="/inventory/explorer" element={<InventoryPage title="Inventory Explorer" />} />
+        <Route path="/inventory/explorer" element={<Navigate to="/inventory" replace />} />
         <Route path="/agents/:id" element={<AgentDetailPage />} />
         <Route path="/topology" element={<TopologyMapPage />} />
         <Route path="/relationships" element={<RelationshipExplorerPage />} />
+        <Route path="/usage" element={<Navigate to="/usage/models" replace />} />
         <Route path="/usage/models" element={<UsageDashboardPage kind="models" title="Model Usage" />} />
         <Route
           path="/usage/frameworks"

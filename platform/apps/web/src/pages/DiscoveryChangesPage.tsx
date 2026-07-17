@@ -154,9 +154,14 @@ export function DiscoveryChangesPage() {
             New, updated, disappeared, owner-changed, data-class escalations, and configuration drift over the last 7 days.
           </p>
         </div>
-        <Link className="button" to="/operations">
-          Operations queue
-        </Link>
+        <div className="toolbar">
+          <Link className="button ghost" to="/discovery">
+            Discovery dashboard
+          </Link>
+          <Link className="button" to="/operations">
+            Operations queue
+          </Link>
+        </div>
       </header>
 
       <section className="card-grid">

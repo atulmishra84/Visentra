@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { DataTable, type Column } from "../components/DataTable";
 import { DetailDrawer } from "../components/DetailDrawer";
 import { apiRequest, compactDate, listFromPayload, valueAt } from "../lib/api";
@@ -59,9 +60,14 @@ export function DiscoveryEventsPage() {
           <h1>Discovery Events</h1>
           <p className="page-description">Operational event stream from the discovery pipeline.</p>
         </div>
-        <button className="button" type="button" onClick={loadEvents}>
-          Refresh
-        </button>
+        <div className="toolbar">
+          <Link className="button ghost" to="/discovery">
+            Discovery dashboard
+          </Link>
+          <button className="button" type="button" onClick={loadEvents}>
+            Refresh
+          </button>
+        </div>
       </header>
 
       {error ? <div className="error-state">{error}</div> : null}
