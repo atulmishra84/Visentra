@@ -6,6 +6,15 @@ import { getPreferredTheme, toggleTheme, type ThemeMode } from "../lib/theme";
 
 const isProdBuild = import.meta.env.PROD;
 
+type SsoProvider = {
+  id: string;
+  key: string;
+  preset?: string;
+  name: string;
+  protocol?: string;
+  source?: string;
+};
+
 export function LoginPage() {
   const { isAuthenticated, login, loading, error } = useAuth();
   const location = useLocation();
@@ -14,40 +23,75 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeMode>(() => getPreferredTheme());
-  const [entraEnabled, setEntraEnabled] = useState(false);
+  const [providers, setProviders] = useState<SsoProvider[]>([]);
   const [ssoBusy, setSsoBusy] = useState(false);
 
   const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/executive";
 
   useEffect(() => {
-    apiRequest<{ entraEnabled?: boolean }>("/api/auth/sso/status")
-      .then((payload) => setEntraEnabled(Boolean(payload.entraEnabled)))
-      .catch(() => setEntraEnabled(false));
+    apiRequest<{ providers?: SsoProvider[] }>("/api/auth/sso/status")
+      .then((payload) => {
+        const list = Array.isArray(payload.providers) ? payload.providers : [];
+        // Backward compat: older API returned string[]
+        setProviders(
+          list.map((item) =>
+            typeof item === "string"
+              ? { id: item, key: item, name: item === "entra" ? "Microsoft Entra ID" : item }
+              : item
+          )
+        );
+      })
+      .catch(() => setProviders([]));
   }, []);
 
-  // Complete Entra redirect: /login?code=...&state=...
+  // Complete OIDC redirect: /login?code=...&state=...
   useEffect(() => {
     const code = searchParams.get("code");
     if (!code) return;
     let cancelled = false;
     setSsoBusy(true);
-    apiRequest<{ token?: string }>("/api/auth/sso/entra/callback", {
+    const providerId = sessionStorage.getItem("ar_oidc_provider") || undefined;
+    apiRequest<{ token?: string }>("/api/auth/sso/callback", {
       method: "POST",
       body: JSON.stringify({
         code,
         state: searchParams.get("state"),
-        nonce: sessionStorage.getItem("ar_oidc_nonce")
+        nonce: sessionStorage.getItem("ar_oidc_nonce"),
+        providerId
       })
     })
       .then((payload) => {
         if (cancelled) return;
         if (!payload.token) throw new Error("SSO response missing token");
+        sessionStorage.removeItem("ar_oidc_provider");
+        sessionStorage.removeItem("ar_oidc_state");
+        sessionStorage.removeItem("ar_oidc_nonce");
         setAuthToken(payload.token);
         window.location.replace(from);
       })
-      .catch((err) => {
+      .catch(async (err) => {
+        // Fallback for env-only Entra deployments still using legacy callback
+        if (!providerId || providerId === "env-entra" || providerId === "entra") {
+          try {
+            const legacy = await apiRequest<{ token?: string }>("/api/auth/sso/entra/callback", {
+              method: "POST",
+              body: JSON.stringify({
+                code,
+                state: searchParams.get("state"),
+                nonce: sessionStorage.getItem("ar_oidc_nonce")
+              })
+            });
+            if (cancelled) return;
+            if (!legacy.token) throw new Error("SSO response missing token");
+            setAuthToken(legacy.token);
+            window.location.replace(from);
+            return;
+          } catch {
+            /* use original error */
+          }
+        }
         if (!cancelled) {
-          setSubmitError(err instanceof Error ? err.message : "Entra SSO failed");
+          setSubmitError(err instanceof Error ? err.message : "SSO sign-in failed");
           setSsoBusy(false);
         }
       });
@@ -71,18 +115,19 @@ export function LoginPage() {
     }
   };
 
-  const startEntra = async () => {
+  const startSso = async (provider: SsoProvider) => {
     setSubmitError(null);
     setSsoBusy(true);
     try {
       const payload = await apiRequest<{ authorizeUrl: string; state: string; nonce: string }>(
-        "/api/auth/sso/entra/start"
+        `/api/auth/sso/${encodeURIComponent(provider.id)}/start`
       );
+      sessionStorage.setItem("ar_oidc_provider", provider.id);
       sessionStorage.setItem("ar_oidc_state", payload.state);
       sessionStorage.setItem("ar_oidc_nonce", payload.nonce);
       window.location.href = payload.authorizeUrl;
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Unable to start Entra SSO");
+      setSubmitError(err instanceof Error ? err.message : "Unable to start SSO");
       setSsoBusy(false);
     }
   };
@@ -141,19 +186,28 @@ export function LoginPage() {
             </p>
           ) : null}
 
-          {entraEnabled ? (
-            <button
-              className="button"
-              type="button"
-              disabled={ssoBusy || loading}
-              style={{ width: "100%", marginTop: 18 }}
-              onClick={startEntra}
-            >
-              {ssoBusy ? "Redirecting…" : "Sign in with Microsoft Entra ID"}
-            </button>
+          {providers.length ? (
+            <div className="connector-list" style={{ marginTop: 18 }}>
+              {providers.map((provider) => (
+                <button
+                  key={provider.id}
+                  className="button"
+                  type="button"
+                  disabled={ssoBusy || loading}
+                  style={{ width: "100%" }}
+                  onClick={() => void startSso(provider)}
+                >
+                  {ssoBusy ? "Redirecting…" : `Sign in with ${provider.name}`}
+                </button>
+              ))}
+            </div>
           ) : null}
 
-          {entraEnabled ? <p className="muted" style={{ marginTop: 16, textAlign: "center" }}>or use local admin</p> : null}
+          {providers.length ? (
+            <p className="muted" style={{ marginTop: 16, textAlign: "center" }}>
+              or use local admin
+            </p>
+          ) : null}
 
           <div className="field" style={{ marginTop: 18 }}>
             <label htmlFor="email">Email</label>

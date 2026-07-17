@@ -20,6 +20,7 @@ Greenfield implementation of the Discovery & Visibility track. See the engineeri
 - **Default:** cloud / K8s / SaaS / git / CI / log / identity connectors (API credentials in Settings → Connectors).
 - **Endpoint / IDE visibility:** integrate with the customer’s **EDR** (CrowdStrike, Defender/Intune, Cortex XDR, Netskope, etc.) and pull process/device evidence — do not deploy a proprietary local agent.
 - **SaaS / platform agents:** connect Microsoft 365 Copilot, Salesforce Agentforce, Workday Illuminate, and ServiceNow Now Assist via Settings → Connectors, then **Scan SaaS platforms**.
+- **IAM / SSO:** Settings → IAM & SSO connects any OpenID Connect IdP (Entra, Okta, Auth0, Ping, Keycloak, Google, OneLogin, or custom issuer). Env `ENTRA_*` remains supported.
 
 See [`docs/blueprint/01-product-vision.md`](../docs/blueprint/01-product-vision.md) and [`docs/blueprint/12-discovery-engine.md`](../docs/blueprint/12-discovery-engine.md).
 

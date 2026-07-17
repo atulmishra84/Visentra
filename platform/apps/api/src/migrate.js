@@ -48,6 +48,41 @@ export async function migrate(pool) {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'local'
   `);
   await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS external_sub TEXT
+  `);
+  // Allow any IdP key (entra, okta, auth0, generic_oidc, …)
+  await pool.query(`
+    DO $$
+    BEGIN
+      ALTER TABLE users DROP CONSTRAINT IF EXISTS users_auth_provider_check;
+    EXCEPTION WHEN undefined_table OR undefined_object THEN
+      NULL;
+    END $$;
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sso_providers (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id        UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      provider_key     TEXT NOT NULL,
+      preset           TEXT NOT NULL DEFAULT 'generic_oidc',
+      name             TEXT NOT NULL,
+      protocol         TEXT NOT NULL DEFAULT 'oidc'
+                         CHECK (protocol IN ('oidc', 'saml')),
+      enabled          BOOLEAN NOT NULL DEFAULT TRUE,
+      client_id        TEXT,
+      config           JSONB NOT NULL DEFAULT '{}'::jsonb,
+      secrets_enc      TEXT,
+      claim_map        JSONB NOT NULL DEFAULT '{}'::jsonb,
+      allowed_domains  JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (tenant_id, provider_key)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_sso_providers_tenant ON sso_providers(tenant_id, enabled)
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS audit_events (
       id              BIGSERIAL PRIMARY KEY,
       tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

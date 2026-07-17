@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS users (
   role            TEXT NOT NULL DEFAULT 'viewer'
                     CHECK (role IN ('platform_admin', 'operator', 'viewer')),
   password_hash   TEXT NOT NULL,
-  auth_provider   TEXT NOT NULL DEFAULT 'local'
-                    CHECK (auth_provider IN ('local', 'entra')),
+  auth_provider   TEXT NOT NULL DEFAULT 'local',
+  external_sub    TEXT,
   last_login      TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -213,6 +213,27 @@ CREATE TABLE IF NOT EXISTS connectors (
   UNIQUE (tenant_id, name)
 );
 CREATE INDEX IF NOT EXISTS idx_connectors_tenant ON connectors(tenant_id, provider);
+
+-- Inbound IAM / SSO identity providers (login), separate from discovery connectors
+CREATE TABLE IF NOT EXISTS sso_providers (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id        UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  provider_key     TEXT NOT NULL,
+  preset           TEXT NOT NULL DEFAULT 'generic_oidc',
+  name             TEXT NOT NULL,
+  protocol         TEXT NOT NULL DEFAULT 'oidc'
+                     CHECK (protocol IN ('oidc', 'saml')),
+  enabled          BOOLEAN NOT NULL DEFAULT TRUE,
+  client_id        TEXT,
+  config           JSONB NOT NULL DEFAULT '{}'::jsonb,
+  secrets_enc      TEXT,
+  claim_map        JSONB NOT NULL DEFAULT '{}'::jsonb,
+  allowed_domains  JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, provider_key)
+);
+CREATE INDEX IF NOT EXISTS idx_sso_providers_tenant ON sso_providers(tenant_id, enabled);
 
 -- Append-only audit trail (Stage 1 production)
 CREATE TABLE IF NOT EXISTS audit_events (
