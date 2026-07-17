@@ -148,6 +148,24 @@ export function AgentDetailPage() {
           tone={agent.shadowAi ? "warn" : "good"}
         />
         <KpiCard
+          label="Assisted by"
+          value={
+            Array.isArray(meta.assistedBy) && meta.assistedBy.length
+              ? meta.assistedBy.map(String).join(", ")
+              : "—"
+          }
+          tone={Array.isArray(meta.assistedBy) && meta.assistedBy.length ? "warn" : undefined}
+        />
+        <KpiCard
+          label="Endpoint presence"
+          value={
+            Array.isArray(meta.endpointPresence) && meta.endpointPresence.length
+              ? meta.endpointPresence.map(String).join(", ")
+              : "—"
+          }
+          tone={meta.presenceConfirmed ? "good" : undefined}
+        />
+        <KpiCard
           label="Agent plane"
           value={
             valueAt((meta.mesh as Record<string, unknown>) || {}, ["planeLabel", "agentPlane"]) ||

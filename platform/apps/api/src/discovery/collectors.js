@@ -2,6 +2,14 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { DISCOVERY_AI_ONLY, isAiAgentProcess, isAiRelevantText } from "./aiRelevance.js";
+import {
+  detectAssistedByFromMarkers,
+  detectAssistedByFromText,
+  detectAssistantPresence,
+  buildAssistedByMetadata,
+  buildPresenceMetadata,
+  presenceLabel
+} from "./assistantPresence.js";
 
 function readJsonSafe(filePath) {
   try {
@@ -98,6 +106,13 @@ export const collectors = {
         seen.add(fingerprint);
         const mcpNames = hit.mcpNames || [];
         const confirmed = mcpNames.length > 0 || hit.kind === "rules" || hit.kind === "project";
+        const assistedBy = [
+          ...new Set([
+            "cursor",
+            ...detectAssistedByFromMarkers([hit.path, hit.label, ...(hit.files || [])]),
+            ...detectAssistedByFromText(hit.path, hit.label)
+          ])
+        ];
         out.push({
           collector_id: "ide_filesystem",
           fingerprint,
@@ -122,6 +137,12 @@ export const collectors = {
               to_key: "cursor",
               to_name: "Cursor"
             },
+            {
+              rel_type: "ASSISTED_BY",
+              to_type: "AiAssistant",
+              to_key: "assistant-cursor",
+              to_name: "Cursor"
+            },
             ...mcpNames.map((name) => ({
               rel_type: "CONNECTS_MCP",
               to_type: "MCPServer",
@@ -137,6 +158,9 @@ export const collectors = {
             agentStatus: confirmed ? "confirmed" : "candidate",
             mcpServerCount: mcpNames.length,
             cursorEvidenceKind: hit.kind,
+            endpointPresence: ["cursor"],
+            presenceConfirmed: true,
+            presenceTools: ["Cursor"],
             howIdentified:
               hit.kind === "mcp"
                 ? "Cursor MCP config (mcp.json)"
@@ -146,7 +170,8 @@ export const collectors = {
                     ? "Project agent marker (.cursorrules / AGENTS.md / copilot-instructions)"
                     : "Cursor IDE config present",
             scannerHostOnly: true,
-            coverageNote: "Local IDE/MCP scan sees the API host only — use EDR connectors for fleet endpoints."
+            coverageNote: "Local IDE/MCP scan sees the API host only — use EDR connectors for fleet endpoints.",
+            ...buildAssistedByMetadata(assistedBy)
           }
         });
       }
@@ -170,6 +195,9 @@ export const collectors = {
         const fingerprint = `ide-config:${ide}:${os.hostname()}`;
         if (seen.has(fingerprint)) continue;
         seen.add(fingerprint);
+        const assistedBy = detectAssistedByFromText(file, ide, JSON.stringify(json).slice(0, 1000));
+        if (ide === "Claude Desktop" && !assistedBy.includes("claude")) assistedBy.push("claude");
+        const presence = detectAssistantPresence(file, ide);
 
         out.push({
           collector_id: "ide_filesystem",
@@ -187,6 +215,7 @@ export const collectors = {
           confidence_score: mcpNames.length ? 0.88 : 0.8,
           filesystem_access: true,
           model: "ide-ai-agent",
+          provider: ide === "Claude Desktop" ? "anthropic" : undefined,
           relationships: [
             {
               rel_type: "RUNS_IN",
@@ -194,6 +223,12 @@ export const collectors = {
               to_key: ide.toLowerCase().replace(/\s+/g, "-"),
               to_name: ide
             },
+            ...assistedBy.map((tool) => ({
+              rel_type: "ASSISTED_BY",
+              to_type: "AiAssistant",
+              to_key: `assistant-${tool}`,
+              to_name: presenceLabel(tool)
+            })),
             ...mcpNames.map((name) => ({
               rel_type: "CONNECTS_MCP",
               to_type: "MCPServer",
@@ -210,7 +245,11 @@ export const collectors = {
             mcpServerCount: mcpNames.length,
             howIdentified: `${ide} config with ${mcpNames.length} MCP server(s)`,
             scannerHostOnly: true,
-            coverageNote: "Local IDE/MCP scan sees the API host only — use EDR connectors for fleet endpoints."
+            coverageNote: "Local IDE/MCP scan sees the API host only — use EDR connectors for fleet endpoints.",
+            ...buildPresenceMetadata(presence.assistants.length ? presence.assistants : assistedBy, {
+              processEvidence: file
+            }),
+            ...buildAssistedByMetadata(assistedBy)
           }
         });
       }
@@ -256,6 +295,8 @@ export const collectors = {
           } else {
             hit = { name: "AI agent process", category: "local", provider: "process", model: "ai-process" };
           }
+          const presence = detectAssistantPresence(cmdline, hit.name, hit.ide, hit.provider);
+          const assistedBy = detectAssistedByFromText(cmdline, hit.ide, hit.name);
           out.push({
             collector_id: "process",
             fingerprint: `proc:${hit.name}:${pid}`,
@@ -268,15 +309,23 @@ export const collectors = {
               pid,
               cmdline: cmdline.slice(0, 500),
               aiRelevant: true,
-              inventoryClass: "process_ai_agent",
+              inventoryClass: presence.hasPresence ? "endpoint_assistant_presence" : "process_ai_agent",
               evidenceClass: "process_agent",
               agentStatus: "confirmed",
               processEvidence: cmdline.slice(0, 300),
               scannerHostOnly: true,
-              coverageNote: "Local process scan sees the API host only — use EDR connectors for fleet endpoints."
+              coverageNote: "Local process scan sees the API host only — use EDR connectors for fleet endpoints.",
+              ...buildPresenceMetadata(presence.assistants, { processEvidence: cmdline.slice(0, 300) }),
+              ...buildAssistedByMetadata(assistedBy)
             },
             relationships: [
-              { rel_type: "RUNS_ON", to_type: "Device", to_key: os.hostname(), to_name: os.hostname() }
+              { rel_type: "RUNS_ON", to_type: "Device", to_key: os.hostname(), to_name: os.hostname() },
+              ...presence.assistants.map((tool) => ({
+                rel_type: "RUNS",
+                to_type: "AiAssistant",
+                to_key: `assistant-${tool}`,
+                to_name: presenceLabel(tool)
+              }))
             ]
           });
         }

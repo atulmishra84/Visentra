@@ -71,7 +71,10 @@ function facetsFromSearchParams(params: URLSearchParams): Facets {
     "dataClass",
     "primaryDataClass",
     "agentPlane",
-    "environmentLane"
+    "environmentLane",
+    "assistedBy",
+    "endpointPresence",
+    "projectKind"
   ];
   const next: Facets = {};
   for (const key of keys) {
@@ -170,6 +173,29 @@ export function InventoryPage({ title }: { title: string }) {
       environmentLane: [...ENVIRONMENT_LANES, ...uniqueMetaOptions(agents, "environmentLane")].filter(
         (v, i, arr) => arr.indexOf(v) === i
       ),
+      assistedBy: (() => {
+        const values = new Set<string>();
+        agents.forEach((row) => {
+          const meta = (row.metadata || {}) as Record<string, unknown>;
+          const assisted = Array.isArray(meta.assistedBy) ? meta.assistedBy : [];
+          assisted.forEach((v) => {
+            if (v) values.add(String(v));
+          });
+        });
+        return [...values].sort((a, b) => a.localeCompare(b));
+      })(),
+      endpointPresence: (() => {
+        const values = new Set<string>();
+        agents.forEach((row) => {
+          const meta = (row.metadata || {}) as Record<string, unknown>;
+          const presence = Array.isArray(meta.endpointPresence) ? meta.endpointPresence : [];
+          presence.forEach((v) => {
+            if (v) values.add(String(v));
+          });
+        });
+        return [...values].sort((a, b) => a.localeCompare(b));
+      })(),
+      projectKind: uniqueMetaOptions(agents, "projectKind"),
       dataClass: (() => {
         const values = new Set<string>(["pii", "phi", "secrets", "financial", "none"]);
         agents.forEach((row) => {

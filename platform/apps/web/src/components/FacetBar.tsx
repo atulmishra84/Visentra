@@ -19,6 +19,9 @@ export type Facets = {
   primaryDataClass?: string;
   agentPlane?: string;
   environmentLane?: string;
+  assistedBy?: string;
+  endpointPresence?: string;
+  projectKind?: string;
 };
 
 type FacetBarProps = {
@@ -40,6 +43,9 @@ const facetFields: Array<keyof Facets> = [
   "hasInstructions",
   "cloud",
   "ide",
+  "assistedBy",
+  "endpointPresence",
+  "projectKind",
   "owner",
   "framework",
   "model",
@@ -63,6 +69,9 @@ function labelFor(key: keyof Facets): string {
   if (key === "dataClass" || key === "primaryDataClass") return "Data class";
   if (key === "agentPlane") return "Agent plane";
   if (key === "environmentLane") return "Environment";
+  if (key === "assistedBy") return "Assisted by";
+  if (key === "endpointPresence") return "Endpoint presence";
+  if (key === "projectKind") return "Project kind";
   return key[0].toUpperCase() + key.slice(1);
 }
 

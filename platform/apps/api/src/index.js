@@ -235,6 +235,21 @@ function agentFilters(query, startIdx = 2) {
     params.push(String(query.agentStatus || query.status));
     i += 1;
   }
+  if (query.assistedBy) {
+    clauses.push(`AND metadata->'assistedBy' ? $${i}`);
+    params.push(String(query.assistedBy).toLowerCase());
+    i += 1;
+  }
+  if (query.endpointPresence) {
+    clauses.push(`AND metadata->'endpointPresence' ? $${i}`);
+    params.push(String(query.endpointPresence).toLowerCase());
+    i += 1;
+  }
+  if (query.projectKind) {
+    clauses.push(`AND metadata->>'projectKind' = $${i}`);
+    params.push(String(query.projectKind));
+    i += 1;
+  }
   if (query.access || query.canAccess) {
     clauses.push(`AND metadata->'agentAccess'->'granted' ? $${i}`);
     params.push(String(query.access || query.canAccess));
