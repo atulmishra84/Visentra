@@ -1232,12 +1232,71 @@ tbody tr:hover {
 }
 
 .login-hero {
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   gap: 40px;
   padding: clamp(32px, 5vw, 64px);
+  overflow: hidden;
   animation: login-fade-up 520ms ease both;
+}
+
+.login-hero-visual {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.login-hero-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 35% center;
+  display: block;
+  transform: scale(1.02);
+  animation: login-kenburns 22s ease-in-out infinite alternate;
+}
+
+.login-hero-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(7, 11, 18, 0.82) 0%, rgba(7, 11, 18, 0.45) 52%, rgba(7, 11, 18, 0.78) 100%),
+    linear-gradient(180deg, rgba(7, 11, 18, 0.55) 0%, transparent 30%, rgba(7, 11, 18, 0.72) 100%);
+}
+
+.login-hero-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 40px;
+  min-height: min(72vh, 640px);
+  color: #e8eef6;
+}
+
+.login-hero-content .login-brand-name,
+.login-hero-content h1 {
+  color: #eef6ff;
+}
+
+.login-hero-content .muted,
+.login-hero-content .login-hero-copy p,
+.login-hero-content .login-hero-foot {
+  color: #9aabbf;
+}
+
+@keyframes login-kenburns {
+  from {
+    transform: scale(1.02) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.07) translate3d(-1.2%, 0.6%, 0);
+  }
 }
 
 .login-brand {
@@ -1422,7 +1481,8 @@ tbody tr:hover {
 @media (prefers-reduced-motion: reduce) {
   .login-orbit,
   .login-hero,
-  .login-panel {
+  .login-panel,
+  .login-hero-image {
     animation: none;
   }
 }
@@ -1433,8 +1493,21 @@ tbody tr:hover {
   }
 
   .login-hero {
-    min-height: 42vh;
+    min-height: 46vh;
     padding-bottom: 28px;
+  }
+
+  .login-hero-content {
+    min-height: 0;
+  }
+
+  .login-hero-image {
+    object-position: center 40%;
+  }
+
+  .login-hero-scrim {
+    background:
+      linear-gradient(180deg, rgba(7, 11, 18, 0.4) 0%, rgba(7, 11, 18, 0.82) 100%);
   }
 
   .login-panel {

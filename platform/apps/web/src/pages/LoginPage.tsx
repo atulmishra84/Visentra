@@ -150,17 +150,35 @@ export function LoginPage() {
       </button>
 
       <section className="login-hero">
-        <div className="login-brand">
-          <div className="brand-mark login-brand-mark">VE</div>
-          <div className="login-brand-name">Visentra</div>
+        <div className="login-hero-visual" aria-hidden="true">
+          <img
+            className="login-hero-image"
+            src="/images/login-mesh-hero.jpg"
+            alt=""
+            width={1920}
+            height={1080}
+            decoding="async"
+            fetchPriority="high"
+          />
+          <div className="login-hero-scrim" />
         </div>
 
-        <div className="login-hero-copy">
-          <h1>AI agent discovery for the enterprise.</h1>
-          <p>See every agent, model, and runtime across cloud, endpoints, and SaaS — without deploying another agent.</p>
-        </div>
+        <div className="login-hero-content">
+          <div className="login-brand">
+            <div className="brand-mark login-brand-mark">VE</div>
+            <div className="login-brand-name">Visentra</div>
+          </div>
 
-        <p className="login-hero-foot muted">Discovery &amp; visibility · Not enforcement</p>
+          <div className="login-hero-copy">
+            <h1>AI agent discovery for the enterprise.</h1>
+            <p>
+              See every agent, model, and runtime across cloud, endpoints, and SaaS — without deploying another
+              agent.
+            </p>
+          </div>
+
+          <p className="login-hero-foot muted">Discovery &amp; visibility · Not enforcement</p>
+        </div>
       </section>
 
       <section className="login-panel">
