@@ -144,9 +144,9 @@ export function LoginPage() {
       </button>
       <section className="login-hero">
         <div className="brand-lockup" style={{ borderBottom: 0 }}>
-          <div className="brand-mark">AR</div>
+          <div className="brand-mark">VE</div>
           <div>
-            <div className="brand-title">AgentRadar</div>
+            <div className="brand-title">Visentra</div>
             <div className="brand-subtitle">Enterprise AI agent discovery</div>
           </div>
         </div>
@@ -179,7 +179,7 @@ export function LoginPage() {
       <section className="login-panel">
         <form className="login-card" onSubmit={submit}>
           <p className="eyebrow">Secure access</p>
-          <h2>Sign in to AgentRadar</h2>
+          <h2>Sign in to Visentra</h2>
           {!isProdBuild ? (
             <p className="muted">
               API base: <span className="mono">{API_BASE_URL}</span>

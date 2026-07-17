@@ -1,4 +1,4 @@
-// AgentRadar Neo4j constraints, indexes, and relationship model
+// Visentra Neo4j constraints, indexes, and relationship model
 // Source of truth aligned with docs/blueprint/10-graph-schema.md
 
 // --- Uniqueness constraints (tenant-scoped) ---

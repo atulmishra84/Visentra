@@ -58,21 +58,24 @@ export type GraphPayload = {
   };
 };
 
-const TOKEN_KEY = "agentradar.jwt";
+const TOKEN_KEY = "visentra.jwt";
+const LEGACY_TOKEN_KEY = "agentradar.jwt";
 
 export const API_BASE_URL = (
   (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8080"
 ).replace(/\/$/, "");
 
 export function getAuthToken(): string | null {
-  return window.localStorage.getItem(TOKEN_KEY);
+  return window.localStorage.getItem(TOKEN_KEY) || window.localStorage.getItem(LEGACY_TOKEN_KEY);
 }
 
 export function setAuthToken(token: string | null): void {
   if (token) {
     window.localStorage.setItem(TOKEN_KEY, token);
+    window.localStorage.removeItem(LEGACY_TOKEN_KEY);
   } else {
     window.localStorage.removeItem(TOKEN_KEY);
+    window.localStorage.removeItem(LEGACY_TOKEN_KEY);
   }
 }
 
@@ -163,7 +166,7 @@ export async function downloadAgentExport(format: "csv" | "json", query?: Record
   const href = window.URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = href;
-  anchor.download = `agentradar-agents.${format}`;
+  anchor.download = `visentra-agents.${format}`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -187,7 +190,7 @@ export async function downloadUsageExport(
   const href = window.URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = href;
-  anchor.download = `agentradar-usage-${dimension}.csv`;
+  anchor.download = `visentra-usage-${dimension}.csv`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

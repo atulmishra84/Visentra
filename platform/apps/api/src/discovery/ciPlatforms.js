@@ -216,7 +216,7 @@ export async function validateGithubActions({ config = {}, secrets = {} }) {
   const headers = {
     Authorization: `Bearer ${cfg.token}`,
     Accept: "application/vnd.github+json",
-    "User-Agent": "AgentRadar-Discovery"
+    "User-Agent": "Visentra-Discovery"
   };
   const who = await safeFetch(`${cfg.apiBase}/user`, { headers }, cfg.policy);
   const whoJson = await who.json().catch(() => ({}));
@@ -240,7 +240,7 @@ async function listGithubRepos(cfg) {
   const headers = {
     Authorization: `Bearer ${cfg.token}`,
     Accept: "application/vnd.github+json",
-    "User-Agent": "AgentRadar-Discovery"
+    "User-Agent": "Visentra-Discovery"
   };
   const path = cfg.org
     ? `${cfg.apiBase}/orgs/${encodeURIComponent(cfg.org)}/repos?per_page=50&type=all&sort=updated`

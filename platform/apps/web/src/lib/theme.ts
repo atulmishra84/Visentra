@@ -1,10 +1,11 @@
 export type ThemeMode = "light" | "dark";
 
-const STORAGE_KEY = "agentradar-theme";
+const STORAGE_KEY = "visentra-theme";
+const LEGACY_STORAGE_KEY = "agentradar-theme";
 
 export function getStoredTheme(): ThemeMode | null {
   try {
-    const value = window.localStorage.getItem(STORAGE_KEY);
+    const value = window.localStorage.getItem(STORAGE_KEY) || window.localStorage.getItem(LEGACY_STORAGE_KEY);
     if (value === "light" || value === "dark") return value;
   } catch {
     /* ignore */
@@ -26,6 +27,7 @@ export function applyTheme(theme: ThemeMode): void {
   document.documentElement.style.colorScheme = theme;
   try {
     window.localStorage.setItem(STORAGE_KEY, theme);
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
   } catch {
     /* ignore */
   }

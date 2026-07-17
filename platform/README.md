@@ -1,4 +1,4 @@
-# AgentRadar Discovery & Visibility Platform (MVP)
+# Visentra Discovery & Visibility Platform (MVP)
 
 Greenfield implementation of the Discovery & Visibility track. See the engineering blueprint in [`docs/blueprint/`](../docs/blueprint/).
 
@@ -15,7 +15,7 @@ Greenfield implementation of the Discovery & Visibility track. See the engineeri
 
 ## Discovery posture
 
-**Agentless platform.** No AgentRadar client is required on endpoints.
+**Agentless platform.** No Visentra client is required on endpoints.
 
 - **Default:** cloud / K8s / SaaS / git / CI / log / identity connectors (API credentials in Settings → Connectors).
 - **Endpoint / IDE visibility:** integrate with the customer’s **EDR** (CrowdStrike, Defender/Intune, Cortex XDR, Netskope, etc.) and pull process/device evidence — do not deploy a proprietary local agent.
@@ -26,7 +26,7 @@ See [`docs/blueprint/01-product-vision.md`](../docs/blueprint/01-product-vision.
 
 ## Azure deploy (customer cloud — one click)
 
-Install AgentRadar into **your Azure subscription** (no local Docker required):
+Install Visentra into **your Azure subscription** (no local Docker required):
 
 ```bash
 cd platform/cloud-deploy

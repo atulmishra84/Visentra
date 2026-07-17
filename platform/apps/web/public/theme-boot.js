@@ -1,6 +1,6 @@
 (function () {
   try {
-    var stored = localStorage.getItem("agentradar-theme");
+    var stored = localStorage.getItem("visentra-theme") || localStorage.getItem("agentradar-theme");
     var theme =
       stored === "light" || stored === "dark"
         ? stored
