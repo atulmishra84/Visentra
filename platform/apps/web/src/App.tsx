@@ -18,6 +18,7 @@ import { CoveragePage } from "./pages/CoveragePage";
 import { AuditPage } from "./pages/AuditPage";
 import { UsageDashboardPage } from "./pages/UsageDashboardPage";
 import { DiscoveryChangesPage } from "./pages/DiscoveryChangesPage";
+import { MeshPage } from "./pages/MeshPage";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { isAuthenticated, loading } = useAuth();
@@ -47,6 +48,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="/executive" replace />} />
         <Route path="/executive" element={<ExecutiveDashboardPage />} />
+        <Route path="/mesh" element={<MeshPage />} />
         <Route path="/operations" element={<OperationsDashboardPage />} />
         <Route path="/shadow-ai" element={<ShadowAiPage />} />
         <Route path="/discovery" element={<DiscoveryDashboardPage />} />

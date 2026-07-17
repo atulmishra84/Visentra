@@ -1331,4 +1331,130 @@ tbody tr:hover {
   }
 }
 
+/* Global Agent Mesh */
+.mesh-panel {
+  padding: 18px 18px 14px;
+}
+
+.mesh-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mesh-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: separate;
+  border-spacing: 8px;
+  table-layout: fixed;
+}
+
+.mesh-table th,
+.mesh-table td {
+  padding: 0;
+  text-align: left;
+  vertical-align: stretch;
+}
+
+.mesh-table thead th {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0 4px 6px;
+}
+
+.mesh-table tbody th {
+  width: 9.5rem;
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 600;
+  padding-right: 8px;
+  vertical-align: middle;
+}
+
+.mesh-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 72px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.mesh-cell strong {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.mesh-cell span {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.mesh-cell:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--panel-border-strong);
+}
+
+.mesh-cell:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.mesh-cell.empty {
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+}
+
+.mesh-cell.ok {
+  border-color: color-mix(in srgb, var(--brand) 35%, var(--panel-border));
+  background: color-mix(in srgb, var(--brand) 10%, var(--panel));
+}
+
+.mesh-cell.shadow {
+  border-color: color-mix(in srgb, #e8a838 42%, var(--panel-border));
+  background: color-mix(in srgb, #e8a838 12%, var(--panel));
+}
+
+.mesh-cell.pii {
+  border-color: color-mix(in srgb, #5b8def 42%, var(--panel-border));
+  background: color-mix(in srgb, #5b8def 12%, var(--panel));
+}
+
+.mesh-cell.phi {
+  border-color: color-mix(in srgb, #d45d7a 45%, var(--panel-border));
+  background: color-mix(in srgb, #d45d7a 14%, var(--panel));
+}
+
+@media (max-width: 900px) {
+  .mesh-table tbody th {
+    width: 7.5rem;
+    font-size: 0.84rem;
+  }
+
+  .mesh-cell {
+    min-height: 64px;
+    padding: 10px 12px;
+  }
+
+  .mesh-cell strong {
+    font-size: 1.15rem;
+  }
+}
+
 

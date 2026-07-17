@@ -9,6 +9,7 @@ const sections = [
     heading: "Dashboards",
     items: [
       { to: "/executive", label: "Executive Overview" },
+      { to: "/mesh", label: "Global Agent Mesh" },
       { to: "/operations", label: "Operations Workbench" },
       { to: "/shadow-ai", label: "Shadow AI" },
       { to: "/discovery", label: "Discovery" }

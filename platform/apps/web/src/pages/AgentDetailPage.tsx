@@ -141,6 +141,20 @@ export function AgentDetailPage() {
           value={agent.shadowAi ? `${Math.round(numberAt(agent, ["shadowAiScore"], 0) * 100)}%` : "No"}
           tone={agent.shadowAi ? "warn" : "good"}
         />
+        <KpiCard
+          label="Agent plane"
+          value={
+            valueAt((meta.mesh as Record<string, unknown>) || {}, ["planeLabel", "agentPlane"]) ||
+            valueAt(meta, ["agentPlane"], "—")
+          }
+        />
+        <KpiCard
+          label="Environment"
+          value={
+            valueAt((meta.mesh as Record<string, unknown>) || {}, ["laneLabel", "environmentLane"]) ||
+            valueAt(meta, ["environmentLane"], "—")
+          }
+        />
       </section>
 
       {agent.shadowAi ? (
