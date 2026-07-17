@@ -9,7 +9,7 @@ import {
   ENVIRONMENT_LANES,
   PLANE_LABELS,
   LANE_LABELS
-} from "@agentradar/shared";
+} from "../meshConstants.js";
 
 export { AGENT_PLANES, ENVIRONMENT_LANES, PLANE_LABELS, LANE_LABELS };
 

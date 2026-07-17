@@ -3,7 +3,7 @@
  * Enabled only when DISCOVERY_DEMO_SEED=true. Never on in strict production.
  */
 
-import { AGENT_PLANES, ENVIRONMENT_LANES } from "@agentradar/shared";
+import { AGENT_PLANES, ENVIRONMENT_LANES } from "../meshConstants.js";
 
 export function demoSeedEnabled() {
   return String(process.env.DISCOVERY_DEMO_SEED || "").toLowerCase() === "true";
