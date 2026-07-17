@@ -37,7 +37,7 @@ const CONFIDENCE = {
   identity_candidate: 0.6
 };
 
-const STRONG_CLOUD_TYPES = /BedrockAgent|SageMakerEndpoint|BotService|CognitiveServices|MachineLearning|OpenAI|Vertex|Foundry/i;
+const STRONG_CLOUD_TYPES = /BedrockAgent|BedrockKnowledgeBase|SageMakerEndpoint|BotService|CognitiveServices|MachineLearning|OpenAI|Vertex|Foundry|Dialogflow|ReasoningEngine/i;
 const STRONG_AZURE_TYPES =
   /Microsoft\.(CognitiveServices|MachineLearningServices|BotService|Search)\//i;
 
@@ -160,6 +160,11 @@ export function classifyAgentEvidence(obs = {}) {
     } else {
       agentStatus = "candidate";
     }
+  }
+
+  // Preserve correlated promotions from the batch correlator.
+  if (meta.correlatedPromotion === true && agentStatus !== "confirmed") {
+    agentStatus = "confirmed";
   }
 
   // --- confidence floor by evidence ---

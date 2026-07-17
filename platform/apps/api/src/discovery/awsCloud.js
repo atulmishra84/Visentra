@@ -176,7 +176,7 @@ function awsObservation({ conn, id, name, awsType, service, region, aiRelevant =
       inventoryClass: aiRelevant ? "ai_cloud_resource" : "cloud_resource",
       evidenceClass: aiRelevant ? "cloud_ai_runtime" : null,
       agentStatus: aiRelevant
-        ? /BedrockAgent|SageMakerEndpoint/i.test(awsType)
+        ? /BedrockAgent|SageMakerEndpoint|BedrockKnowledgeBase/i.test(awsType)
           ? "confirmed"
           : "candidate"
         : null,
@@ -271,6 +271,100 @@ async function listAiLambdaFunctions(conn, region) {
   );
 }
 
+async function listBedrockKnowledgeBases(conn, region) {
+  const json = await awsJson(
+    {
+      conn,
+      service: "bedrock",
+      hostname: `bedrock-agent.${region}.amazonaws.com`,
+      path: "/knowledgebases/",
+      query: { maxResults: 50 }
+    },
+    true
+  );
+  return json?.knowledgeBaseSummaries || json?.knowledgeBases || [];
+}
+
+async function listBedrockAgentAliases(conn, region, agentId) {
+  if (!agentId) return [];
+  const json = await awsJson(
+    {
+      conn,
+      service: "bedrock",
+      hostname: `bedrock-agent.${region}.amazonaws.com`,
+      path: `/agents/${encodeURIComponent(agentId)}/agentaliases/`,
+      query: { maxResults: 20 }
+    },
+    true
+  );
+  return json?.agentAliasSummaries || json?.agentAliases || [];
+}
+
+async function listAiEcsServices(conn, region) {
+  const clustersJson = await awsJson(
+    {
+      conn,
+      service: "ecs",
+      hostname: `ecs.${region}.amazonaws.com`,
+      method: "POST",
+      path: "/",
+      headers: {
+        "Content-Type": "application/x-amz-json-1.1",
+        "X-Amz-Target": "AmazonEC2ContainerServiceV20141113.ListClusters"
+      },
+      body: JSON.stringify({ maxResults: 20 })
+    },
+    true
+  );
+  const clusterArns = clustersJson?.clusterArns || [];
+  const services = [];
+  for (const cluster of clusterArns.slice(0, 8)) {
+    const list = await awsJson(
+      {
+        conn,
+        service: "ecs",
+        hostname: `ecs.${region}.amazonaws.com`,
+        method: "POST",
+        path: "/",
+        headers: {
+          "Content-Type": "application/x-amz-json-1.1",
+          "X-Amz-Target": "AmazonEC2ContainerServiceV20141113.ListServices"
+        },
+        body: JSON.stringify({ cluster, maxResults: 20 })
+      },
+      true
+    ).catch(() => null);
+    const serviceArns = list?.serviceArns || [];
+    if (!serviceArns.length) continue;
+    const described = await awsJson(
+      {
+        conn,
+        service: "ecs",
+        hostname: `ecs.${region}.amazonaws.com`,
+        method: "POST",
+        path: "/",
+        headers: {
+          "Content-Type": "application/x-amz-json-1.1",
+          "X-Amz-Target": "AmazonEC2ContainerServiceV20141113.DescribeServices"
+        },
+        body: JSON.stringify({ cluster, services: serviceArns.slice(0, 10) })
+      },
+      true
+    ).catch(() => null);
+    for (const svc of described?.services || []) {
+      const blob = [
+        svc.serviceName,
+        svc.taskDefinition,
+        ...(svc.tags || []).map((t) => `${t.key}:${t.value}`),
+        ...(svc.loadBalancers || []).map((lb) => lb.containerName)
+      ].join(" ");
+      if (!isAiRelevantText(blob)) continue;
+      services.push(svc);
+    }
+  }
+  return services;
+}
+
 export async function discoverAwsConnector(conn) {
   const creds = requireAwsConfig(conn);
   const validation = await validateAwsConnector(conn);
@@ -301,14 +395,17 @@ export async function discoverAwsConnector(conn) {
     }
   ];
 
-  const [agents, endpoints, lambdas] = await Promise.all([
+  const [agents, endpoints, lambdas, knowledgeBases, ecsServices] = await Promise.all([
     listBedrockAgents(conn, creds.region).catch(() => []),
     listSageMakerEndpoints(conn, creds.region).catch(() => []),
-    listAiLambdaFunctions(conn, creds.region).catch(() => [])
+    listAiLambdaFunctions(conn, creds.region).catch(() => []),
+    listBedrockKnowledgeBases(conn, creds.region).catch(() => []),
+    listAiEcsServices(conn, creds.region).catch(() => [])
   ]);
 
   for (const agent of agents) {
     const id = agent.agentArn || `arn:aws:bedrock-agent:${creds.region}:${creds.accountId}:agent/${agent.agentId || agent.agentName}`;
+    const aliases = await listBedrockAgentAliases(conn, creds.region, agent.agentId).catch(() => []);
     observations.push(
       awsObservation({
         conn,
@@ -320,7 +417,32 @@ export async function discoverAwsConnector(conn) {
         aiRelevant: true,
         status: agent.agentStatus,
         model: agent.foundationModel || "bedrock-agent",
-        extra: { agentId: agent.agentId, updatedAt: agent.updatedAt || null }
+        extra: {
+          agentId: agent.agentId,
+          updatedAt: agent.updatedAt || null,
+          aliasCount: aliases.length,
+          aliases: aliases.slice(0, 5).map((a) => a.agentAliasName || a.agentAliasId)
+        }
+      })
+    );
+  }
+
+  for (const kb of knowledgeBases) {
+    const id =
+      kb.knowledgeBaseArn ||
+      `arn:aws:bedrock:${creds.region}:${creds.accountId}:knowledge-base/${kb.knowledgeBaseId || kb.name}`;
+    observations.push(
+      awsObservation({
+        conn,
+        id,
+        name: kb.name || kb.knowledgeBaseId || "Bedrock Knowledge Base",
+        awsType: "BedrockKnowledgeBase",
+        service: "bedrock-agent",
+        region: creds.region,
+        aiRelevant: true,
+        status: kb.status || "unknown",
+        model: "bedrock-knowledge-base",
+        extra: { knowledgeBaseId: kb.knowledgeBaseId || null, description: kb.description || null }
       })
     );
   }
@@ -368,12 +490,37 @@ export async function discoverAwsConnector(conn) {
     );
   }
 
+  for (const svc of ecsServices) {
+    const id = svc.serviceArn || `arn:aws:ecs:${creds.region}:${creds.accountId}:service/${svc.serviceName}`;
+    observations.push(
+      awsObservation({
+        conn,
+        id,
+        name: svc.serviceName || "ECS AI service",
+        awsType: "EcsService",
+        service: "ecs",
+        region: creds.region,
+        aiRelevant: true,
+        status: svc.status || "unknown",
+        model: "ecs-ai-service",
+        extra: {
+          taskDefinition: svc.taskDefinition || null,
+          launchType: svc.launchType || null,
+          runningCount: svc.runningCount ?? null,
+          aiSignal: "ecs-name-tags"
+        }
+      })
+    );
+  }
+
   const selected = observations.slice(0, AWS_MAX_RESOURCES + 1);
   return {
     observations: selected,
     stats: {
-      totalResourcesScanned: agents.length + endpoints.length + lambdas.length,
-      aiRelevantResources: agents.length + endpoints.length + lambdas.length,
+      totalResourcesScanned:
+        agents.length + endpoints.length + lambdas.length + knowledgeBases.length + ecsServices.length,
+      aiRelevantResources:
+        agents.length + endpoints.length + lambdas.length + knowledgeBases.length + ecsServices.length,
       cloudResourcesIngested: Math.max(0, selected.length - 1)
     }
   };

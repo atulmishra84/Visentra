@@ -107,11 +107,11 @@ function gcpObservation({ conn, id, name, gcpType, service, region = "global", a
       inventoryClass: aiRelevant ? "ai_cloud_resource" : "cloud_resource",
       evidenceClass: aiRelevant ? "cloud_ai_runtime" : null,
       agentStatus: aiRelevant
-        ? /vertex|gemini|endpoint|model/i.test(String(gcpType || service || ""))
+        ? /vertex|gemini|endpoint|model|dialogflow|reasoning/i.test(String(gcpType || service || ""))
           ? "confirmed"
           : "candidate"
         : null,
-      managedCloudAgent: /vertex|gemini/i.test(String(gcpType || service || "")),
+      managedCloudAgent: /vertex|gemini|dialogflow|reasoning/i.test(String(gcpType || service || "")),
       environment: conn.environment,
       ...extra
     },
@@ -198,6 +198,58 @@ async function listDiscoveryEngines(projectId, token) {
     model: "discovery-engine",
     extra: { solutionType: engine.solutionType || null, industryVertical: engine.industryVertical || null }
   }));
+}
+
+async function listDialogflowCxAgents(projectId, token) {
+  const resources = [];
+  for (const location of ["global", "us-central1", "europe-west1", "asia-southeast1"]) {
+    const json = await googleJson(
+      `https://dialogflow.googleapis.com/v3/projects/${encodeURIComponent(projectId)}/locations/${encodeURIComponent(location)}/agents?pageSize=50`,
+      token,
+      { optional: true }
+    ).catch(() => null);
+    for (const agent of json?.agents || []) {
+      resources.push({
+        id: agent.name,
+        name: agent.displayName || agent.name?.split("/").pop() || "Dialogflow CX agent",
+        gcpType: "DialogflowCxAgent",
+        service: "dialogflow",
+        region: location,
+        status: "running",
+        model: "dialogflow-cx-agent",
+        extra: {
+          defaultLanguageCode: agent.defaultLanguageCode || null,
+          timeZone: agent.timeZone || null
+        }
+      });
+    }
+  }
+  return resources;
+}
+
+async function listVertexReasoningEngines(projectId, token) {
+  const resources = [];
+  const locations = await listVertexLocations(projectId, token);
+  for (const location of locations.slice(0, 8)) {
+    const json = await googleJson(
+      `https://aiplatform.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/locations/${encodeURIComponent(location)}/reasoningEngines?pageSize=50`,
+      token,
+      { optional: true }
+    ).catch(() => null);
+    for (const engine of json?.reasoningEngines || []) {
+      resources.push({
+        id: engine.name,
+        name: engine.displayName || engine.name?.split("/").pop() || "Vertex AI Agent Engine",
+        gcpType: "VertexReasoningEngine",
+        service: "aiplatform",
+        region: location,
+        status: "running",
+        model: "vertex-agent-engine",
+        extra: { description: engine.description || null, labels: engine.labels || {} }
+      });
+    }
+  }
+  return resources;
 }
 
 async function listEnabledAiApis(projectId, token) {
@@ -297,7 +349,9 @@ export async function discoverGcpConnector(conn) {
     listVertexResources(cfg.projectId, token).catch(() => []),
     listLegacyAiModels(cfg.projectId, token).catch(() => []),
     listDiscoveryEngines(cfg.projectId, token).catch(() => []),
-    listAiCloudRunServices(cfg.projectId, token).catch(() => [])
+    listAiCloudRunServices(cfg.projectId, token).catch(() => []),
+    listDialogflowCxAgents(cfg.projectId, token).catch(() => []),
+    listVertexReasoningEngines(cfg.projectId, token).catch(() => [])
   ]);
   let resources = resourceGroups.flat();
 

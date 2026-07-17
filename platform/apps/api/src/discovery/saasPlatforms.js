@@ -34,6 +34,45 @@ async function azureAppToken(tenantId, clientId, clientSecret, scope) {
   return json.access_token;
 }
 
+function capabilityHintObservation({ provider, conn, id, name, framework, model, note, source }) {
+  const label = PLATFORM_LABELS[provider] || provider;
+  return {
+    collector_id: "saas_platform",
+    fingerprint: `saas:${provider}:capability:${id}`,
+    name,
+    category: "saas",
+    provider,
+    deployment_type: "saas",
+    framework: framework || label,
+    model: model || null,
+    running_status: "unknown",
+    confidence_score: 0.4,
+    metadata: {
+      connectorId: conn.id,
+      connectorName: conn.name,
+      discoveryMode: "saas-platform-capability-hint",
+      inventoryClass: "platform_capability_hint",
+      evidenceClass: null,
+      agentStatus: null,
+      aiRelevant: true,
+      platform: provider,
+      platformLabel: label,
+      managedPlatformAgent: false,
+      environment: conn.environment,
+      source: source || "inferred",
+      note: note || "Auth succeeded but no discrete agents were enumerated yet."
+    },
+    relationships: [
+      {
+        rel_type: "OBSERVED_BY",
+        to_type: "SaaSPlatform",
+        to_key: `saas-${provider}`,
+        to_name: label
+      }
+    ]
+  };
+}
+
 function platformObservation({
   provider,
   conn,
@@ -293,21 +332,18 @@ export async function discoverM365Copilot(conn) {
     }
   }
 
-  // Always surface a canonical Copilot platform agent when auth succeeds
+  // Capability hint only — do not invent a confirmed tenant agent when enumeration is empty.
   if (observations.length === 1) {
     observations.push(
-      platformObservation({
+      capabilityHintObservation({
         provider: "m365_copilot",
         conn,
         id: `tenant-copilot-${conn.config.tenantId}`,
-        name: "Microsoft 365 Copilot (tenant)",
+        name: "Microsoft 365 Copilot (platform capability)",
         framework: "Microsoft 365 Copilot",
         model: "microsoft-copilot",
-        status: "running",
-        extra: {
-          source: "graph-inferred",
-          note: "Grant Reports.Read.All and Power Platform admin scopes for Copilot Studio bot enumeration."
-        }
+        source: "graph-inferred",
+        note: "Grant Reports.Read.All and Power Platform admin scopes for Copilot Studio bot enumeration."
       })
     );
   }
@@ -480,18 +516,15 @@ export async function discoverSalesforce(conn) {
 
   if (observations.length === 1) {
     observations.push(
-      platformObservation({
+      capabilityHintObservation({
         provider: "salesforce",
         conn,
         id: `sf-org-${conn.id}`,
-        name: "Salesforce Agentforce (org capability)",
+        name: "Salesforce Agentforce (platform capability)",
         framework: "Salesforce Agentforce",
         model: "salesforce-agentforce",
-        status: "unknown",
-        extra: {
-          source: "inferred",
-          note: "Auth OK. Grant API access to BotDefinition / GenAiPromptTemplate / Agentforce objects for full agent inventory."
-        }
+        source: "inferred",
+        note: "Auth OK. Grant API access to BotDefinition / GenAiPromptTemplate / Agentforce objects for full agent inventory."
       })
     );
   }
@@ -613,22 +646,21 @@ export async function discoverWorkday(conn) {
     }
   }
 
-  // Always emit Workday Illuminate / Assistant platform capability when auth works
-  observations.push(
-    platformObservation({
-      provider: "workday",
-      conn,
-      id: `workday-illuminate-${tenant}`,
-      name: `Workday Illuminate AI (${tenant})`,
-      framework: "Workday Illuminate",
-      model: "workday-illuminate",
-      status: "running",
-      extra: {
+  // Emit Illuminate as a capability hint only when no discrete agents were found.
+  if (observations.length === 1) {
+    observations.push(
+      capabilityHintObservation({
+        provider: "workday",
+        conn,
+        id: `workday-illuminate-${tenant}`,
+        name: `Workday Illuminate AI (${tenant})`,
+        framework: "Workday Illuminate",
+        model: "workday-illuminate",
         source: "workday-platform",
         note: "Connect Workday Extend / Orchestrate APIs for custom agent enumeration when available in your tenant."
-      }
-    })
-  );
+      })
+    );
+  }
 
   return {
     observations,
@@ -745,18 +777,15 @@ export async function discoverServiceNow(conn) {
 
   if (observations.length === 1) {
     observations.push(
-      platformObservation({
+      capabilityHintObservation({
         provider: "servicenow",
         conn,
         id: `snow-now-assist-${result.instance}`,
         name: `ServiceNow Now Assist (${result.instance})`,
         framework: "ServiceNow Now Assist",
         model: "servicenow-now-assist",
-        status: "running",
-        extra: {
-          source: "inferred",
-          note: "Auth OK. Grant read on sys_cs_topic / Now Assist tables for full agent inventory."
-        }
+        source: "inferred",
+        note: "Auth OK. Grant read on sys_cs_topic / Now Assist tables for full agent inventory."
       })
     );
   }
@@ -829,7 +858,7 @@ export async function discoverOpenAi(conn) {
     }
   }
 
-  // Model catalog — surface GPT / o-series as cloud AI runtimes (candidates)
+  // Model catalog — models are runtimes, not agents (kept out of agent inventory).
   const modelsRes = await safeFetch("https://api.openai.com/v1/models", { headers: result.headers }, ALLOW.openai);
   if (modelsRes.ok) {
     const json = await modelsRes.json().catch(() => ({}));
@@ -852,9 +881,9 @@ export async function discoverOpenAi(conn) {
           connectorId: conn.id,
           connectorName: conn.name,
           discoveryMode: "openai-api-live",
-          inventoryClass: "platform_agent",
-          evidenceClass: "cloud_ai_runtime",
-          agentStatus: /gpt-|chatgpt|o[0-9]/i.test(m.id) ? "candidate" : "candidate",
+          inventoryClass: "ai_model_catalog",
+          evidenceClass: null,
+          agentStatus: null,
           aiRelevant: true,
           managedPlatformAgent: false,
           ownedBy: m.owned_by || null,
@@ -872,21 +901,19 @@ export async function discoverOpenAi(conn) {
     }
   }
 
-  // Canonical ChatGPT / OpenAI org agent when auth works
-  if (observations.length === 1) {
+  // Capability hint only when Assistants enumeration is empty.
+  const hasPlatformAgent = observations.some((o) => o?.metadata?.inventoryClass === "platform_agent");
+  if (!hasPlatformAgent) {
     observations.push(
-      platformObservation({
+      capabilityHintObservation({
         provider: "openai",
         conn,
         id: `org-${conn.config.organizationId || conn.id}`,
-        name: "ChatGPT / OpenAI (organization)",
+        name: "ChatGPT / OpenAI (platform capability)",
         framework: "OpenAI / ChatGPT",
         model: "chatgpt",
-        status: "running",
-        extra: {
-          source: "openai-inferred",
-          note: "Grant Assistants API access to enumerate custom GPTs / assistants."
-        }
+        source: "openai-inferred",
+        note: "Grant Assistants API access to enumerate custom GPTs / assistants."
       })
     );
   }
