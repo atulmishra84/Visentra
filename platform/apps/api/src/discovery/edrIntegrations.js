@@ -7,11 +7,17 @@ import {
   shouldIngestAiOnly,
   AI_PROCESS_QUERY_TERMS
 } from "./aiRelevance.js";
+import {
+  detectAssistantPresence,
+  buildPresenceMetadata,
+  presenceLabel
+} from "./assistantPresence.js";
 
 const EDR_DEVICE_LIMIT = Number(process.env.EDR_DISCOVERY_MAX_DEVICES || 100);
 
 function deviceLooksAiAgent(parts) {
-  return isAiRelevantText(...parts) || isAiAgentProcess(parts.filter(Boolean).join(" "));
+  if (isAiRelevantText(...parts) || isAiAgentProcess(parts.filter(Boolean).join(" "))) return true;
+  return detectAssistantPresence(...parts).hasPresence;
 }
 
 function clipEvidence(value, max = 300) {
@@ -77,11 +83,19 @@ function endpointObservation({
       netskope: "Netskope"
     }[provider] || provider;
 
+  const presence = detectAssistantPresence(name, hostname, processEvidence, ...(Array.isArray(extra.signalParts) ? extra.signalParts : []));
+  const presenceMeta = buildPresenceMetadata(presence.assistants, { processEvidence });
   const display = name || hostname || `${label} device ${id}`;
+  const presenceSuffix = presence.assistants.length
+    ? ` (${presence.assistants.map(presenceLabel).join(", ")} present)`
+    : " (AI agent host)";
+
   return {
     collector_id: "edr",
-    fingerprint: `edr:${provider}:ai-agent:${id}`,
-    name: aiRelevant ? `${display} (AI agent host)` : display,
+    fingerprint: presence.primary
+      ? `edr:${provider}:presence:${presence.primary}:${id}`
+      : `edr:${provider}:ai-agent:${id}`,
+    name: aiRelevant ? `${display}${presenceSuffix}` : display,
     category: "endpoint",
     provider,
     deployment_type: "endpoint",
@@ -91,20 +105,22 @@ function endpointObservation({
     ip: ip || null,
     device: name || hostname || id,
     running_status: status || "unknown",
-    confidence_score: processEvidence ? 0.9 : 0.82,
-    framework: label,
-    model: aiRelevant ? "ai-agent-endpoint" : null,
+    confidence_score: processEvidence ? 0.92 : 0.82,
+    framework: presence.primary ? presenceLabel(presence.primary) : label,
+    model: presence.primary || (aiRelevant ? "ai-agent-endpoint" : null),
+    ide: ["cursor", "claude", "copilot"].includes(presence.primary) ? presenceLabel(presence.primary) : null,
     metadata: {
       connectorId: conn.id,
       connectorName: conn.name,
       discoveryMode: "edr-ai-agent-filter",
-      inventoryClass: aiRelevant ? "endpoint_ai_agent" : "endpoint_device",
+      inventoryClass: presence.hasPresence ? "endpoint_assistant_presence" : aiRelevant ? "endpoint_ai_agent" : "endpoint_device",
       evidenceClass: aiRelevant ? "process_agent" : null,
-      agentStatus: aiRelevant ? (processEvidence ? "confirmed" : "candidate") : null,
+      agentStatus: aiRelevant ? (processEvidence || presence.hasPresence ? "confirmed" : "candidate") : null,
       aiRelevant,
       edrProvider: provider,
       environment: conn.environment,
       processEvidence: processEvidence || null,
+      ...presenceMeta,
       ...extra
     },
     relationships: [
@@ -113,7 +129,13 @@ function endpointObservation({
         to_type: "EDRPlatform",
         to_key: `edr-${provider}`,
         to_name: label
-      }
+      },
+      ...presence.assistants.map((tool) => ({
+        rel_type: "RUNS",
+        to_type: "AiAssistant",
+        to_key: `assistant-${tool}`,
+        to_name: presenceLabel(tool)
+      }))
     ]
   };
 }

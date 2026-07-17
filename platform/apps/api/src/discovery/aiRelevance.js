@@ -15,9 +15,10 @@ export const AI_AGENT_PROCESS_RE =
 
 /** Shared process-query terms for EDR advanced hunting / process APIs. */
 export const AI_PROCESS_QUERY_TERMS = [
-  "ollama",
+  "cursor",
   "claude",
   "copilot",
+  "ollama",
   "langchain",
   "langgraph",
   "crewai",
@@ -26,7 +27,6 @@ export const AI_PROCESS_QUERY_TERMS = [
   "openai",
   "chatgpt",
   "mcp",
-  "cursor",
   "aider",
   "windsurf",
   "continue",
@@ -34,7 +34,10 @@ export const AI_PROCESS_QUERY_TERMS = [
   "semantic-kernel",
   "open-interpreter",
   "n8n",
-  "lmstudio"
+  "lmstudio",
+  "Claude",
+  "Cursor",
+  "Ollama"
 ];
 
 export function isAiRelevantText(...parts) {

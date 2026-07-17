@@ -1,5 +1,14 @@
 import { safeFetch, assertAllowedUrl, ALLOW } from "../utils/http.js";
 import { isAiRelevantText } from "./aiRelevance.js";
+import {
+  detectAssistedByFromMarkers,
+  detectAssistedByFromText,
+  detectAgentFrameworks,
+  classifyRepoProjectKind,
+  extractDependencyHints,
+  buildAssistedByMetadata,
+  AGENT_FILE_MARKERS
+} from "./assistantPresence.js";
 
 const GIT_MAX_REPOS = Number(process.env.GIT_DISCOVERY_MAX_REPOS || 100);
 
@@ -63,27 +72,49 @@ async function pagedFetch(base, path, init, policy, maxPages = 3) {
   return out.slice(0, GIT_MAX_REPOS);
 }
 
-function repoObservation({ provider, conn, id, name, fullName, webUrl, owner, languages, topics, workflowMatches, extra = {} }) {
+function repoObservation({
+  provider,
+  conn,
+  id,
+  name,
+  fullName,
+  webUrl,
+  owner,
+  languages,
+  topics,
+  workflowMatches,
+  projectKind,
+  extra = {}
+}) {
   const providerLabel = provider === "github" ? "GitHub" : "GitLab";
+  const kindLabel =
+    projectKind === "agent_project"
+      ? "agent project"
+      : projectKind === "ai_assisted_repo"
+        ? "AI-assisted repo"
+        : "AI repository";
+  const assistedBy = extra.assistedBy || [];
   return {
     collector_id: "git_sources",
     fingerprint: `git:${provider}:repo:${id}`,
-    name: `${providerLabel} AI repository — ${fullName || name}`,
+    name: `${providerLabel} ${kindLabel} — ${fullName || name}`,
     category: "repository",
     provider,
     deployment_type: "repository",
     repository: fullName || name,
     github_access: provider === "github",
     running_status: "unknown",
-    confidence_score: workflowMatches?.length ? 0.86 : 0.78,
-    framework: providerLabel,
+    confidence_score:
+      projectKind === "agent_project" ? 0.88 : workflowMatches?.length || assistedBy.length ? 0.84 : 0.78,
+    framework: (extra.agentFrameworks || [])[0] || providerLabel,
     metadata: {
       connectorId: conn.id,
       connectorName: conn.name,
       discoveryMode: `${provider}-api-live`,
-      inventoryClass: "source_repository",
+      inventoryClass: projectKind === "agent_project" ? "agent_project_repo" : "source_repository",
       evidenceClass: "repo_candidate",
       agentStatus: "candidate",
+      projectKind: projectKind || "ai_signal_repo",
       provider,
       aiRelevant: true,
       webUrl,
@@ -92,6 +123,7 @@ function repoObservation({ provider, conn, id, name, fullName, webUrl, owner, la
       topics,
       workflowMatches,
       environment: conn.environment,
+      ...buildAssistedByMetadata(assistedBy),
       ...extra
     },
     relationships: [
@@ -106,7 +138,13 @@ function repoObservation({ provider, conn, id, name, fullName, webUrl, owner, la
         to_type: "SourceRepository",
         to_key: `${provider}:${fullName || id}`,
         to_name: fullName || name
-      }
+      },
+      ...assistedBy.map((tool) => ({
+        rel_type: "ASSISTED_BY",
+        to_type: "AiAssistant",
+        to_key: `assistant-${tool}`,
+        to_name: tool
+      }))
     ]
   };
 }
@@ -140,6 +178,9 @@ async function githubRepoSignals(base, policy, token, repo) {
   }).catch(() => ({}));
   const workflowMatches = [];
   const agentMarkers = [];
+  const dependencyHints = [];
+  const mcpServers = [];
+  const frameworks = new Set();
   const workflows = await jsonFetch(
     `${base}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/.github/workflows`,
     { headers },
@@ -154,19 +195,29 @@ async function githubRepoSignals(base, policy, token, repo) {
       policy,
       { optional: true }
     ).catch(() => null);
-    if (raw && isAiRelevantText(file.name, raw)) workflowMatches.push(file.name);
+    if (raw && (isAiRelevantText(file.name, raw) || /agent|langchain|mcp|ollama|crewai/i.test(raw))) {
+      workflowMatches.push(file.name);
+      detectAgentFrameworks(raw).forEach((f) => frameworks.add(f));
+    }
   }
 
-  // GitHub / Cursor agent instruction markers
+  // Agent / assistant instruction markers + MCP / framework manifests
   const markerPaths = [
+    ...AGENT_FILE_MARKERS,
     ".github/copilot-instructions.md",
     ".github/agents",
     "AGENTS.md",
+    "CLAUDE.md",
     ".cursorrules",
     ".cursor/rules",
-    "copilot-instructions.md"
+    ".cursor/mcp.json",
+    ".claude/settings.json",
+    "copilot-instructions.md",
+    "mcp.json",
+    ".mcp.json",
+    "langgraph.json"
   ];
-  for (const marker of markerPaths) {
+  for (const marker of [...new Set(markerPaths)]) {
     const raw = await textFetch(
       `${base}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${marker}`,
       { headers: { ...headers, Accept: "application/vnd.github.raw" } },
@@ -175,8 +226,17 @@ async function githubRepoSignals(base, policy, token, repo) {
     ).catch(() => null);
     if (raw && String(raw).trim()) {
       agentMarkers.push(marker);
+      detectAgentFrameworks(raw).forEach((f) => frameworks.add(f));
+      if (/mcp\.json$/i.test(marker)) {
+        try {
+          const parsed = JSON.parse(raw);
+          const servers = Object.keys(parsed.mcpServers || parsed.mcp?.servers || {});
+          mcpServers.push(...servers);
+        } catch {
+          /* ignore */
+        }
+      }
     } else {
-      // directory listing for .github/agents or .cursor/rules
       const listing = await jsonFetch(
         `${base}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${marker}`,
         { headers },
@@ -187,7 +247,39 @@ async function githubRepoSignals(base, policy, token, repo) {
     }
   }
 
-  return { languages: languages || {}, workflowMatches, agentMarkers };
+  // Dependency manifests for agent frameworks / MCP SDKs
+  for (const depFile of ["package.json", "requirements.txt", "pyproject.toml", "poetry.lock", "Pipfile"]) {
+    const raw = await textFetch(
+      `${base}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${depFile}`,
+      { headers: { ...headers, Accept: "application/vnd.github.raw" } },
+      policy,
+      { optional: true }
+    ).catch(() => null);
+    if (!raw) continue;
+    const hints = extractDependencyHints(raw);
+    if (hints.length) {
+      dependencyHints.push(...hints);
+      agentMarkers.push(depFile);
+      detectAgentFrameworks(raw).forEach((f) => frameworks.add(f));
+    }
+  }
+
+  const assistedBy = [
+    ...new Set([
+      ...detectAssistedByFromMarkers(agentMarkers),
+      ...detectAssistedByFromText(agentMarkers.join(" "), workflowMatches.join(" "))
+    ])
+  ];
+
+  return {
+    languages: languages || {},
+    workflowMatches,
+    agentMarkers,
+    dependencyHints: [...new Set(dependencyHints)],
+    mcpServers: [...new Set(mcpServers)],
+    agentFrameworks: [...frameworks],
+    assistedBy
+  };
 }
 
 export async function discoverGithub(conn) {
@@ -211,6 +303,8 @@ export async function discoverGithub(conn) {
 
   const observations = [];
   let aiRelevantRepos = 0;
+  let agentProjects = 0;
+  let assistedRepos = 0;
   for (const repo of repos) {
     const signals = await githubRepoSignals(base, policy, token, repo);
     const topics = repo.topics || [];
@@ -222,13 +316,31 @@ export async function discoverGithub(conn) {
       topics.join(" "),
       languageNames.join(" "),
       signals.workflowMatches.join(" "),
-      (signals.agentMarkers || []).join(" ")
+      (signals.agentMarkers || []).join(" "),
+      (signals.dependencyHints || []).join(" "),
+      (signals.agentFrameworks || []).join(" "),
+      (signals.assistedBy || []).join(" ")
     );
-    if (!aiRelevant) continue;
+    if (!aiRelevant && !(signals.assistedBy || []).length && !(signals.agentFrameworks || []).length) continue;
     aiRelevantRepos += 1;
-    const strongAgent =
-      (signals.agentMarkers || []).length > 0 ||
-      signals.workflowMatches.some((w) => /copilot|agent|openai|langchain|crewai|autogen|mcp/i.test(w));
+    const kind = classifyRepoProjectKind({
+      agentMarkers: signals.agentMarkers || [],
+      workflowMatches: signals.workflowMatches || [],
+      frameworks: signals.agentFrameworks || [],
+      dependencyHints: signals.dependencyHints || [],
+      assistedBy: signals.assistedBy || [],
+      mcpServers: signals.mcpServers || [],
+      aiRelevant: true
+    });
+    if (kind.projectKind === "agent_project") agentProjects += 1;
+    if ((signals.assistedBy || []).length) assistedRepos += 1;
+
+    const howBits = [];
+    if ((signals.agentFrameworks || []).length) howBits.push(`frameworks=${signals.agentFrameworks.slice(0, 4).join(",")}`);
+    if ((signals.mcpServers || []).length) howBits.push(`mcp=${signals.mcpServers.slice(0, 4).join(",")}`);
+    if ((signals.assistedBy || []).length) howBits.push(`assistedBy=${signals.assistedBy.join(",")}`);
+    if ((signals.agentMarkers || []).length) howBits.push(`markers=${signals.agentMarkers.slice(0, 4).join(",")}`);
+
     observations.push(
       repoObservation({
         provider: "github",
@@ -241,22 +353,36 @@ export async function discoverGithub(conn) {
         languages: signals.languages || {},
         topics,
         workflowMatches: signals.workflowMatches,
+        projectKind: kind.projectKind,
         extra: {
           private: repo.private,
           defaultBranch: repo.default_branch,
           agentMarkers: signals.agentMarkers || [],
+          agentFrameworks: signals.agentFrameworks || [],
+          dependencyHints: signals.dependencyHints || [],
+          mcpServers: signals.mcpServers || [],
+          assistedBy: signals.assistedBy || [],
           evidenceClass: "repo_candidate",
           agentStatus: "candidate",
-          howIdentified: strongAgent
-            ? `GitHub agent markers/workflows: ${(signals.agentMarkers || []).concat(signals.workflowMatches).slice(0, 5).join(", ")}`
+          howIdentified: howBits.length
+            ? `GitHub ${kind.projectKind || "ai_signal_repo"}: ${howBits.join("; ")}`
             : "GitHub repo name/description/topics match AI agent signals",
-          githubAgentSignal: strongAgent ? "strong" : "heuristic"
+          githubAgentSignal: kind.githubAgentSignal
         }
       })
     );
   }
 
-  return { observations, stats: { reposScanned: repos.length, aiRelevantRepos, reposIngested: observations.length } };
+  return {
+    observations,
+    stats: {
+      reposScanned: repos.length,
+      aiRelevantRepos,
+      agentProjects,
+      assistedRepos,
+      reposIngested: observations.length
+    }
+  };
 }
 
 export async function validateGitlab({ config = {}, secrets = {} }) {
@@ -271,6 +397,9 @@ async function gitlabRepoSignals(base, policy, token, project) {
   const projectId = encodeURIComponent(project.id);
   const languages = await jsonFetch(`${base}/projects/${projectId}/languages`, { headers }, policy, { optional: true }).catch(() => ({}));
   const workflowMatches = [];
+  const agentMarkers = [];
+  const dependencyHints = [];
+  const frameworks = new Set();
   const branch = project.default_branch || "main";
   const ci = await textFetch(
     `${base}/projects/${projectId}/repository/files/${encodeURIComponent(".gitlab-ci.yml")}/raw?ref=${encodeURIComponent(branch)}`,
@@ -278,8 +407,41 @@ async function gitlabRepoSignals(base, policy, token, project) {
     policy,
     { optional: true }
   ).catch(() => null);
-  if (ci && isAiRelevantText(ci)) workflowMatches.push(".gitlab-ci.yml");
-  return { languages: languages || {}, workflowMatches };
+  if (ci && (isAiRelevantText(ci) || /agent|langchain|mcp|ollama|crewai/i.test(ci))) {
+    workflowMatches.push(".gitlab-ci.yml");
+    detectAgentFrameworks(ci).forEach((f) => frameworks.add(f));
+  }
+
+  for (const marker of ["AGENTS.md", "CLAUDE.md", ".cursorrules", ".cursor/mcp.json", "mcp.json", "package.json", "requirements.txt", "pyproject.toml"]) {
+    const raw = await textFetch(
+      `${base}/projects/${projectId}/repository/files/${encodeURIComponent(marker)}/raw?ref=${encodeURIComponent(branch)}`,
+      { headers },
+      policy,
+      { optional: true }
+    ).catch(() => null);
+    if (!raw) continue;
+    agentMarkers.push(marker);
+    const hints = extractDependencyHints(raw);
+    dependencyHints.push(...hints);
+    detectAgentFrameworks(raw).forEach((f) => frameworks.add(f));
+  }
+
+  const assistedBy = [
+    ...new Set([
+      ...detectAssistedByFromMarkers(agentMarkers),
+      ...detectAssistedByFromText(agentMarkers.join(" "))
+    ])
+  ];
+
+  return {
+    languages: languages || {},
+    workflowMatches,
+    agentMarkers,
+    dependencyHints: [...new Set(dependencyHints)],
+    agentFrameworks: [...frameworks],
+    mcpServers: [],
+    assistedBy
+  };
 }
 
 export async function discoverGitlab(conn) {
@@ -293,6 +455,8 @@ export async function discoverGitlab(conn) {
   const projects = await pagedFetch(base, path, { headers }, policy);
   const observations = [];
   let aiRelevantRepos = 0;
+  let agentProjects = 0;
+  let assistedRepos = 0;
 
   for (const project of projects) {
     const signals = await gitlabRepoSignals(base, policy, token, project);
@@ -304,10 +468,24 @@ export async function discoverGitlab(conn) {
       project.description,
       topics.join(" "),
       languageNames.join(" "),
-      signals.workflowMatches.join(" ")
+      signals.workflowMatches.join(" "),
+      (signals.agentMarkers || []).join(" "),
+      (signals.dependencyHints || []).join(" "),
+      (signals.assistedBy || []).join(" ")
     );
-    if (!aiRelevant) continue;
+    if (!aiRelevant && !(signals.assistedBy || []).length && !(signals.agentFrameworks || []).length) continue;
     aiRelevantRepos += 1;
+    const kind = classifyRepoProjectKind({
+      agentMarkers: signals.agentMarkers || [],
+      workflowMatches: signals.workflowMatches || [],
+      frameworks: signals.agentFrameworks || [],
+      dependencyHints: signals.dependencyHints || [],
+      assistedBy: signals.assistedBy || [],
+      mcpServers: signals.mcpServers || [],
+      aiRelevant: true
+    });
+    if (kind.projectKind === "agent_project") agentProjects += 1;
+    if ((signals.assistedBy || []).length) assistedRepos += 1;
     observations.push(
       repoObservation({
         provider: "gitlab",
@@ -320,12 +498,31 @@ export async function discoverGitlab(conn) {
         languages: signals.languages || {},
         topics,
         workflowMatches: signals.workflowMatches,
-        extra: { visibility: project.visibility, defaultBranch: project.default_branch }
+        projectKind: kind.projectKind,
+        extra: {
+          visibility: project.visibility,
+          defaultBranch: project.default_branch,
+          agentMarkers: signals.agentMarkers || [],
+          agentFrameworks: signals.agentFrameworks || [],
+          dependencyHints: signals.dependencyHints || [],
+          assistedBy: signals.assistedBy || [],
+          githubAgentSignal: kind.githubAgentSignal,
+          howIdentified: `GitLab ${kind.projectKind || "ai_signal_repo"}`
+        }
       })
     );
   }
 
-  return { observations, stats: { reposScanned: projects.length, aiRelevantRepos, reposIngested: observations.length } };
+  return {
+    observations,
+    stats: {
+      reposScanned: projects.length,
+      aiRelevantRepos,
+      agentProjects,
+      assistedRepos,
+      reposIngested: observations.length
+    }
+  };
 }
 
 export const GIT_VALIDATORS = {
