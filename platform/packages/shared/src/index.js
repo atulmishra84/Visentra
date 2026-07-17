@@ -53,3 +53,50 @@ export const EVIDENCE_CLASSES = [
 ];
 
 export const AGENT_STATUSES = ["confirmed", "candidate"];
+
+/** Global Agent Mesh — deployment planes */
+export const AGENT_PLANES = ["containerized", "serverless", "saas_third_party", "endpoint"];
+
+/** Global Agent Mesh — environment lanes (shadow is an overlay, not a lane) */
+export const ENVIRONMENT_LANES = ["development", "staging", "production", "saas", "endpoints"];
+
+export const PLANE_LABELS = {
+  containerized: "Containerized",
+  serverless: "Serverless",
+  saas_third_party: "SaaS & third-party",
+  endpoint: "Endpoint"
+};
+
+export const LANE_LABELS = {
+  development: "Development",
+  staging: "Staging",
+  production: "Production",
+  saas: "SaaS",
+  endpoints: "Endpoints"
+};
+
+/** Compact labels for dense inventory badges */
+export const PLANE_LABELS_SHORT = {
+  containerized: "Containerized",
+  serverless: "Serverless",
+  saas_third_party: "SaaS",
+  endpoint: "Endpoint"
+};
+
+export const LANE_LABELS_SHORT = {
+  development: "Dev",
+  staging: "Staging",
+  production: "Prod",
+  saas: "SaaS",
+  endpoints: "Endpoints"
+};
+
+export function meshPlaneLabel(plane, { short = false } = {}) {
+  const map = short ? PLANE_LABELS_SHORT : PLANE_LABELS;
+  return map[plane] || plane || "—";
+}
+
+export function meshLaneLabel(lane, { short = false } = {}) {
+  const map = short ? LANE_LABELS_SHORT : LANE_LABELS;
+  return map[lane] || lane || "—";
+}

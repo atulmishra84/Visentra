@@ -35,6 +35,7 @@ import {
 } from "./services/usageAnalytics.js";
 import {
   summarizeAgentDepth,
+  enrichAgentRow,
   computeBlastRadius,
   computeDiscoveryChanges,
   computeAgentMesh,
@@ -725,53 +726,13 @@ app.get("/api/agents", auth, async (req, res) => {
   const needsMeshFilter = Boolean(planeFilter || laneFilter);
   const { clauses, params } = agentFilters(req.query);
 
-  const enrichAgent = (row) => {
-    const depth = summarizeAgentDepth(row);
-    const meta = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
-    return {
-      ...row,
-      metadata: {
-        ...meta,
-        agentConfig: meta.agentConfig || depth.agentConfig,
-        agentAccess: meta.agentAccess || depth.agentAccess,
-        ownership: meta.ownership || depth.ownership,
-        howIdentified: meta.howIdentified || depth.howIdentified,
-        evidenceClass: meta.evidenceClass || depth.evidenceClass,
-        agentStatus: meta.agentStatus || depth.agentStatus,
-        accessGrantCount: meta.accessGrantCount ?? depth.agentAccess.grantCount,
-        accessSensitivity: meta.accessSensitivity || depth.agentAccess.sensitivity,
-        ownershipStatus: meta.ownershipStatus || depth.ownership.ownershipStatus,
-        configToolCount: meta.configToolCount ?? depth.agentConfig.tools.length,
-        hasInstructions: meta.hasInstructions ?? depth.agentConfig.instructionsPresent,
-        overPermissioned: meta.overPermissioned ?? depth.agentAccess.overPermissioned,
-        authMode: meta.authMode || depth.agentConfig.authMode,
-        channels: meta.channels || depth.agentConfig.channels,
-        dataAccessClassification: meta.dataAccessClassification || depth.dataAccessClassification,
-        primaryDataClass:
-          meta.primaryDataClass ||
-          depth.dataAccessClassification?.primaryDataClass ||
-          "none",
-        dataClasses: meta.dataClasses || depth.dataAccessClassification?.dataClasses || ["none"],
-        dataAccessConfidence:
-          meta.dataAccessConfidence || depth.dataAccessClassification?.confidence || "low",
-        hasPii: meta.hasPii ?? depth.dataAccessClassification?.hasPii ?? false,
-        hasPhi: meta.hasPhi ?? depth.dataAccessClassification?.hasPhi ?? false,
-        mesh: meta.mesh || depth.mesh,
-        agentPlane: meta.agentPlane || depth.mesh?.agentPlane || null,
-        environmentLane: meta.environmentLane || depth.mesh?.environmentLane || null,
-        meshConfidence: meta.meshConfidence || depth.mesh?.confidence || "low"
-      },
-      ...depth
-    };
-  };
-
   // Plane/lane may be inferred at read time before re-ingest, so filter in memory.
   if (needsMeshFilter) {
     const result = await pool.query(
       `SELECT * FROM agents WHERE tenant_id=$1 ${clauses} ORDER BY last_seen DESC`,
       [req.tenantId, ...params]
     );
-    const filtered = result.rows.map(enrichAgent).filter((row) => {
+    const filtered = result.rows.map(enrichAgentRow).filter((row) => {
       const meta = row.metadata || {};
       if (planeFilter && meta.agentPlane !== planeFilter) return false;
       if (laneFilter && meta.environmentLane !== laneFilter) return false;
@@ -790,7 +751,7 @@ app.get("/api/agents", auth, async (req, res) => {
     `SELECT COUNT(*)::int AS total FROM agents WHERE tenant_id=$1 ${clauses}`,
     [req.tenantId, ...params]
   );
-  const agents = result.rows.map(enrichAgent);
+  const agents = result.rows.map(enrichAgentRow);
   res.json({ agents, items: agents, total: count.rows[0].total, limit, offset });
 });
 

@@ -120,7 +120,11 @@ export function AgentAnatomyPanel({ anatomy, loading, error, onClear }: AgentAna
       const group = anatomy.groups?.[spoke.key];
       const items = (group?.items || []).slice(0, 5);
       const overflow = Math.max(0, (group?.items || []).length - items.length);
-      return { spoke, group, items, overflow };
+      const display = overflow
+        ? [...items, { id: `more-${spoke.key}`, label: `+${overflow} more`, kind: "more" }]
+        : items;
+      const points = spokeItemPoints(spoke.fan, display.length, spoke.cx, spoke.cy);
+      return { spoke, group, items, overflow, display, points };
     });
   }, [anatomy]);
 
@@ -347,10 +351,8 @@ export function AgentAnatomyPanel({ anatomy, loading, error, onClear }: AgentAna
               </defs>
               <circle cx={hubX} cy={hubY} r="150" fill="url(#hubGlow)" />
 
-              {visibleGroups.map(({ spoke, items, overflow }) => {
-                const display = overflow ? [...items, { id: `more-${spoke.key}`, label: `+${overflow} more`, kind: "more" }] : items;
-                const points = spokeItemPoints(spoke.fan, display.length, spoke.cx, spoke.cy);
-                return display.map((item, index) => {
+              {visibleGroups.map(({ spoke, display, points }) =>
+                display.map((item, index) => {
                   const point = points[index] || { x: spoke.cx, y: spoke.cy };
                   const hot = hotItem === String(item.id || item.label);
                   const path = `M ${hubX} ${hubY} Q ${spoke.cx} ${spoke.cy} ${point.x} ${point.y}`;
@@ -362,8 +364,8 @@ export function AgentAnatomyPanel({ anatomy, loading, error, onClear }: AgentAna
                       fill="none"
                     />
                   );
-                });
-              })}
+                })
+              )}
 
               <circle cx={hubX} cy={hubY} r="86" className="anatomy-hub-ring" />
               <circle cx={hubX} cy={hubY} r="78" className="anatomy-hub-disk" />
@@ -378,43 +380,37 @@ export function AgentAnatomyPanel({ anatomy, loading, error, onClear }: AgentAna
               </div>
             </div>
 
-            {visibleGroups.map(({ spoke, group, items, overflow }) => {
-              const display = overflow
-                ? [...items, { id: `more-${spoke.key}`, label: `+${overflow} more`, kind: "more" }]
-                : items;
-              const points = spokeItemPoints(spoke.fan, display.length, spoke.cx, spoke.cy);
-              return (
-                <div key={spoke.key} className={`anatomy-spoke fan-${spoke.fan}`}>
-                  <div
-                    className="anatomy-spoke-label"
-                    style={{ left: `${(spoke.cx / 1000) * 100}%`, top: `${(spoke.cy / 720) * 100}%` }}
-                  >
-                    <strong>{valueAt(group || {}, ["label"], spoke.key)}</strong>
-                    <span>{valueAt(group || {}, ["description"], "")}</span>
-                  </div>
-                  {display.map((item, index) => {
-                    const point = points[index] || { x: spoke.cx, y: spoke.cy };
-                    const id = String(item.id || item.label);
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        className={`anatomy-node icon-${itemIcon(item.kind)} ${hotItem === id ? "is-hot" : ""} ${
-                          item.kind === "more" ? "is-more" : ""
-                        }`}
-                        style={{ left: `${(point.x / 1000) * 100}%`, top: `${(point.y / 720) * 100}%` }}
-                        onMouseEnter={() => setHotItem(id)}
-                        onMouseLeave={() => setHotItem(null)}
-                        title={valueAt(item, ["detail"], valueAt(item, ["label"], ""))}
-                      >
-                        <i aria-hidden />
-                        <span>{shortLabel(valueAt(item, ["label"], "—"), 16)}</span>
-                      </button>
-                    );
-                  })}
+            {visibleGroups.map(({ spoke, group, display, points }) => (
+              <div key={spoke.key}>
+                <div
+                  className="anatomy-spoke-label"
+                  style={{ left: `${(spoke.cx / 1000) * 100}%`, top: `${(spoke.cy / 720) * 100}%` }}
+                >
+                  <strong>{valueAt(group || {}, ["label"], spoke.key)}</strong>
+                  <span>{valueAt(group || {}, ["description"], "")}</span>
                 </div>
-              );
-            })}
+                {display.map((item, index) => {
+                  const point = points[index] || { x: spoke.cx, y: spoke.cy };
+                  const id = String(item.id || item.label);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`anatomy-node icon-${itemIcon(item.kind)} ${hotItem === id ? "is-hot" : ""} ${
+                        item.kind === "more" ? "is-more" : ""
+                      }`}
+                      style={{ left: `${(point.x / 1000) * 100}%`, top: `${(point.y / 720) * 100}%` }}
+                      onMouseEnter={() => setHotItem(id)}
+                      onMouseLeave={() => setHotItem(null)}
+                      title={valueAt(item, ["detail"], valueAt(item, ["label"], ""))}
+                    >
+                      <i aria-hidden />
+                      <span>{shortLabel(valueAt(item, ["label"], "—"), 16)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </div>
       )}

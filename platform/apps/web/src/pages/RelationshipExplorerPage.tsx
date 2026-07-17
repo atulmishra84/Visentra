@@ -2,17 +2,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AgentAnatomyPanel, type AgentAnatomy } from "../components/AgentAnatomyPanel";
 import { DetailDrawer } from "../components/DetailDrawer";
+import { GraphSeedBar, type GraphSeedOption } from "../components/GraphSeedBar";
 import { TopologyGraph } from "../components/TopologyGraph";
 import { apiRequest, type GraphNode, type GraphPayload, valueAt } from "../lib/api";
-
-type SeedOption = {
-  id: string;
-  name?: string;
-  category?: string;
-  framework?: string;
-  fingerprint?: string;
-  edge_count?: number;
-};
 
 function looksLikeAgentId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -23,7 +15,7 @@ export function RelationshipExplorerPage() {
   const [seed, setSeed] = useState(() => searchParams.get("agentId") || searchParams.get("seed") || "");
   const [depth, setDepth] = useState(2);
   const [graph, setGraph] = useState<GraphPayload | undefined>();
-  const [seeds, setSeeds] = useState<SeedOption[]>([]);
+  const [seeds, setSeeds] = useState<GraphSeedOption[]>([]);
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +27,7 @@ export function RelationshipExplorerPage() {
 
   const loadSeeds = async (q = "") => {
     try {
-      const payload = await apiRequest<{ seeds?: SeedOption[] }>("/api/graph/seeds", {
+      const payload = await apiRequest<{ seeds?: GraphSeedOption[] }>("/api/graph/seeds", {
         query: { q: q || undefined }
       });
       setSeeds(payload.seeds || []);
@@ -119,11 +111,6 @@ export function RelationshipExplorerPage() {
     void loadGraph(seed);
   };
 
-  const pickSeed = (option: SeedOption) => {
-    setSeed(option.id);
-    void loadGraph(option.id);
-  };
-
   const onNodeSelect = (node: GraphNode) => {
     setSelected(node);
     const type = String(node.type || node.category || "").toLowerCase();
@@ -149,63 +136,32 @@ export function RelationshipExplorerPage() {
         </header>
       ) : null}
 
-      <form className="facet-bar relationships-seed-bar" onSubmit={submit}>
-        <div className="field" style={{ minWidth: 320 }}>
-          <label htmlFor="seed">Focus agent</label>
-          <input
-            className="input"
-            id="seed"
-            list="relationship-seeds"
-            placeholder="Search name or paste agent ID"
-            value={seed}
-            onChange={(event) => {
-              setSeed(event.target.value);
-              void loadSeeds(event.target.value);
-            }}
-          />
-          <datalist id="relationship-seeds">
-            {seeds.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.name} ({option.category || "asset"})
-              </option>
-            ))}
-          </datalist>
-        </div>
-        <div className="field">
-          <label htmlFor="depth">Graph depth</label>
-          <select className="select" id="depth" value={depth} onChange={(event) => setDepth(Number(event.target.value))}>
-            <option value={1}>1 hop</option>
-            <option value={2}>2 hops</option>
-            <option value={3}>3 hops</option>
-          </select>
-        </div>
-        <button className="button primary" type="submit">
-          Open anatomy
-        </button>
-        <button
-          className="button ghost"
-          type="button"
-          onClick={() => {
-            setSeed("");
-            void loadGraph("");
-          }}
-        >
-          Clear
-        </button>
-        <button className="button ghost" type="button" onClick={() => setShowGraph((v) => !v)}>
-          {showGraph ? "Hide graph" : "Show graph"}
-        </button>
-      </form>
-
-      {!focusedAgentId && seeds.length ? (
-        <div className="toolbar" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          {seeds.slice(0, 8).map((option) => (
-            <button key={option.id} className="button ghost" type="button" onClick={() => pickSeed(option)}>
-              {valueAt(option as Record<string, unknown>, ["name"], option.id).slice(0, 36)}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <GraphSeedBar
+        idPrefix="relationship"
+        seed={seed}
+        depth={depth}
+        seeds={seeds}
+        submitLabel="Open anatomy"
+        clearLabel="Clear"
+        showChips={!focusedAgentId}
+        onSeedChange={setSeed}
+        onDepthChange={setDepth}
+        onSubmit={submit}
+        onClear={() => {
+          setSeed("");
+          void loadGraph("");
+        }}
+        onPickSeed={(option) => {
+          setSeed(option.id);
+          void loadGraph(option.id);
+        }}
+        onSearchSeeds={(q) => void loadSeeds(q)}
+        extraActions={
+          <button className="button ghost" type="button" onClick={() => setShowGraph((v) => !v)}>
+            {showGraph ? "Hide graph" : "Show graph"}
+          </button>
+        }
+      />
 
       {error ? <div className="error-state">{error}</div> : null}
 

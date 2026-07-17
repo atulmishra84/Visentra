@@ -3,6 +3,8 @@
  * Enabled only when DISCOVERY_DEMO_SEED=true. Never on in strict production.
  */
 
+import { AGENT_PLANES, ENVIRONMENT_LANES } from "@agentradar/shared";
+
 export function demoSeedEnabled() {
   return String(process.env.DISCOVERY_DEMO_SEED || "").toLowerCase() === "true";
 }
@@ -61,6 +63,13 @@ function agent(spec) {
     relationships = [],
     extraMeta = {}
   } = spec;
+
+  if (!AGENT_PLANES.includes(plane)) {
+    throw new Error(`demo seed invalid plane: ${plane} (${fingerprint})`);
+  }
+  if (!ENVIRONMENT_LANES.includes(lane)) {
+    throw new Error(`demo seed invalid lane: ${lane} (${fingerprint})`);
+  }
 
   const scopes = {};
   for (const t of tools.concat(mcp)) {
