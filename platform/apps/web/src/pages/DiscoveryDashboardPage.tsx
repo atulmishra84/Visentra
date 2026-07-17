@@ -20,7 +20,6 @@ const DEFAULT_COLLECTORS = [
 export function DiscoveryDashboardPage() {
   const [payload, setPayload] = useState<unknown>(null);
   const [connectors, setConnectors] = useState<Record<string, unknown>[]>([]);
-  const [events, setEvents] = useState<Record<string, unknown>[]>([]);
   const [selected, setSelected] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -31,14 +30,12 @@ export function DiscoveryDashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const [jobsPayload, connectorsPayload, eventsPayload] = await Promise.all([
+      const [jobsPayload, connectorsPayload] = await Promise.all([
         apiRequest<unknown>("/api/discovery/jobs"),
-        apiRequest<unknown>("/api/connectors"),
-        apiRequest<unknown>("/api/discovery/events")
+        apiRequest<unknown>("/api/connectors")
       ]);
       setPayload(jobsPayload);
       setConnectors(listFromPayload<Record<string, unknown>>(connectorsPayload, ["connectors", "items"]));
-      setEvents(listFromPayload<Record<string, unknown>>(eventsPayload, ["events", "items"]).slice(0, 8));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to load discovery jobs.");
     } finally {
@@ -157,7 +154,7 @@ export function DiscoveryDashboardPage() {
       {error ? <div className="error-state">{error}</div> : null}
       {message ? <div className="status-pill" style={{ marginBottom: 16 }}>{message}</div> : null}
 
-      <section className="three-grid">
+      <section className="two-grid">
         <div className="panel">
           <h2>Connectors</h2>
           {connectors.length === 0 ? (
@@ -188,23 +185,6 @@ export function DiscoveryDashboardPage() {
             4) Check{" "}
             <Link to="/discovery/events">Discovery Events</Link> for scan counts
           </p>
-        </div>
-        <div className="panel">
-          <h2>Recent connector events</h2>
-          {events.filter((e) => String(e.event_type || "").includes("connector")).length === 0 ? (
-            <p className="muted">No connector scan events yet.</p>
-          ) : (
-            <ul className="chart-list">
-              {events
-                .filter((e) => String(e.event_type || "").includes("connector"))
-                .slice(0, 5)
-                .map((e, idx) => (
-                  <li key={idx} className="bar-row">
-                    <span>{valueAt(e, ["message"])}</span>
-                  </li>
-                ))}
-            </ul>
-          )}
         </div>
       </section>
 

@@ -126,7 +126,7 @@ export function Layout() {
           <div className="brand-mark">AR</div>
           <div>
             <div className="brand-title">AgentRadar</div>
-            <div className="brand-subtitle">Discovery & Visibility</div>
+            <div className="brand-subtitle">Platform</div>
           </div>
         </div>
 
@@ -164,6 +164,15 @@ export function Layout() {
             );
           })}
         </nav>
+
+        <div className="sidebar-footer">
+          <div className="sidebar-user" title={String(user?.email ?? "")}>
+            {String(user?.email ?? user?.tenant ?? "Signed in")}
+          </div>
+          <button className="button ghost" type="button" onClick={logout}>
+            Sign out
+          </button>
+        </div>
       </aside>
 
       <main className="main-area">
@@ -172,7 +181,7 @@ export function Layout() {
             <span aria-hidden="true">⌕</span>
             <input
               aria-label="Global search"
-              placeholder="Search agents, models, owners, repositories..."
+              placeholder="Search inventory…"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -194,12 +203,9 @@ export function Layout() {
                   streamStatus === "live" ? "live" : streamStatus === "error" ? "error" : "warn"
                 }`}
               />
-              Graph stream {streamStatus}
+              {streamStatus === "live" ? "Live" : streamStatus === "error" ? "Stream error" : "Connecting"}
             </span>
-            <span className="status-pill">{String(user?.tenant ?? user?.email ?? "Tenant")}</span>
-            <button className="button ghost" type="button" onClick={logout}>
-              Sign out
-            </button>
+            <span className="status-pill mono">{String(user?.tenant ?? "tenant")}</span>
           </div>
         </header>
 
