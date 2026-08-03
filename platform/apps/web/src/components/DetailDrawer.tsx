@@ -6,10 +6,11 @@ type DetailDrawerProps = {
   subtitle?: string;
   children?: ReactNode;
   data?: unknown;
+  className?: string;
   onClose: () => void;
 };
 
-export function DetailDrawer({ open, title, subtitle, children, data, onClose }: DetailDrawerProps) {
+export function DetailDrawer({ open, title, subtitle, children, data, className, onClose }: DetailDrawerProps) {
   if (!open) {
     return null;
   }
@@ -18,7 +19,7 @@ export function DetailDrawer({ open, title, subtitle, children, data, onClose }:
     <div className="drawer-backdrop" role="presentation" onMouseDown={onClose}>
       <aside
         aria-modal="true"
-        className="drawer"
+        className={["drawer", className].filter(Boolean).join(" ")}
         role="dialog"
         onMouseDown={(event) => event.stopPropagation()}
       >
