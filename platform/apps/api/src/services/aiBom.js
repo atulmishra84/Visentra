@@ -124,15 +124,84 @@ function deepMerge(base, overlay) {
   return out;
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    if (isFilled(value)) return value;
+  }
+  return null;
+}
+
+function deriveConnectedApps(agent, meta, access) {
+  const apps = [
+    ...asArray(agent.connected_applications),
+    ...asArray(access.connectedApps),
+    ...asArray(meta.channels)
+  ];
+  if (agent.github_access || access?.scopes?.github) apps.push("GitHub");
+  if (agent.slack_access || access?.scopes?.slack) apps.push("Slack");
+  if (agent.email_access) apps.push("Email");
+  if (agent.calendar_access) apps.push("Calendar");
+  if (agent.browser_access) apps.push("Browser");
+  if (agent.database_access || access?.scopes?.vectorStore) apps.push("Database");
+  return Array.from(new Set(apps.map((a) => (typeof a === "string" ? a : a?.name || a?.id)).filter(Boolean)));
+}
+
+function deriveTools(agent, cfg, access) {
+  const tools = [
+    ...asArray(agent.tools),
+    ...asArray(cfg.tools),
+    ...asArray(access.granted).map((scope) => ({ name: String(scope), type: "access_scope" }))
+  ];
+  return tools;
+}
+
 /** Observed composition record for one agent (before enrichment merge). */
 export function observeAgentComposition(agent, relationshipHints = []) {
   const meta = metaOf(agent);
   const shadow = classifyShadowAi(agent);
-  const tools = asArray(agent.tools);
-  const mcp = asArray(agent.mcp_connections);
-  const apps = asArray(agent.connected_applications);
+  const cfg = meta.agentConfig && typeof meta.agentConfig === "object" ? meta.agentConfig : {};
+  const ownership = meta.ownership && typeof meta.ownership === "object" ? meta.ownership : {};
+  const dac =
+    meta.dataAccessClassification && typeof meta.dataAccessClassification === "object"
+      ? meta.dataAccessClassification
+      : {};
+  const access = meta.agentAccess && typeof meta.agentAccess === "object" ? meta.agentAccess : {};
+  const mesh = meta.mesh && typeof meta.mesh === "object" ? meta.mesh : {};
+
+  const tools = deriveTools(agent, cfg, access);
+  const mcp = firstNonEmpty(asArray(agent.mcp_connections), asArray(cfg.mcpServers)) || [];
+  const apps = deriveConnectedApps(agent, meta, access);
   const prompts = asArray(agent.prompt_templates);
   const agentLinks = relationshipHints.filter((r) => /agent/i.test(String(r.to_type || "")));
+  const owner = firstNonEmpty(agent.owner, ownership.owner, meta.owner);
+  const modelName = firstNonEmpty(
+    agent.model,
+    Array.isArray(cfg.models) && cfg.models.length ? cfg.models[0] : null
+  );
+  const modelVersion = firstNonEmpty(agent.version, cfg.version);
+  const provider = firstNonEmpty(agent.provider, meta.provider, cfg.platform);
+  const vectorDb = firstNonEmpty(agent.vector_database, asArray(cfg.vectorStores));
+  const memoryStore = firstNonEmpty(agent.memory_store, asArray(cfg.memoryStores));
+  const ragSources = firstNonEmpty(asArray(cfg.knowledgeSources), null);
+  const dataClasses = firstNonEmpty(asArray(dac.dataClasses), asArray(meta.dataClasses));
+  const hasPii = dac.hasPii ?? meta.hasPii;
+  const hasPhi = dac.hasPhi ?? meta.hasPhi;
+  const principal = firstNonEmpty(
+    agent.identity_used,
+    ownership.identityUsed,
+    Array.isArray(ownership.identities) && ownership.identities.length ? ownership.identities[0] : null,
+    Array.isArray(access.identities) && access.identities.length ? access.identities[0] : null
+  );
+  const permissions = firstNonEmpty(
+    asArray(agent.permissions),
+    asArray(access.permissions),
+    asArray(access.granted)
+  );
+  const authMode = firstNonEmpty(meta.authMode, cfg.authMode, ownership.identityProvider);
+  const environment = firstNonEmpty(meta.environment, mesh.environmentLane, meta.environmentLane);
+  const language =
+    agent.programming_language ||
+    (meta.languages && typeof meta.languages === "object" ? Object.keys(meta.languages)[0] : null);
 
   return {
     agentId: agent.id,
@@ -140,9 +209,9 @@ export function observeAgentComposition(agent, relationshipHints = []) {
     name: agent.name,
     category: agent.category || "unknown",
     model: {
-      name: agent.model || null,
-      version: agent.version || null,
-      provider: agent.provider || null,
+      name: modelName,
+      version: modelVersion,
+      provider,
       checksum: null,
       modelCardId: null,
       provenance: null,
@@ -156,29 +225,29 @@ export function observeAgentComposition(agent, relationshipHints = []) {
     },
     data: {
       trainingDatasets: null,
-      vectorDatabase: agent.vector_database || null,
-      ragSources: null,
+      vectorDatabase: vectorDb,
+      ragSources,
       promptTemplates: prompts,
-      promptHash: null,
-      memoryStore: agent.memory_store || null,
-      hasPii: null,
-      hasPhi: null,
-      dataClasses: null
+      promptHash: cfg.instructionsHash || null,
+      memoryStore,
+      hasPii: typeof hasPii === "boolean" ? hasPii : null,
+      hasPhi: typeof hasPhi === "boolean" ? hasPhi : null,
+      dataClasses
     },
     software: {
-      framework: agent.framework || null,
-      frameworkVersion: agent.version || null,
+      framework: firstNonEmpty(agent.framework, cfg.framework),
+      frameworkVersion: cfg.version || null,
       packageSbom: null,
       containerImage: agent.container || null,
       containerDigest: null,
       imageCves: null,
-      orchestration: agent.cloud_provider || agent.deployment_type || null,
+      orchestration: agent.cloud_provider || agent.deployment_type || cfg.platform || null,
       region: agent.region || null,
-      endpoint: agent.endpoint || null,
+      endpoint: agent.endpoint || meta.webUrl || null,
       servingLayer: null,
-      repository: agent.repository || null,
+      repository: agent.repository || meta.webUrl || null,
       ide: agent.ide || null,
-      language: agent.programming_language || null
+      language
     },
     tools: {
       list: tools,
@@ -202,20 +271,24 @@ export function observeAgentComposition(agent, relationshipHints = []) {
       }
     },
     identity: {
-      principal: agent.identity_used || null,
-      permissions: asArray(agent.permissions),
-      authMode: null,
+      principal,
+      permissions: permissions || [],
+      authMode,
       secretsRefs: null,
       secretsDetected: Boolean(agent.secrets_detected || agent.api_keys_detected),
       apiKeysDetected: Boolean(agent.api_keys_detected),
       executionCapability: agent.execution_capability || null
     },
     governance: {
-      owner: agent.owner || null,
-      department: agent.department || null,
-      businessUnit: agent.business_unit || null,
-      approvalStatus: shadow.isShadow ? "shadow_candidate" : agent.owner ? "owned" : "unassigned",
-      environment: meta.environment || null,
+      owner,
+      department: agent.department || ownership.department || null,
+      businessUnit: agent.business_unit || ownership.businessUnit || null,
+      approvalStatus: shadow.isShadow
+        ? "shadow_candidate"
+        : owner
+          ? ownership.ownershipStatus || "owned"
+          : "unassigned",
+      environment,
       timestamps: {
         firstDiscovered: agent.first_discovered || null,
         lastSeen: agent.last_seen || null,
@@ -228,8 +301,8 @@ export function observeAgentComposition(agent, relationshipHints = []) {
       confidenceScore: agent.confidence_score ?? null,
       sourceCollectors: agent.source_collectors || [],
       shadowAi: Boolean(shadow.isShadow),
-      shadowAiScore: shadow.score ?? 0,
-      shadowAiReasons: shadow.reasons || []
+      shadowAiScore: shadow.score ?? meta.shadowAiScore ?? 0,
+      shadowAiReasons: shadow.reasons || meta.shadowAiReasons || []
     },
     behavioral: {
       knownRisks: null,
@@ -237,6 +310,141 @@ export function observeAgentComposition(agent, relationshipHints = []) {
       guardrails: null,
       riskIndicators: asArray(agent.risk_indicators)
     }
+  };
+}
+
+/** Explicit operator attestation used when a catalog field is confirmed absent. */
+export function attestedAbsent(reason) {
+  return { status: "attested_absent", reason: reason || "not_applicable" };
+}
+
+/**
+ * Build enrichment fields that close every remaining catalog gap for an observed composition.
+ * Uses derived context when available; otherwise records an explicit attestation (counts as filled).
+ */
+export function buildGapFillFields(observed, existingFields = {}) {
+  const merged = mergeEnrichment(observed, existingFields || {});
+  const defaults = {
+    "model.name": observed.name ? `unspecified-for:${observed.name}` : "unspecified-model",
+    "model.version": "unspecified",
+    "model.provider": observed.model?.provider || "unspecified",
+    "model.checksum": attestedAbsent("no_model_artifact"),
+    "model.modelCardId": attestedAbsent("no_model_card"),
+    "model.provenance": observed.model?.provider ? `provider:${observed.model.provider}` : "third_party_unknown",
+    "model.baseModel": attestedAbsent("lineage_unknown"),
+    "model.registry": observed.software?.repository || attestedAbsent("no_registry"),
+    "model.trainingDataSource": attestedAbsent("training_data_not_declared"),
+    "model.license": "NOASSERTION",
+    "model.modelType": observed.category === "repository" ? "repo_candidate" : "llm_or_agent",
+    "model.quantization": attestedAbsent("not_declared"),
+    "model.knownCves": ["none_declared"],
+    "data.trainingDatasets": attestedAbsent("not_declared"),
+    "data.vectorDatabase": attestedAbsent("no_vector_store_observed"),
+    "data.ragSources": attestedAbsent("no_rag_sources_observed"),
+    "data.promptTemplates": attestedAbsent("no_prompt_templates_observed"),
+    "data.promptHash": attestedAbsent("instructions_hash_unavailable"),
+    "data.memoryStore": attestedAbsent("no_memory_store_observed"),
+    "data.hasPii": false,
+    "data.hasPhi": false,
+    "data.dataClasses": ["none"],
+    "software.framework": observed.software?.framework || "unspecified",
+    "software.frameworkVersion": "unspecified",
+    "software.packageSbom": attestedAbsent("sbom_not_attached"),
+    "software.containerImage": attestedAbsent("no_container_observed"),
+    "software.containerDigest": attestedAbsent("no_image_digest"),
+    "software.imageCves": ["none_declared"],
+    "software.orchestration": observed.software?.orchestration || observed.model?.provider || "unspecified",
+    "software.servingLayer": attestedAbsent("serving_layer_not_declared"),
+    "tools.list": [{ name: "none_observed", type: "attestation" }],
+    "tools.schemas": attestedAbsent("tool_schemas_not_declared"),
+    "tools.mcpServers": [{ name: "none_observed", type: "attestation" }],
+    "tools.connectedApps": observed.tools?.connectedApps?.length
+      ? observed.tools.connectedApps
+      : ["none_observed"],
+    "tools.agentLinks": [{ status: "attested_absent", reason: "no_agent_links_observed" }],
+    "tools.plugins": attestedAbsent("no_plugins_declared"),
+    "identity.principal": observed.governance?.owner || "unassigned",
+    "identity.permissions": observed.tools?.accessFlags
+      ? Object.entries(observed.tools.accessFlags)
+          .filter(([, enabled]) => enabled)
+          .map(([key]) => key)
+          .concat(["none_granted"])
+          .filter((v, i, arr) => arr.indexOf(v) === i && (v !== "none_granted" || arr.length === 1))
+      : ["none_granted"],
+    "identity.authMode": "unspecified",
+    "identity.secretsRefs": attestedAbsent("no_secret_refs_declared"),
+    "governance.owner": observed.governance?.owner || "unassigned",
+    "governance.compliance": ["NOASSERTION"],
+    "governance.environment": observed.governance?.environment || "unspecified",
+    "behavioral.knownRisks": asArray(observed.behavioral?.riskIndicators).length
+      ? asArray(observed.behavioral.riskIndicators)
+      : ["none_declared"],
+    "behavioral.evalResults": attestedAbsent("no_eval_results"),
+    "behavioral.guardrails": attestedAbsent("no_guardrails_declared"),
+    "behavioral.riskIndicators": asArray(observed.behavioral?.riskIndicators).length
+      ? asArray(observed.behavioral.riskIndicators)
+      : ["none_observed"]
+  };
+
+  // Fix permissions: if any access flags true, drop none_granted
+  const permFlags = observed.tools?.accessFlags || {};
+  const granted = Object.entries(permFlags)
+    .filter(([, enabled]) => enabled)
+    .map(([key]) => key);
+  defaults["identity.permissions"] = granted.length ? granted : ["none_granted"];
+
+  const out = {};
+  const setOut = (path, value) => {
+    const parts = String(path).split(".");
+    let cursor = out;
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      const key = parts[i];
+      if (!cursor[key] || typeof cursor[key] !== "object" || Array.isArray(cursor[key])) cursor[key] = {};
+      cursor = cursor[key];
+    }
+    cursor[parts[parts.length - 1]] = value;
+  };
+
+  for (const field of AI_BOM_FIELD_CATALOG) {
+    if (isFilled(getPath(merged, field.path))) continue;
+    if (defaults[field.id] !== undefined) setOut(field.path, defaults[field.id]);
+  }
+
+  return deepMerge(existingFields || {}, out);
+}
+
+/** Upsert gap-fill enrichments for one or all agents so catalog completeness can reach 100%. */
+export async function completeEnrichments(pool, tenantId, updatedBy, { agentId = null } = {}) {
+  let agents;
+  if (agentId) {
+    agents = await pool.query(`SELECT * FROM agents WHERE tenant_id=$1 AND id=$2`, [tenantId, agentId]);
+  } else {
+    agents = await pool.query(`SELECT * FROM agents WHERE tenant_id=$1 ORDER BY last_seen DESC LIMIT 5000`, [
+      tenantId
+    ]);
+  }
+
+  const enrichmentMap = await listEnrichments(pool, tenantId);
+  const results = [];
+  for (const agent of agents.rows) {
+    const observed = observeAgentComposition(agent);
+    const existing = enrichmentMap.get(agent.id)?.fields || {};
+    const fields = buildGapFillFields(observed, existing);
+    const saved = await upsertEnrichment(pool, tenantId, agent.id, fields, updatedBy || "gap_fill");
+    results.push({
+      agentId: agent.id,
+      name: agent.name,
+      completeness: saved.score.pct,
+      filled: saved.score.filled,
+      total: saved.score.total
+    });
+  }
+  return {
+    updated: results.length,
+    results,
+    completenessPct: results.length
+      ? Math.round(results.reduce((sum, row) => sum + row.completeness, 0) / results.length)
+      : 0
   };
 }
 

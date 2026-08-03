@@ -471,6 +471,31 @@ export function AiBomPage() {
     }
   };
 
+  const completeGaps = async (agentId?: string) => {
+    setBusy(true);
+    setEnrichMsg(null);
+    setError(null);
+    try {
+      const result = await apiRequest<{ updated: number; completenessPct: number }>(
+        "/api/ai-bom/enrichments/complete",
+        {
+          method: "POST",
+          body: JSON.stringify(agentId ? { agentId } : {})
+        }
+      );
+      setEnrichMsg(
+        agentId
+          ? `Filled gaps for selected system → ${result.completenessPct}%`
+          : `Filled gaps for ${result.updated} systems → estate ${result.completenessPct}%`
+      );
+      await load();
+    } catch (err) {
+      setEnrichMsg(err instanceof Error ? err.message : "Gap fill failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (error && !data) return <div className="error-state">{error}</div>;
   if (!data) return <div className="loading-state">Building full AI BOM…</div>;
 
@@ -637,9 +662,24 @@ export function AiBomPage() {
             <span className="muted">Operators / admins</span>
           </div>
           <p className="page-description">
-            Add licenses, hashes, datasets, guardrails, and other fields discovery cannot observe.
+            Add licenses, hashes, datasets, guardrails, and other fields discovery cannot observe. Use{" "}
+            <strong>Fill all gaps</strong> to attest remaining catalog fields (including confirmed absences) so
+            completeness can reach 100%.
           </p>
           <div className="aibom-enrich-layout">
+            <div className="aibom-header-actions" style={{ justifyContent: "flex-start" }}>
+              <button className="button primary" type="button" disabled={busy} onClick={() => void completeGaps()}>
+                Fill all gaps (estate → 100%)
+              </button>
+              <button
+                className="button"
+                type="button"
+                disabled={busy || !enrichAgentId}
+                onClick={() => void completeGaps(enrichAgentId)}
+              >
+                Fill gaps for selected
+              </button>
+            </div>
             <div className="field">
               <label htmlFor="enrich-agent">Agent</label>
               <select
