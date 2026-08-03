@@ -121,6 +121,12 @@ export function AgentDetailPage() {
           >
             Show neighborhood graph
           </Link>
+          <Link
+            className="button"
+            to={`/ai-bom?tab=systems&agentId=${encodeURIComponent(String(agent.id ?? id))}`}
+          >
+            AI BOM
+          </Link>
           <Link className="button" to="/inventory">
             Back to inventory
           </Link>

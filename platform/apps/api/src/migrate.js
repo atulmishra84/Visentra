@@ -100,6 +100,42 @@ export async function migrate(pool) {
     CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_events(tenant_id, created_at DESC)
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_bom_enrichments (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      agent_id        UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      fields          JSONB NOT NULL DEFAULT '{}'::jsonb,
+      completeness    NUMERIC(5,2) NOT NULL DEFAULT 0,
+      updated_by      TEXT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (tenant_id, agent_id)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_ai_bom_enrichments_tenant
+      ON ai_bom_enrichments(tenant_id, updated_at DESC)
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_bom_snapshots (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      serial_number   TEXT NOT NULL,
+      format          TEXT NOT NULL DEFAULT 'visentra'
+                        CHECK (format IN ('visentra', 'cyclonedx')),
+      label           TEXT,
+      document        JSONB NOT NULL,
+      summary         JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by      TEXT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_ai_bom_snapshots_tenant
+      ON ai_bom_snapshots(tenant_id, created_at DESC)
+  `);
+
   const isProd = process.env.NODE_ENV === "production";
   const email = process.env.BOOTSTRAP_ADMIN_EMAIL || "admin@agentradar.local";
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || (isProd ? null : "AgentRadar!dev");

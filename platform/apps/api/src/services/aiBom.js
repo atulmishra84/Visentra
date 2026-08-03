@@ -1,22 +1,83 @@
 /**
- * AI BOM (Bill of Materials) — composition layer separate from Inventory.
+ * Visentra Full AI BOM module
  *
- * V1 builds a structured, machine-readable composition document from discovered
- * agents + relationships. Fields Visentra cannot observe (model hash, license,
- * training datasets, evals) are explicitly marked unknown / not_observed.
+ * Builds a complete AI Bill of Materials across 7 categories:
+ *   1 models | 2 data | 3 software_infra | 4 tools_integrations
+ *   5 identity_access | 6 governance | 7 behavioral
  *
- * Categories aligned to enterprise AI BOM expectations:
- *   models | data | software_infra | tools_integrations | identity_access | governance
+ * Discovery fills observed fields; enrichment table supplies the rest.
+ * Unobserved fields stay explicitly unknown — never invented.
  */
 
-import { classifyShadowAi } from "./shadowAi.js";
 import { randomUUID } from "crypto";
+import { classifyShadowAi } from "./shadowAi.js";
 
-const BOM_SPEC = {
+export const BOM_SPEC = {
   bomFormat: "Visentra-AIBOM",
-  specVersion: "0.1.0",
-  scope: "agent_composition_v1"
+  specVersion: "1.0.0",
+  scope: "full_ai_bom_v1"
 };
+
+/** Canonical field catalog for completeness scoring + UI. */
+export const AI_BOM_FIELD_CATALOG = [
+  // 1. Model
+  { id: "model.name", category: "models", label: "Model name", source: "discovery", path: "model.name" },
+  { id: "model.version", category: "models", label: "Model version", source: "either", path: "model.version" },
+  { id: "model.provider", category: "models", label: "Provider", source: "discovery", path: "model.provider" },
+  { id: "model.checksum", category: "models", label: "Checksum / hash", source: "enrichment", path: "model.checksum" },
+  { id: "model.modelCardId", category: "models", label: "Model card ID", source: "enrichment", path: "model.modelCardId" },
+  { id: "model.provenance", category: "models", label: "Provenance", source: "enrichment", path: "model.provenance" },
+  { id: "model.baseModel", category: "models", label: "Base model lineage", source: "enrichment", path: "model.baseModel" },
+  { id: "model.registry", category: "models", label: "Model registry / source", source: "enrichment", path: "model.registry" },
+  { id: "model.trainingDataSource", category: "models", label: "Training data source", source: "enrichment", path: "model.trainingDataSource" },
+  { id: "model.license", category: "models", label: "License", source: "enrichment", path: "model.license" },
+  { id: "model.modelType", category: "models", label: "Model type", source: "enrichment", path: "model.modelType" },
+  { id: "model.quantization", category: "models", label: "Quantization / optimization", source: "enrichment", path: "model.quantization" },
+  { id: "model.knownCves", category: "models", label: "Known CVEs / advisories", source: "enrichment", path: "model.knownCves" },
+  // 2. Data
+  { id: "data.trainingDatasets", category: "data", label: "Training / fine-tune datasets", source: "enrichment", path: "data.trainingDatasets" },
+  { id: "data.vectorDatabase", category: "data", label: "Vector database", source: "either", path: "data.vectorDatabase" },
+  { id: "data.ragSources", category: "data", label: "RAG knowledge sources", source: "enrichment", path: "data.ragSources" },
+  { id: "data.promptTemplates", category: "data", label: "Prompt templates", source: "either", path: "data.promptTemplates" },
+  { id: "data.promptHash", category: "data", label: "Instructions / prompt hash", source: "enrichment", path: "data.promptHash" },
+  { id: "data.memoryStore", category: "data", label: "Memory store", source: "either", path: "data.memoryStore" },
+  { id: "data.hasPii", category: "data", label: "PII flag", source: "enrichment", path: "data.hasPii" },
+  { id: "data.hasPhi", category: "data", label: "PHI flag", source: "enrichment", path: "data.hasPhi" },
+  { id: "data.dataClasses", category: "data", label: "Data classification", source: "enrichment", path: "data.dataClasses" },
+  // 3. Software & infra
+  { id: "software.framework", category: "software_infra", label: "Framework", source: "discovery", path: "software.framework" },
+  { id: "software.frameworkVersion", category: "software_infra", label: "Framework version", source: "either", path: "software.frameworkVersion" },
+  { id: "software.packageSbom", category: "software_infra", label: "Underlying SBOM / packages", source: "enrichment", path: "software.packageSbom" },
+  { id: "software.containerImage", category: "software_infra", label: "Container / base image", source: "either", path: "software.containerImage" },
+  { id: "software.containerDigest", category: "software_infra", label: "Image digest", source: "enrichment", path: "software.containerDigest" },
+  { id: "software.imageCves", category: "software_infra", label: "Image CVEs", source: "enrichment", path: "software.imageCves" },
+  { id: "software.orchestration", category: "software_infra", label: "Orchestration platform", source: "either", path: "software.orchestration" },
+  { id: "software.servingLayer", category: "software_infra", label: "Serving layer", source: "enrichment", path: "software.servingLayer" },
+  // 4. Tools & integrations
+  { id: "tools.list", category: "tools_integrations", label: "Tools / functions", source: "discovery", path: "tools.list" },
+  { id: "tools.schemas", category: "tools_integrations", label: "Tool I/O schemas", source: "enrichment", path: "tools.schemas" },
+  { id: "tools.mcpServers", category: "tools_integrations", label: "MCP servers", source: "discovery", path: "tools.mcpServers" },
+  { id: "tools.connectedApps", category: "tools_integrations", label: "Connected applications", source: "discovery", path: "tools.connectedApps" },
+  { id: "tools.agentLinks", category: "tools_integrations", label: "Agent-to-agent links", source: "discovery", path: "tools.agentLinks" },
+  { id: "tools.plugins", category: "tools_integrations", label: "Plugins / extensions", source: "enrichment", path: "tools.plugins" },
+  // 5. Identity
+  { id: "identity.principal", category: "identity_access", label: "Identity / service principal", source: "either", path: "identity.principal" },
+  { id: "identity.permissions", category: "identity_access", label: "Permissions / scopes", source: "either", path: "identity.permissions" },
+  { id: "identity.authMode", category: "identity_access", label: "Auth mode", source: "enrichment", path: "identity.authMode" },
+  { id: "identity.secretsRefs", category: "identity_access", label: "Secrets referenced", source: "enrichment", path: "identity.secretsRefs" },
+  { id: "identity.secretsDetected", category: "identity_access", label: "Hardcoded secrets flagged", source: "discovery", path: "identity.secretsDetected" },
+  // 6. Governance
+  { id: "governance.owner", category: "governance", label: "Owner / team", source: "discovery", path: "governance.owner" },
+  { id: "governance.approvalStatus", category: "governance", label: "Approval status", source: "either", path: "governance.approvalStatus" },
+  { id: "governance.environment", category: "governance", label: "Environment", source: "either", path: "governance.environment" },
+  { id: "governance.timestamps", category: "governance", label: "Lifecycle timestamps", source: "discovery", path: "governance.timestamps" },
+  { id: "governance.compliance", category: "governance", label: "Compliance mappings", source: "enrichment", path: "governance.compliance" },
+  // 7. Behavioral
+  { id: "behavioral.knownRisks", category: "behavioral", label: "Known model risks", source: "enrichment", path: "behavioral.knownRisks" },
+  { id: "behavioral.evalResults", category: "behavioral", label: "Red-team / eval results", source: "enrichment", path: "behavioral.evalResults" },
+  { id: "behavioral.guardrails", category: "behavioral", label: "Guardrails applied", source: "enrichment", path: "behavioral.guardrails" },
+  { id: "behavioral.riskIndicators", category: "behavioral", label: "Discovery risk indicators", source: "discovery", path: "behavioral.riskIndicators" }
+];
 
 function asArray(value) {
   if (Array.isArray(value)) return value;
@@ -24,452 +85,534 @@ function asArray(value) {
   return [value];
 }
 
-function uniqueKey(parts) {
-  return parts
-    .filter((p) => p != null && String(p).trim() !== "")
-    .map((p) => String(p).trim().toLowerCase())
-    .join("::");
-}
-
-function unknown(reason = "not_observed_by_discovery") {
-  return { status: "unknown", reason };
-}
-
-function pushComponent(map, component) {
-  const key = component.bomRef || uniqueKey([component.category, component.type, component.name, component.version]);
-  const existing = map.get(key);
-  if (existing) {
-    existing.usedBy = Array.from(new Set([...(existing.usedBy || []), ...(component.usedBy || [])]));
-    existing.agentIds = Array.from(new Set([...(existing.agentIds || []), ...(component.agentIds || [])]));
-    existing.occurrenceCount = (existing.occurrenceCount || 1) + 1;
-    return existing;
-  }
-  const entry = {
-    ...component,
-    bomRef: key,
-    occurrenceCount: 1
-  };
-  map.set(key, entry);
-  return entry;
-}
-
 function metaOf(agent) {
   return agent?.metadata && typeof agent.metadata === "object" ? agent.metadata : {};
 }
 
-function agentSystemComponent(agent, shadow) {
-  const meta = metaOf(agent);
-  return {
-    category: "systems",
-    type: "ai-agent",
-    name: agent.name,
-    bomRef: `agent:${agent.id}`,
-    agentId: agent.id,
-    fingerprint: agent.fingerprint,
-    version: agent.version || null,
-    provider: agent.provider || null,
-    properties: {
-      category: agent.category || "unknown",
-      framework: agent.framework || null,
-      model: agent.model || null,
-      cloudProvider: agent.cloud_provider || null,
-      region: agent.region || null,
-      repository: agent.repository || null,
-      ide: agent.ide || null,
-      hostname: agent.hostname || null,
-      deploymentType: agent.deployment_type || null,
-      runningStatus: agent.running_status || null,
-      evidenceClass: meta.evidenceClass || null,
-      agentStatus: meta.agentStatus || null,
-      confidenceScore: agent.confidence_score ?? null,
-      owner: agent.owner || null,
-      department: agent.department || null,
-      businessUnit: agent.business_unit || null,
-      shadowAi: Boolean(shadow?.isShadow),
-      shadowAiScore: shadow?.score ?? 0,
-      shadowAiReasons: shadow?.reasons || [],
-      sourceCollectors: agent.source_collectors || [],
-      firstDiscovered: agent.first_discovered || null,
-      lastSeen: agent.last_seen || null,
-      lastModified: agent.last_modified || null
-    },
-    coverage: {
-      modelIdentity: agent.model ? "partial" : "missing",
-      modelVersionHash: "missing",
-      modelLicense: "missing",
-      trainingData: "missing",
-      packageSbom: "missing",
-      toolSchemas: asArray(agent.tools).length ? "partial" : "missing",
-      mcp: asArray(agent.mcp_connections).length ? "partial" : "missing",
-      identity: agent.identity_used ? "partial" : "missing",
-      ownership: agent.owner ? "observed" : "missing"
-    }
-  };
+function getPath(obj, path) {
+  return String(path)
+    .split(".")
+    .reduce((acc, key) => (acc == null ? undefined : acc[key]), obj);
 }
 
-function collectFromAgent(agent, componentMap, dependencyEdges) {
-  const shadow = classifyShadowAi(agent);
+function isFilled(value) {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim() !== "" && value !== "unknown";
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") {
+    if (value.status === "unknown") return false;
+    return Object.keys(value).length > 0;
+  }
+  if (typeof value === "boolean") return true;
+  return true;
+}
+
+function unknown(reason = "not_observed") {
+  return { status: "unknown", reason };
+}
+
+function deepMerge(base, overlay) {
+  if (!overlay || typeof overlay !== "object" || Array.isArray(overlay)) return overlay ?? base;
+  const out = { ...(base && typeof base === "object" ? base : {}) };
+  for (const [k, v] of Object.entries(overlay)) {
+    if (v && typeof v === "object" && !Array.isArray(v) && out[k] && typeof out[k] === "object" && !Array.isArray(out[k])) {
+      out[k] = deepMerge(out[k], v);
+    } else if (v !== undefined) {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+/** Observed composition record for one agent (before enrichment merge). */
+export function observeAgentComposition(agent, relationshipHints = []) {
   const meta = metaOf(agent);
-  const system = agentSystemComponent(agent, shadow);
-  pushComponent(componentMap, {
-    ...system,
-    usedBy: [agent.name],
-    agentIds: [agent.id]
-  });
+  const shadow = classifyShadowAi(agent);
+  const tools = asArray(agent.tools);
+  const mcp = asArray(agent.mcp_connections);
+  const apps = asArray(agent.connected_applications);
+  const prompts = asArray(agent.prompt_templates);
+  const agentLinks = relationshipHints.filter((r) => /agent/i.test(String(r.to_type || "")));
 
-  const agentRef = system.bomRef;
-
-  if (agent.model) {
-    const modelRef = uniqueKey(["models", "model", agent.model, agent.provider, agent.version]);
-    pushComponent(componentMap, {
-      category: "models",
-      type: "ml-model",
-      name: agent.model,
+  return {
+    agentId: agent.id,
+    fingerprint: agent.fingerprint,
+    name: agent.name,
+    category: agent.category || "unknown",
+    model: {
+      name: agent.model || null,
       version: agent.version || null,
       provider: agent.provider || null,
-      properties: {
-        provenance: unknown("api_or_runtime_identity_only"),
-        baseModelLineage: unknown(),
-        registry: unknown(),
-        trainingDataSource: unknown(),
-        license: unknown(),
-        modelType: unknown(),
-        quantization: unknown(),
-        checksum: unknown(),
-        knownCves: unknown()
-      },
-      usedBy: [agent.name],
-      agentIds: [agent.id]
-    });
-    dependencyEdges.push({ from: agentRef, to: modelRef, relType: "INVOKES_MODEL" });
-  }
-
-  if (agent.framework) {
-    const fwRef = uniqueKey(["software_infra", "framework", agent.framework, agent.version]);
-    pushComponent(componentMap, {
-      category: "software_infra",
-      type: "framework",
-      name: agent.framework,
-      version: agent.version || null,
-      properties: {
-        packageSbom: unknown(),
-        language: agent.programming_language || null
-      },
-      usedBy: [agent.name],
-      agentIds: [agent.id]
-    });
-    dependencyEdges.push({ from: agentRef, to: fwRef, relType: "USES_FRAMEWORK" });
-  }
-
-  const orchestration =
-    agent.cloud_provider ||
-    (agent.deployment_type && String(agent.deployment_type)) ||
-    (agent.container ? "container" : null);
-  if (orchestration) {
-    const orchRef = uniqueKey(["software_infra", "orchestration", orchestration, agent.region]);
-    pushComponent(componentMap, {
-      category: "software_infra",
-      type: "orchestration",
-      name: String(orchestration),
-      properties: {
-        region: agent.region || null,
-        container: agent.container || null,
-        endpoint: agent.endpoint || null,
-        deploymentType: agent.deployment_type || null,
-        baseImageCves: unknown(),
-        servingLayer: unknown()
-      },
-      usedBy: [agent.name],
-      agentIds: [agent.id]
-    });
-    dependencyEdges.push({ from: agentRef, to: orchRef, relType: "DEPLOYED_IN" });
-  }
-
-  for (const tool of asArray(agent.tools)) {
-    const toolName = typeof tool === "string" ? tool : tool?.name || JSON.stringify(tool);
-    if (!toolName) continue;
-    const toolRef = uniqueKey(["tools_integrations", "tool", toolName]);
-    pushComponent(componentMap, {
-      category: "tools_integrations",
-      type: "tool",
-      name: toolName,
-      properties: {
-        schema: typeof tool === "object" ? tool : unknown("name_only"),
-        purpose: typeof tool === "object" ? tool.purpose || tool.description || null : null
-      },
-      usedBy: [agent.name],
-      agentIds: [agent.id]
-    });
-    dependencyEdges.push({ from: agentRef, to: toolRef, relType: "USES_TOOL" });
-  }
-
-  for (const mcp of asArray(agent.mcp_connections)) {
-    const mcpName = typeof mcp === "string" ? mcp : mcp?.name || mcp?.id || JSON.stringify(mcp);
-    if (!mcpName) continue;
-    const mcpRef = uniqueKey(["tools_integrations", "mcp", mcpName]);
-    pushComponent(componentMap, {
-      category: "tools_integrations",
-      type: "mcp-server",
-      name: mcpName,
-      properties: {
-        trustBoundary: "third_party_capability",
-        commandOrUrl: typeof mcp === "object" ? mcp.command || mcp.url || null : null
-      },
-      usedBy: [agent.name],
-      agentIds: [agent.id]
-    });
-    dependencyEdges.push({ from: agentRef, to: mcpRef, relType: "CONNECTS_MCP" });
-  }
-
-  for (const app of asArray(agent.connected_applications)) {
-    const appName = typeof app === "string" ? app : app?.name || JSON.stringify(app);
-    if (!appName) continue;
-    const appRef = uniqueKey(["tools_integrations", "application", appName]);
-    pushComponent(componentMap, {
-      category: "tools_integrations",
-      type: "connected-application",
-      name: appName,
-      properties: {
-        permissionScope: unknown("flag_level_only")
-      },
-      usedBy: [agent.name],
-      agentIds: [agent.id]
-    });
-    dependencyEdges.push({ from: agentRef, to: appRef, relType: "ACCESSES" });
-  }
-
-  if (agent.vector_database) {
-    const vdRef = uniqueKey(["data", "vector_database", agent.vector_database]);
-    pushComponent(componentMap, {
-      category: "data",
-      type: "vector-database",
-      name: agent.vector_database,
-      properties: {
-        indexedContent: unknown(),
-        refreshPolicy: unknown(),
-        accessControls: unknown(),
-        sensitivity: unknown()
-      },
-      usedBy: [agent.name],
-      agentIds: [agent.id]
-    });
-    dependencyEdges.push({ from: agentRef, to: vdRef, relType: "USES_VECTOR_STORE" });
-  }
-
-  if (agent.memory_store) {
-    const memRef = uniqueKey(["data", "memory_store", agent.memory_store]);
-    pushComponent(componentMap, {
-      category: "data",
-      type: "memory-store",
-      name: agent.memory_store,
-      properties: {
-        retention: unknown(),
-        contents: unknown()
-      },
-      usedBy: [agent.name],
-      agentIds: [agent.id]
-    });
-    dependencyEdges.push({ from: agentRef, to: memRef, relType: "USES_MEMORY" });
-  }
-
-  for (const prompt of asArray(agent.prompt_templates)) {
-    const promptName =
-      typeof prompt === "string" ? prompt : prompt?.name || prompt?.id || "prompt-template";
-    const promptRef = uniqueKey(["data", "prompt_template", promptName, agent.id]);
-    pushComponent(componentMap, {
-      category: "data",
-      type: "prompt-template",
-      name: promptName,
-      properties: {
-        version: typeof prompt === "object" ? prompt.version || null : null,
-        hash: typeof prompt === "object" ? prompt.hash || prompt.instructionsHash || null : null,
-        hashStatus: typeof prompt === "object" && (prompt.hash || prompt.instructionsHash) ? "observed" : "missing"
-      },
-      usedBy: [agent.name],
-      agentIds: [agent.id]
-    });
-    dependencyEdges.push({ from: agentRef, to: promptRef, relType: "USES_PROMPT" });
-  }
-
-  if (agent.identity_used || asArray(agent.permissions).length || agent.api_keys_detected || agent.secrets_detected) {
-    const idName = agent.identity_used || `identity-for-${agent.name}`;
-    const idRef = uniqueKey(["identity_access", "identity", idName, agent.id]);
-    pushComponent(componentMap, {
-      category: "identity_access",
-      type: "identity",
-      name: idName,
-      properties: {
-        permissions: asArray(agent.permissions),
-        authMode: unknown(),
-        apiKeysDetected: Boolean(agent.api_keys_detected),
-        secretsDetected: Boolean(agent.secrets_detected),
-        accessFlags: {
-          internet: Boolean(agent.internet_access),
-          filesystem: Boolean(agent.filesystem_access),
-          database: Boolean(agent.database_access),
-          github: Boolean(agent.github_access),
-          slack: Boolean(agent.slack_access),
-          email: Boolean(agent.email_access),
-          calendar: Boolean(agent.calendar_access),
-          browser: Boolean(agent.browser_access)
-        },
-        executionCapability: agent.execution_capability || null
-      },
-      usedBy: [agent.name],
-      agentIds: [agent.id]
-    });
-    dependencyEdges.push({ from: agentRef, to: idRef, relType: "USES_IDENTITY" });
-  }
-
-  pushComponent(componentMap, {
-    category: "governance",
-    type: "governance-record",
-    name: `governance:${agent.name}`,
-    bomRef: uniqueKey(["governance", agent.id]),
-    properties: {
+      checksum: null,
+      modelCardId: null,
+      provenance: null,
+      baseModel: null,
+      registry: null,
+      trainingDataSource: null,
+      license: null,
+      modelType: null,
+      quantization: null,
+      knownCves: null
+    },
+    data: {
+      trainingDatasets: null,
+      vectorDatabase: agent.vector_database || null,
+      ragSources: null,
+      promptTemplates: prompts,
+      promptHash: null,
+      memoryStore: agent.memory_store || null,
+      hasPii: null,
+      hasPhi: null,
+      dataClasses: null
+    },
+    software: {
+      framework: agent.framework || null,
+      frameworkVersion: agent.version || null,
+      packageSbom: null,
+      containerImage: agent.container || null,
+      containerDigest: null,
+      imageCves: null,
+      orchestration: agent.cloud_provider || agent.deployment_type || null,
+      region: agent.region || null,
+      endpoint: agent.endpoint || null,
+      servingLayer: null,
+      repository: agent.repository || null,
+      ide: agent.ide || null,
+      language: agent.programming_language || null
+    },
+    tools: {
+      list: tools,
+      schemas: null,
+      mcpServers: mcp,
+      connectedApps: apps,
+      agentLinks: agentLinks.map((r) => ({
+        relType: r.rel_type,
+        to: r.to_name || r.external_key || r.to_id
+      })),
+      plugins: null,
+      accessFlags: {
+        internet: Boolean(agent.internet_access),
+        filesystem: Boolean(agent.filesystem_access),
+        database: Boolean(agent.database_access),
+        github: Boolean(agent.github_access),
+        slack: Boolean(agent.slack_access),
+        email: Boolean(agent.email_access),
+        calendar: Boolean(agent.calendar_access),
+        browser: Boolean(agent.browser_access)
+      }
+    },
+    identity: {
+      principal: agent.identity_used || null,
+      permissions: asArray(agent.permissions),
+      authMode: null,
+      secretsRefs: null,
+      secretsDetected: Boolean(agent.secrets_detected || agent.api_keys_detected),
+      apiKeysDetected: Boolean(agent.api_keys_detected),
+      executionCapability: agent.execution_capability || null
+    },
+    governance: {
       owner: agent.owner || null,
       department: agent.department || null,
       businessUnit: agent.business_unit || null,
       approvalStatus: shadow.isShadow ? "shadow_candidate" : agent.owner ? "owned" : "unassigned",
       environment: meta.environment || null,
-      complianceMappings: unknown(),
-      behavioralEvals: unknown(),
-      guardrails: unknown(),
-      riskIndicators: asArray(agent.risk_indicators),
-      firstDiscovered: agent.first_discovered || null,
-      lastSeen: agent.last_seen || null
+      timestamps: {
+        firstDiscovered: agent.first_discovered || null,
+        lastSeen: agent.last_seen || null,
+        lastModified: agent.last_modified || null,
+        creationTime: agent.creation_time || null
+      },
+      compliance: null,
+      evidenceClass: meta.evidenceClass || null,
+      agentStatus: meta.agentStatus || null,
+      confidenceScore: agent.confidence_score ?? null,
+      sourceCollectors: agent.source_collectors || [],
+      shadowAi: Boolean(shadow.isShadow),
+      shadowAiScore: shadow.score ?? 0,
+      shadowAiReasons: shadow.reasons || []
     },
-    usedBy: [agent.name],
-    agentIds: [agent.id]
+    behavioral: {
+      knownRisks: null,
+      evalResults: null,
+      guardrails: null,
+      riskIndicators: asArray(agent.risk_indicators)
+    }
+  };
+}
+
+export function scoreComposition(composition) {
+  const fields = AI_BOM_FIELD_CATALOG.map((field) => {
+    const value = getPath(composition, field.path);
+    const filled = isFilled(value);
+    return {
+      id: field.id,
+      category: field.category,
+      label: field.label,
+      source: field.source,
+      filled,
+      value: filled ? value : null
+    };
   });
-}
-
-function summarizeCoverage(components) {
-  const systems = components.filter((c) => c.category === "systems");
-  const tallies = {
-    systems: systems.length,
-    models: 0,
-    data: 0,
-    software_infra: 0,
-    tools_integrations: 0,
-    identity_access: 0,
-    governance: 0
-  };
-  for (const c of components) {
-    if (c.category !== "systems" && tallies[c.category] != null) tallies[c.category] += 1;
+  const filledCount = fields.filter((f) => f.filled).length;
+  const total = fields.length;
+  const byCategory = {};
+  for (const field of fields) {
+    if (!byCategory[field.category]) byCategory[field.category] = { filled: 0, total: 0 };
+    byCategory[field.category].total += 1;
+    if (field.filled) byCategory[field.category].filled += 1;
   }
-
-  let ownershipComplete = 0;
-  let modelNamed = 0;
-  let shadowCandidates = 0;
-  for (const s of systems) {
-    if (s.properties?.owner) ownershipComplete += 1;
-    if (s.properties?.model) modelNamed += 1;
-    if (s.properties?.shadowAi) shadowCandidates += 1;
+  for (const key of Object.keys(byCategory)) {
+    const row = byCategory[key];
+    row.pct = row.total ? Math.round((row.filled / row.total) * 100) : 0;
   }
-
   return {
-    ...tallies,
-    componentTotal: components.length,
-    ownershipCoveragePct: systems.length ? Math.round((ownershipComplete / systems.length) * 100) : 0,
-    modelNamedPct: systems.length ? Math.round((modelNamed / systems.length) * 100) : 0,
-    shadowCandidates,
-    gaps: [
-      "Model version / checksum / license / lineage not observed by agentless discovery",
-      "Training datasets and data classification not in Visentra V1 collectors",
-      "Package SBOM / container CVE correlation not ingested",
-      "Behavioral evals and guardrail inventory not captured",
-      "Prompt hashes only when collectors emit them"
-    ]
+    filled: filledCount,
+    total,
+    pct: total ? Math.round((filledCount / total) * 100) : 0,
+    byCategory,
+    fields,
+    gaps: fields.filter((f) => !f.filled)
   };
 }
 
-/**
- * Build a tenant AI BOM document from inventory + relationships.
- */
-export async function buildAiBom(pool, tenantId, { limit = 2000 } = {}) {
-  const max = Math.min(Math.max(Number(limit) || 2000, 1), 5000);
-  const agents = await pool.query(
-    `SELECT * FROM agents WHERE tenant_id=$1 ORDER BY last_seen DESC LIMIT $2`,
-    [tenantId, max]
+export function mergeEnrichment(observed, enrichmentFields = {}) {
+  return deepMerge(observed, enrichmentFields);
+}
+
+export async function listEnrichments(pool, tenantId) {
+  const result = await pool.query(
+    `SELECT agent_id, fields, completeness, updated_by, updated_at
+     FROM ai_bom_enrichments WHERE tenant_id=$1`,
+    [tenantId]
   );
+  return new Map(result.rows.map((r) => [r.agent_id, r]));
+}
 
-  const componentMap = new Map();
-  const dependencyEdges = [];
+export async function getEnrichment(pool, tenantId, agentId) {
+  const result = await pool.query(
+    `SELECT * FROM ai_bom_enrichments WHERE tenant_id=$1 AND agent_id=$2`,
+    [tenantId, agentId]
+  );
+  return result.rows[0] || null;
+}
 
-  for (const agent of agents.rows) {
-    collectFromAgent(agent, componentMap, dependencyEdges);
+export async function upsertEnrichment(pool, tenantId, agentId, fields, updatedBy) {
+  const observedRow = await pool.query(`SELECT * FROM agents WHERE tenant_id=$1 AND id=$2`, [
+    tenantId,
+    agentId
+  ]);
+  if (!observedRow.rows[0]) {
+    const err = new Error("Agent not found");
+    err.status = 404;
+    throw err;
+  }
+  const observed = observeAgentComposition(observedRow.rows[0]);
+  const merged = mergeEnrichment(observed, fields || {});
+  const score = scoreComposition(merged);
+  const result = await pool.query(
+    `INSERT INTO ai_bom_enrichments (tenant_id, agent_id, fields, completeness, updated_by)
+     VALUES ($1,$2,$3::jsonb,$4,$5)
+     ON CONFLICT (tenant_id, agent_id) DO UPDATE SET
+       fields = EXCLUDED.fields,
+       completeness = EXCLUDED.completeness,
+       updated_by = EXCLUDED.updated_by,
+       updated_at = NOW()
+     RETURNING *`,
+    [tenantId, agentId, JSON.stringify(fields || {}), score.pct, updatedBy || null]
+  );
+  return { enrichment: result.rows[0], composition: merged, score };
+}
+
+export async function buildSystemRecord(pool, tenantId, agent, enrichmentMap, relsForAgent) {
+  const enrichment = enrichmentMap.get(agent.id);
+  const observed = observeAgentComposition(agent, relsForAgent);
+  const merged = mergeEnrichment(observed, enrichment?.fields || {});
+  const score = scoreComposition(merged);
+  return {
+    bomRef: `agent:${agent.id}`,
+    type: "ai-system",
+    agentId: agent.id,
+    name: agent.name,
+    fingerprint: agent.fingerprint,
+    composition: merged,
+    score,
+    enrichment: enrichment
+      ? {
+          updatedAt: enrichment.updated_at,
+          updatedBy: enrichment.updated_by,
+          completeness: Number(enrichment.completeness)
+        }
+      : null
+  };
+}
+
+export async function buildAiBom(pool, tenantId, { limit = 2000, agentId = null } = {}) {
+  const max = Math.min(Math.max(Number(limit) || 2000, 1), 5000);
+  let agents;
+  if (agentId) {
+    agents = await pool.query(`SELECT * FROM agents WHERE tenant_id=$1 AND id=$2`, [tenantId, agentId]);
+  } else {
+    agents = await pool.query(
+      `SELECT * FROM agents WHERE tenant_id=$1 ORDER BY last_seen DESC LIMIT $2`,
+      [tenantId, max]
+    );
   }
 
-  // Enrich with SQL relationships (agent → asset) when present
-  if (agents.rows.length) {
-    const ids = agents.rows.map((a) => a.id);
+  const enrichmentMap = await listEnrichments(pool, tenantId);
+  const ids = agents.rows.map((a) => a.id);
+  let relRows = [];
+  if (ids.length) {
     const rels = await pool.query(
       `SELECT r.from_id, r.rel_type, r.to_type, r.to_id, a.name AS to_name, a.asset_type, a.external_key
        FROM relationships r
        LEFT JOIN assets a ON a.id = r.to_id AND a.tenant_id = r.tenant_id
        WHERE r.tenant_id=$1 AND r.from_id = ANY($2::uuid[])
-       LIMIT 10000`,
+       LIMIT 20000`,
       [tenantId, ids]
     );
-    for (const rel of rels.rows) {
-      const agent = agents.rows.find((a) => a.id === rel.from_id);
-      if (!agent) continue;
-      const agentRef = `agent:${agent.id}`;
-      const toName = rel.to_name || rel.external_key || String(rel.to_id);
-      let category = "tools_integrations";
-      let type = String(rel.to_type || "asset").toLowerCase();
-      if (/model/i.test(type) || rel.rel_type === "INVOKES_MODEL") {
-        category = "models";
-        type = "ml-model";
-      } else if (/mcp/i.test(type) || rel.rel_type === "CONNECTS_MCP") {
-        category = "tools_integrations";
-        type = "mcp-server";
-      } else if (/framework/i.test(type)) {
-        category = "software_infra";
-        type = "framework";
-      } else if (/identity/i.test(type) || rel.rel_type === "USES_IDENTITY") {
-        category = "identity_access";
-        type = "identity";
-      }
-      const bomRef = uniqueKey([category, type, toName]);
-      pushComponent(componentMap, {
-        category,
-        type,
-        name: toName,
-        properties: {
-          assetType: rel.asset_type || rel.to_type || null,
-          externalKey: rel.external_key || null,
-          fromRelationship: true
-        },
-        usedBy: [agent.name],
-        agentIds: [agent.id]
-      });
-      dependencyEdges.push({ from: agentRef, to: bomRef, relType: rel.rel_type || "RELATED_TO" });
-    }
+    relRows = rels.rows;
+  }
+  const relsByAgent = new Map();
+  for (const rel of relRows) {
+    const list = relsByAgent.get(rel.from_id) || [];
+    list.push(rel);
+    relsByAgent.set(rel.from_id, list);
   }
 
-  const components = Array.from(componentMap.values()).sort((a, b) => {
-    const order = ["systems", "models", "data", "software_infra", "tools_integrations", "identity_access", "governance"];
-    const ai = order.indexOf(a.category);
-    const bi = order.indexOf(b.category);
-    if (ai !== bi) return ai - bi;
-    return String(a.name).localeCompare(String(b.name));
-  });
+  const systems = [];
+  for (const agent of agents.rows) {
+    systems.push(
+      await buildSystemRecord(pool, tenantId, agent, enrichmentMap, relsByAgent.get(agent.id) || [])
+    );
+  }
 
-  // Dedupe dependency edges
-  const edgeKeys = new Set();
+  // Aggregate unique components across systems for estate-level BOM
+  const componentBuckets = {
+    models: new Map(),
+    data: new Map(),
+    software_infra: new Map(),
+    tools_integrations: new Map(),
+    identity_access: new Map(),
+    governance: new Map(),
+    behavioral: new Map()
+  };
+
   const dependencies = [];
-  for (const edge of dependencyEdges) {
+
+  for (const system of systems) {
+    const c = system.composition;
+    const agentRef = system.bomRef;
+
+    const add = (bucket, key, component, relType) => {
+      if (!key) return;
+      const map = componentBuckets[bucket];
+      const existing = map.get(key);
+      if (existing) {
+        existing.usedBy = Array.from(new Set([...(existing.usedBy || []), system.name]));
+        existing.agentIds = Array.from(new Set([...(existing.agentIds || []), system.agentId]));
+        existing.occurrenceCount = (existing.occurrenceCount || 1) + 1;
+      } else {
+        map.set(key, {
+          ...component,
+          bomRef: key,
+          occurrenceCount: 1,
+          usedBy: [system.name],
+          agentIds: [system.agentId]
+        });
+      }
+      dependencies.push({ from: agentRef, to: key, relType });
+    };
+
+    if (c.model?.name) {
+      add(
+        "models",
+        `model:${String(c.model.name).toLowerCase()}:${String(c.model.provider || "").toLowerCase()}`,
+        {
+          category: "models",
+          type: "ml-model",
+          name: c.model.name,
+          version: c.model.version,
+          provider: c.model.provider,
+          properties: { ...c.model }
+        },
+        "INVOKES_MODEL"
+      );
+    }
+    if (c.software?.framework) {
+      add(
+        "software_infra",
+        `framework:${String(c.software.framework).toLowerCase()}`,
+        {
+          category: "software_infra",
+          type: "framework",
+          name: c.software.framework,
+          version: c.software.frameworkVersion,
+          properties: { ...c.software }
+        },
+        "USES_FRAMEWORK"
+      );
+    }
+    if (c.software?.orchestration) {
+      add(
+        "software_infra",
+        `orch:${String(c.software.orchestration).toLowerCase()}`,
+        {
+          category: "software_infra",
+          type: "orchestration",
+          name: String(c.software.orchestration),
+          properties: {
+            region: c.software.region,
+            servingLayer: c.software.servingLayer,
+            containerImage: c.software.containerImage,
+            containerDigest: c.software.containerDigest,
+            imageCves: c.software.imageCves,
+            packageSbom: c.software.packageSbom
+          }
+        },
+        "DEPLOYED_IN"
+      );
+    }
+    if (c.data?.vectorDatabase) {
+      add(
+        "data",
+        `vector:${String(c.data.vectorDatabase).toLowerCase()}`,
+        {
+          category: "data",
+          type: "vector-database",
+          name: c.data.vectorDatabase,
+          properties: {
+            ragSources: c.data.ragSources,
+            hasPii: c.data.hasPii,
+            hasPhi: c.data.hasPhi,
+            dataClasses: c.data.dataClasses
+          }
+        },
+        "USES_VECTOR_STORE"
+      );
+    }
+    if (c.data?.memoryStore) {
+      add(
+        "data",
+        `memory:${String(c.data.memoryStore).toLowerCase()}`,
+        { category: "data", type: "memory-store", name: c.data.memoryStore, properties: {} },
+        "USES_MEMORY"
+      );
+    }
+    for (const tool of asArray(c.tools?.list)) {
+      const name = typeof tool === "string" ? tool : tool?.name;
+      if (!name) continue;
+      add(
+        "tools_integrations",
+        `tool:${String(name).toLowerCase()}`,
+        { category: "tools_integrations", type: "tool", name, properties: { raw: tool, schemas: c.tools.schemas } },
+        "USES_TOOL"
+      );
+    }
+    for (const mcp of asArray(c.tools?.mcpServers)) {
+      const name = typeof mcp === "string" ? mcp : mcp?.name || mcp?.id;
+      if (!name) continue;
+      add(
+        "tools_integrations",
+        `mcp:${String(name).toLowerCase()}`,
+        { category: "tools_integrations", type: "mcp-server", name, properties: { raw: mcp } },
+        "CONNECTS_MCP"
+      );
+    }
+    for (const app of asArray(c.tools?.connectedApps)) {
+      const name = typeof app === "string" ? app : app?.name;
+      if (!name) continue;
+      add(
+        "tools_integrations",
+        `app:${String(name).toLowerCase()}`,
+        { category: "tools_integrations", type: "connected-application", name, properties: {} },
+        "ACCESSES"
+      );
+    }
+    if (c.identity?.principal || c.identity?.secretsDetected || asArray(c.identity?.permissions).length) {
+      add(
+        "identity_access",
+        `identity:${String(c.identity.principal || system.agentId).toLowerCase()}`,
+        {
+          category: "identity_access",
+          type: "identity",
+          name: c.identity.principal || `identity:${system.name}`,
+          properties: { ...c.identity }
+        },
+        "USES_IDENTITY"
+      );
+    }
+    add(
+      "governance",
+      `gov:${system.agentId}`,
+      {
+        category: "governance",
+        type: "governance-record",
+        name: `governance:${system.name}`,
+        properties: { ...c.governance }
+      },
+      "HAS_GOVERNANCE"
+    );
+    add(
+      "behavioral",
+      `behavior:${system.agentId}`,
+      {
+        category: "behavioral",
+        type: "behavioral-record",
+        name: `behavioral:${system.name}`,
+        properties: { ...c.behavioral }
+      },
+      "HAS_BEHAVIORAL_PROFILE"
+    );
+  }
+
+  const categories = {};
+  let componentTotal = systems.length;
+  for (const [key, map] of Object.entries(componentBuckets)) {
+    categories[key] = Array.from(map.values()).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    componentTotal += categories[key].length;
+  }
+
+  const fieldRollup = {
+    filled: 0,
+    total: 0,
+    byCategory: {}
+  };
+  for (const system of systems) {
+    fieldRollup.filled += system.score.filled;
+    fieldRollup.total += system.score.total;
+    for (const [cat, stats] of Object.entries(system.score.byCategory)) {
+      if (!fieldRollup.byCategory[cat]) fieldRollup.byCategory[cat] = { filled: 0, total: 0 };
+      fieldRollup.byCategory[cat].filled += stats.filled;
+      fieldRollup.byCategory[cat].total += stats.total;
+    }
+  }
+  for (const cat of Object.keys(fieldRollup.byCategory)) {
+    const row = fieldRollup.byCategory[cat];
+    row.pct = row.total ? Math.round((row.filled / row.total) * 100) : 0;
+  }
+  fieldRollup.pct = fieldRollup.total ? Math.round((fieldRollup.filled / fieldRollup.total) * 100) : 0;
+
+  const ownershipCoveragePct = systems.length
+    ? Math.round((systems.filter((s) => s.composition.governance?.owner).length / systems.length) * 100)
+    : 0;
+  const modelNamedPct = systems.length
+    ? Math.round((systems.filter((s) => s.composition.model?.name).length / systems.length) * 100)
+    : 0;
+  const enrichedPct = systems.length
+    ? Math.round((systems.filter((s) => s.enrichment).length / systems.length) * 100)
+    : 0;
+  const shadowCandidates = systems.filter((s) => s.composition.governance?.shadowAi).length;
+
+  const edgeKeys = new Set();
+  const deps = [];
+  for (const edge of dependencies) {
     const key = `${edge.from}->${edge.to}:${edge.relType}`;
     if (edgeKeys.has(key)) continue;
     edgeKeys.add(key);
-    dependencies.push(edge);
+    deps.push(edge);
   }
 
-  const summary = summarizeCoverage(components);
   const generatedAt = new Date().toISOString();
-
   return {
     ...BOM_SPEC,
     serialNumber: `urn:uuid:${randomUUID()}`,
@@ -478,25 +621,112 @@ export async function buildAiBom(pool, tenantId, { limit = 2000 } = {}) {
       generatedAt,
       tenantId,
       tool: "Visentra AI BOM",
-      note: "Composition derived from discovery inventory. Unknown fields are intentional gaps, not empty omissions."
+      note: "Full AI BOM: discovery-observed fields plus optional enrichment. Unknowns are explicit."
     },
-    summary,
-    components,
-    dependencies,
-    systems: components.filter((c) => c.category === "systems"),
-    categories: {
-      models: components.filter((c) => c.category === "models"),
-      data: components.filter((c) => c.category === "data"),
-      software_infra: components.filter((c) => c.category === "software_infra"),
-      tools_integrations: components.filter((c) => c.category === "tools_integrations"),
-      identity_access: components.filter((c) => c.category === "identity_access"),
-      governance: components.filter((c) => c.category === "governance")
-    }
+    catalog: AI_BOM_FIELD_CATALOG,
+    summary: {
+      systems: systems.length,
+      models: categories.models.length,
+      data: categories.data.length,
+      software_infra: categories.software_infra.length,
+      tools_integrations: categories.tools_integrations.length,
+      identity_access: categories.identity_access.length,
+      governance: categories.governance.length,
+      behavioral: categories.behavioral.length,
+      componentTotal,
+      ownershipCoveragePct,
+      modelNamedPct,
+      enrichedPct,
+      shadowCandidates,
+      completenessPct: fieldRollup.pct,
+      fieldRollup,
+      gaps: AI_BOM_FIELD_CATALOG.filter((f) => f.source === "enrichment").map(
+        (f) => `${f.label} typically requires enrichment`
+      )
+    },
+    systems,
+    categories,
+    components: [
+      ...systems.map((s) => ({
+        bomRef: s.bomRef,
+        category: "systems",
+        type: "ai-system",
+        name: s.name,
+        agentIds: [s.agentId],
+        occurrenceCount: 1,
+        properties: s.composition,
+        score: s.score
+      })),
+      ...Object.values(categories).flat()
+    ],
+    dependencies: deps
   };
 }
 
-export function aiBomToCycloneDxLite(bom) {
-  // Lightweight CycloneDX-shaped export for interoperability (not full ML-BOM compliance).
+export function aiBomToCycloneDx(bom) {
+  const components = [];
+  const seen = new Set();
+
+  for (const system of bom.systems || []) {
+    const c = system.composition;
+    if (seen.has(system.bomRef)) continue;
+    seen.add(system.bomRef);
+    components.push({
+      type: "application",
+      "bom-ref": system.bomRef,
+      name: system.name,
+      version: c.software?.frameworkVersion || undefined,
+      properties: [
+        { name: "visentra:category", value: "ai-system" },
+        { name: "visentra:fingerprint", value: String(system.fingerprint || "") },
+        { name: "visentra:completeness", value: String(system.score?.pct ?? 0) },
+        { name: "visentra:owner", value: String(c.governance?.owner || "") },
+        { name: "visentra:approvalStatus", value: String(c.governance?.approvalStatus || "") }
+      ]
+    });
+  }
+
+  for (const comp of bom.components || []) {
+    if (comp.category === "systems" || comp.type === "governance-record" || comp.type === "behavioral-record") {
+      continue;
+    }
+    if (seen.has(comp.bomRef)) continue;
+    seen.add(comp.bomRef);
+
+    const modelCard =
+      comp.type === "ml-model"
+        ? {
+            modelParameters: {
+              approach: { type: comp.properties?.modelType || "unknown" },
+              architectureFamily: comp.properties?.baseModel || undefined
+            },
+            considerations: {
+              technicalLimitations: comp.properties?.knownCves || undefined
+            }
+          }
+        : undefined;
+
+    components.push({
+      type: comp.type === "ml-model" ? "machine-learning-model" : "library",
+      "bom-ref": comp.bomRef,
+      name: comp.name,
+      version: comp.version || comp.properties?.version || undefined,
+      publisher: comp.provider || comp.properties?.provider || undefined,
+      licenses: comp.properties?.license ? [{ license: { name: String(comp.properties.license) } }] : undefined,
+      modelCard,
+      properties: [
+        { name: "visentra:category", value: comp.category || "" },
+        { name: "visentra:type", value: comp.type || "" }
+      ]
+    });
+  }
+
+  const byFrom = new Map();
+  for (const edge of bom.dependencies || []) {
+    if (!byFrom.has(edge.from)) byFrom.set(edge.from, new Set());
+    byFrom.get(edge.from).add(edge.to);
+  }
+
   return {
     bomFormat: "CycloneDX",
     specVersion: "1.6",
@@ -504,7 +734,9 @@ export function aiBomToCycloneDxLite(bom) {
     version: bom.version,
     metadata: {
       timestamp: bom.metadata.generatedAt,
-      tools: [{ vendor: "Visentra", name: "AI BOM", version: BOM_SPEC.specVersion }],
+      tools: {
+        components: [{ type: "application", name: "Visentra AI BOM", version: BOM_SPEC.specVersion }]
+      },
       component: {
         type: "application",
         name: "Visentra AI estate",
@@ -512,44 +744,56 @@ export function aiBomToCycloneDxLite(bom) {
       },
       properties: [
         { name: "visentra:scope", value: BOM_SPEC.scope },
-        { name: "visentra:note", value: bom.metadata.note }
+        { name: "visentra:completenessPct", value: String(bom.summary?.completenessPct ?? 0) }
       ]
     },
-    components: bom.components
-      .filter((c) => c.category !== "governance")
-      .map((c) => ({
-        type:
-          c.type === "ml-model"
-            ? "machine-learning-model"
-            : c.type === "ai-agent"
-              ? "application"
-              : "library",
-        "bom-ref": c.bomRef,
-        name: c.name,
-        version: c.version || undefined,
-        publisher: c.provider || undefined,
-        properties: Object.entries({
-          "visentra:category": c.category,
-          "visentra:type": c.type,
-          ...(c.properties && typeof c.properties === "object"
-            ? Object.fromEntries(
-                Object.entries(c.properties)
-                  .filter(([, v]) => v != null && typeof v !== "object")
-                  .map(([k, v]) => [`visentra:${k}`, String(v)])
-              )
-            : {})
-        }).map(([name, value]) => ({ name, value }))
-      })),
-    dependencies: (() => {
-      const byFrom = new Map();
-      for (const edge of bom.dependencies) {
-        if (!byFrom.has(edge.from)) byFrom.set(edge.from, new Set());
-        byFrom.get(edge.from).add(edge.to);
-      }
-      return Array.from(byFrom.entries()).map(([ref, deps]) => ({
-        ref,
-        dependsOn: Array.from(deps)
-      }));
-    })()
+    components,
+    dependencies: Array.from(byFrom.entries()).map(([ref, deps]) => ({
+      ref,
+      dependsOn: Array.from(deps)
+    }))
   };
+}
+
+/** Backward-compatible alias */
+export function aiBomToCycloneDxLite(bom) {
+  return aiBomToCycloneDx(bom);
+}
+
+export async function createAiBomSnapshot(pool, tenantId, { format = "visentra", label = null, createdBy = null, limit } = {}) {
+  const bom = await buildAiBom(pool, tenantId, { limit });
+  const document = format === "cyclonedx" ? aiBomToCycloneDx(bom) : bom;
+  const result = await pool.query(
+    `INSERT INTO ai_bom_snapshots (tenant_id, serial_number, format, label, document, summary, created_by)
+     VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7)
+     RETURNING id, serial_number, format, label, summary, created_by, created_at`,
+    [
+      tenantId,
+      bom.serialNumber,
+      format === "cyclonedx" ? "cyclonedx" : "visentra",
+      label,
+      JSON.stringify(document),
+      JSON.stringify(bom.summary),
+      createdBy
+    ]
+  );
+  return { snapshot: result.rows[0], document };
+}
+
+export async function listAiBomSnapshots(pool, tenantId, { limit = 20 } = {}) {
+  const result = await pool.query(
+    `SELECT id, serial_number, format, label, summary, created_by, created_at
+     FROM ai_bom_snapshots WHERE tenant_id=$1
+     ORDER BY created_at DESC LIMIT $2`,
+    [tenantId, Math.min(Number(limit) || 20, 100)]
+  );
+  return result.rows;
+}
+
+export async function getAiBomSnapshot(pool, tenantId, id) {
+  const result = await pool.query(
+    `SELECT * FROM ai_bom_snapshots WHERE tenant_id=$1 AND id=$2`,
+    [tenantId, id]
+  );
+  return result.rows[0] || null;
 }

@@ -24,7 +24,16 @@ import {
 import { classifyShadowAi, summarizeShadowFindings } from "./services/shadowAi.js";
 import { writeAudit, listAuditEvents } from "./services/audit.js";
 import { buildCoverageMap } from "./services/coverage.js";
-import { buildAiBom, aiBomToCycloneDxLite } from "./services/aiBom.js";
+import {
+  buildAiBom,
+  aiBomToCycloneDx,
+  AI_BOM_FIELD_CATALOG,
+  getEnrichment,
+  upsertEnrichment,
+  createAiBomSnapshot,
+  listAiBomSnapshots,
+  getAiBomSnapshot
+} from "./services/aiBom.js";
 import {
   usageBreakdown as usageBreakdownService,
   buildUsageDashboard,
@@ -1573,7 +1582,10 @@ app.get("/api/coverage", auth, async (req, res) => {
 
 app.get("/api/ai-bom", auth, async (req, res) => {
   try {
-    const bom = await buildAiBom(pool, req.tenantId, { limit: req.query.limit });
+    const bom = await buildAiBom(pool, req.tenantId, {
+      limit: req.query.limit,
+      agentId: req.query.agentId || null
+    });
     res.json(bom);
   } catch (err) {
     console.error("ai-bom failed:", err);
@@ -1581,12 +1593,115 @@ app.get("/api/ai-bom", auth, async (req, res) => {
   }
 });
 
+app.get("/api/ai-bom/catalog", auth, (_req, res) => {
+  res.json({ fields: AI_BOM_FIELD_CATALOG, spec: { bomFormat: "Visentra-AIBOM", specVersion: "1.0.0" } });
+});
+
+app.get("/api/ai-bom/agents/:id", auth, async (req, res) => {
+  try {
+    const bom = await buildAiBom(pool, req.tenantId, { agentId: req.params.id });
+    if (!bom.systems.length) {
+      return res.status(404).json({ error: { message: "Agent not found in AI BOM" } });
+    }
+    res.json({ system: bom.systems[0], bom });
+  } catch (err) {
+    console.error("ai-bom agent failed:", err);
+    res.status(500).json({ error: { message: publicErrorMessage(err, "AI BOM agent build failed") } });
+  }
+});
+
+app.get("/api/ai-bom/enrichments/:agentId", auth, async (req, res) => {
+  try {
+    const enrichment = await getEnrichment(pool, req.tenantId, req.params.agentId);
+    res.json({ enrichment: enrichment || null });
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Enrichment load failed") } });
+  }
+});
+
+app.put("/api/ai-bom/enrichments/:agentId", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  try {
+    const fields = req.body?.fields && typeof req.body.fields === "object" ? req.body.fields : req.body;
+    const result = await upsertEnrichment(
+      pool,
+      req.tenantId,
+      req.params.agentId,
+      fields,
+      req.user?.email || "api"
+    );
+    await writeAudit(pool, {
+      tenantId: req.tenantId,
+      actorId: req.user?.sub || req.user?.id || null,
+      actorEmail: req.user?.email,
+      action: "ai_bom.enrichment.upsert",
+      resourceType: "agent",
+      resourceId: req.params.agentId,
+      details: { completeness: result.score.pct },
+      ip: req.ip
+    });
+    res.json(result);
+  } catch (err) {
+    const status = err.status || 500;
+    if (status === 404) return res.status(404).json({ error: { message: "Agent not found" } });
+    console.error("ai-bom enrichment failed:", err);
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Enrichment save failed") } });
+  }
+});
+
+app.get("/api/ai-bom/snapshots", auth, async (req, res) => {
+  try {
+    const snapshots = await listAiBomSnapshots(pool, req.tenantId, { limit: req.query.limit });
+    res.json({ snapshots, items: snapshots });
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Snapshot list failed") } });
+  }
+});
+
+app.post("/api/ai-bom/snapshots", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  try {
+    const format = String(req.body?.format || "visentra").toLowerCase();
+    const result = await createAiBomSnapshot(pool, req.tenantId, {
+      format,
+      label: req.body?.label || null,
+      createdBy: req.user?.email || "api",
+      limit: req.body?.limit
+    });
+    await writeAudit(pool, {
+      tenantId: req.tenantId,
+      actorId: req.user?.sub || req.user?.id || null,
+      actorEmail: req.user?.email,
+      action: "ai_bom.snapshot.create",
+      resourceType: "ai_bom_snapshot",
+      resourceId: result.snapshot.id,
+      details: { format: result.snapshot.format, serialNumber: result.snapshot.serial_number },
+      ip: req.ip
+    });
+    res.status(201).json(result);
+  } catch (err) {
+    console.error("ai-bom snapshot failed:", err);
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Snapshot create failed") } });
+  }
+});
+
+app.get("/api/ai-bom/snapshots/:id", auth, async (req, res) => {
+  try {
+    const snapshot = await getAiBomSnapshot(pool, req.tenantId, req.params.id);
+    if (!snapshot) return res.status(404).json({ error: { message: "Snapshot not found" } });
+    res.json({ snapshot });
+  } catch (err) {
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Snapshot load failed") } });
+  }
+});
+
 app.get("/api/ai-bom/export", auth, async (req, res) => {
   try {
-    const bom = await buildAiBom(pool, req.tenantId, { limit: req.query.limit });
+    const bom = await buildAiBom(pool, req.tenantId, {
+      limit: req.query.limit,
+      agentId: req.query.agentId || null
+    });
     const format = String(req.query.format || "json").toLowerCase();
-    if (format === "cyclonedx") {
-      const doc = aiBomToCycloneDxLite(bom);
+    if (format === "cyclonedx" || format === "cdx") {
+      const doc = aiBomToCycloneDx(bom);
       res.setHeader("Content-Type", "application/json");
       res.setHeader("Content-Disposition", "attachment; filename=visentra-ai-bom.cdx.json");
       return res.send(JSON.stringify(doc, null, 2));
