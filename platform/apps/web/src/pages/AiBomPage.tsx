@@ -87,52 +87,53 @@ type AiBomResponse = {
 const TABS = ["overview", "systems", "matrix", "enrich", "snapshots"] as const;
 type Tab = (typeof TABS)[number];
 
+const CATEGORY_ORDER = [
+  "models",
+  "data",
+  "software_infra",
+  "tools_integrations",
+  "identity_access",
+  "governance",
+  "behavioral"
+] as const;
+
 const CATEGORY_LABELS: Record<string, string> = {
-  models: "1. Models",
-  data: "2. Data",
-  software_infra: "3. Software & infra",
-  tools_integrations: "4. Tools & integrations",
-  identity_access: "5. Identity & access",
-  governance: "6. Governance",
-  behavioral: "7. Behavioral / risk"
+  models: "Models",
+  data: "Data",
+  software_infra: "Software & infra",
+  tools_integrations: "Tools & MCP",
+  identity_access: "Identity",
+  governance: "Governance",
+  behavioral: "Behavioral"
+};
+
+const TAB_LABELS: Record<Tab, string> = {
+  overview: "Overview",
+  systems: "Systems",
+  matrix: "Field matrix",
+  enrich: "Enrich",
+  snapshots: "Snapshots"
 };
 
 const ENRICH_TEMPLATE = `{
   "model": {
     "version": "",
     "checksum": "",
-    "modelCardId": "",
     "provenance": "third_party_api",
-    "baseModel": "",
-    "registry": "",
-    "trainingDataSource": "",
     "license": "",
-    "modelType": "llm",
-    "quantization": "",
-    "knownCves": []
+    "modelType": "llm"
   },
   "data": {
-    "trainingDatasets": [],
-    "ragSources": [],
-    "promptHash": "",
     "hasPii": false,
     "hasPhi": false,
     "dataClasses": []
   },
   "software": {
     "frameworkVersion": "",
-    "packageSbom": "",
-    "containerDigest": "",
-    "imageCves": [],
     "servingLayer": ""
   },
-  "tools": {
-    "schemas": [],
-    "plugins": []
-  },
   "identity": {
-    "authMode": "managed_identity",
-    "secretsRefs": []
+    "authMode": "managed_identity"
   },
   "governance": {
     "approvalStatus": "approved",
@@ -140,18 +141,15 @@ const ENRICH_TEMPLATE = `{
     "compliance": ["NIST_AI_RMF"]
   },
   "behavioral": {
-    "knownRisks": [],
-    "evalResults": "",
     "guardrails": []
   }
 }`;
 
-async function downloadBom(format: "json" | "cyclonedx", agentId?: string | null) {
+async function downloadBom(format: "json" | "cyclonedx") {
   const token = getAuthToken();
-  const response = await fetch(
-    buildApiUrl("/api/ai-bom/export", { format, ...(agentId ? { agentId } : {}) }),
-    { headers: token ? { Authorization: `Bearer ${token}` } : {} }
-  );
+  const response = await fetch(buildApiUrl("/api/ai-bom/export", { format }), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}
+  });
   if (!response.ok) throw new Error((await response.text()) || `Export failed (${response.status})`);
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
@@ -162,6 +160,119 @@ async function downloadBom(format: "json" | "cyclonedx", agentId?: string | null
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function BomSystemDrawer({
+  system,
+  onEnrich,
+  onClose
+}: {
+  system: BomSystem;
+  onEnrich: (agentId: string) => void;
+  onClose: () => void;
+}) {
+  const c = system.composition;
+  const tools = Array.isArray(c.tools?.list) ? c.tools.list.length : 0;
+  const mcp = Array.isArray(c.tools?.mcpServers) ? c.tools.mcpServers.length : 0;
+  const topGaps = (system.score.gaps || []).slice(0, 4);
+  const facts = [
+    { label: "Model", value: c.model?.name ? `${c.model.name}${c.model.provider ? ` · ${c.model.provider}` : ""}` : "—" },
+    { label: "Framework", value: c.software?.framework || "—" },
+    { label: "Owner", value: c.governance?.owner || "—" },
+    { label: "Approval", value: c.governance?.approvalStatus || "—" },
+    { label: "Identity", value: c.identity?.principal || c.identity?.authMode || "—" },
+    {
+      label: "Tools / MCP",
+      value: tools || mcp ? `${tools || 0} tools · ${mcp || 0} MCP` : "—"
+    }
+  ];
+
+  return (
+    <div className="aibom-drawer">
+      <div className="aibom-drawer-body">
+        <div className="aibom-drawer-score">
+          <div className="aibom-drawer-score-ring" style={{ ["--pct" as string]: `${system.score.pct}%` }}>
+            <strong>{system.score.pct}%</strong>
+            <span>BOM</span>
+          </div>
+          <div className="aibom-drawer-score-meta">
+            <p>
+              <strong>
+                {system.score.filled}/{system.score.total}
+              </strong>{" "}
+              fields filled
+            </p>
+            <p className="muted">{system.enrichment ? "Enrichment applied" : "Discovery only — not enriched"}</p>
+            {c.governance?.environment ? <p className="muted">Env · {c.governance.environment}</p> : null}
+          </div>
+        </div>
+
+        <div className="aibom-fact-grid">
+          {facts.map((fact) => (
+            <div key={fact.label} className="aibom-fact">
+              <span className="aibom-fact-label">{fact.label}</span>
+              <span className="aibom-fact-value" title={String(fact.value)}>
+                {fact.value}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className="aibom-drawer-section">
+          <h3>Coverage by category</h3>
+          <ul className="aibom-cat-bars">
+            {CATEGORY_ORDER.map((key) => {
+              const stats = system.score.byCategory?.[key] || { filled: 0, total: 0, pct: 0 };
+              return (
+                <li key={key}>
+                  <div className="aibom-cat-bar-head">
+                    <span>{CATEGORY_LABELS[key]}</span>
+                    <span>
+                      {stats.pct}% · {stats.filled}/{stats.total}
+                    </span>
+                  </div>
+                  <div className="aibom-cat-bar-track" aria-hidden="true">
+                    <span style={{ width: `${stats.pct}%` }} />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <div className="aibom-drawer-section">
+          <h3>Top gaps to fill</h3>
+          {topGaps.length ? (
+            <div className="aibom-gap-chips">
+              {topGaps.map((gap) => (
+                <span key={gap.id} className="aibom-gap-chip" title={`${gap.category} · ${gap.source}`}>
+                  {gap.label}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">No gaps — catalog fields are filled.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="aibom-drawer-actions">
+        <button
+          className="button primary"
+          type="button"
+          onClick={() => {
+            onEnrich(system.agentId);
+            onClose();
+          }}
+        >
+          Enrich gaps
+        </button>
+        <Link className="button" to={`/agents/${system.agentId}`}>
+          Open agent
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 export function AiBomPage() {
@@ -178,7 +289,7 @@ export function AiBomPage() {
   const [enrichJson, setEnrichJson] = useState(ENRICH_TEMPLATE);
   const [enrichMsg, setEnrichMsg] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
-  const [componentCategory, setComponentCategory] = useState("models");
+  const [componentCategory, setComponentCategory] = useState<string>("models");
 
   const load = async () => {
     setError(null);
@@ -196,10 +307,9 @@ export function AiBomPage() {
 
   useEffect(() => {
     let mounted = true;
-    load()
-      .catch((err) => {
-        if (mounted) setError(err instanceof Error ? err.message : "Failed to load AI BOM");
-      });
+    load().catch((err) => {
+      if (mounted) setError(err instanceof Error ? err.message : "Failed to load AI BOM");
+    });
     return () => {
       mounted = false;
     };
@@ -222,7 +332,7 @@ export function AiBomPage() {
         render: (row) => (
           <div>
             <strong>{row.name}</strong>
-            <div className="muted" style={{ fontSize: "0.78rem" }}>
+            <div className="muted aibom-subline">
               {row.composition?.model?.name || "no model"} · {row.composition?.software?.framework || "no framework"}
             </div>
           </div>
@@ -231,8 +341,8 @@ export function AiBomPage() {
       },
       {
         key: "score",
-        header: "Completeness",
-        render: (row) => `${row.score.pct}%`,
+        header: "Complete",
+        render: (row) => <span className="aibom-score-pill">{row.score.pct}%</span>,
         sortValue: (row) => row.score.pct
       },
       {
@@ -251,9 +361,9 @@ export function AiBomPage() {
         key: "open",
         header: "",
         render: (row) => (
-          <div style={{ display: "flex", gap: 6 }}>
+          <div className="aibom-row-actions">
             <button className="button ghost" type="button" onClick={() => setSelected(row)}>
-              Fields
+              Summary
             </button>
             <Link className="button ghost" to={`/agents/${row.agentId}`}>
               Agent
@@ -274,7 +384,7 @@ export function AiBomPage() {
         render: (row) => (
           <div>
             <strong>{row.name}</strong>
-            <div className="muted" style={{ fontSize: "0.78rem" }}>
+            <div className="muted aibom-subline">
               {row.type}
               {row.version ? ` · v${row.version}` : ""}
               {row.provider ? ` · ${row.provider}` : ""}
@@ -318,11 +428,7 @@ export function AiBomPage() {
       const payload = await apiRequest<{ enrichment: { fields?: Record<string, unknown> } | null }>(
         `/api/ai-bom/enrichments/${encodeURIComponent(agentId)}`
       );
-      if (payload.enrichment?.fields) {
-        setEnrichJson(JSON.stringify(payload.enrichment.fields, null, 2));
-      } else {
-        setEnrichJson(ENRICH_TEMPLATE);
-      }
+      setEnrichJson(payload.enrichment?.fields ? JSON.stringify(payload.enrichment.fields, null, 2) : ENRICH_TEMPLATE);
       setTab("enrich");
     } catch (err) {
       setEnrichMsg(err instanceof Error ? err.message : "Failed to load enrichment");
@@ -371,17 +477,17 @@ export function AiBomPage() {
   const s = data.summary;
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div>
+    <div className="page aibom-page">
+      <header className="page-header aibom-header">
+        <div className="aibom-header-copy">
           <p className="eyebrow">AI BOM</p>
-          <h1>Full Bill of Materials</h1>
+          <h1>Bill of Materials</h1>
           <p className="page-description">
-            Complete AI/ML composition across models, data, software, tools, identity, governance, and behavioral
-            risk — discovery plus enrichment, with explicit unknowns.
+            Composition of discovered AI systems — models, tools, identity, and governance — with explicit gaps for
+            enrichment.
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="toolbar aibom-header-actions">
           <button className="button" type="button" disabled={busy} onClick={() => void onExport("json")}>
             Export JSON
           </button>
@@ -394,84 +500,84 @@ export function AiBomPage() {
         </div>
       </header>
 
-      {error ? <div className="error-state" style={{ marginBottom: 16 }}>{error}</div> : null}
+      {error ? <div className="error-state">{error}</div> : null}
 
-      <div className="kpi-grid">
+      <section className="card-grid aibom-kpi-grid">
         <KpiCard label="Completeness" value={`${s.completenessPct}%`} />
         <KpiCard label="AI systems" value={String(s.systems)} />
         <KpiCard label="Models" value={String(s.models)} />
         <KpiCard label="Tools & MCP" value={String(s.tools_integrations)} />
-        <KpiCard label="Enriched systems" value={`${s.enrichedPct}%`} />
-        <KpiCard label="Shadow candidates" value={String(s.shadowCandidates)} />
-      </div>
+        <KpiCard label="Enriched" value={`${s.enrichedPct}%`} />
+        <KpiCard label="Shadow" value={String(s.shadowCandidates)} />
+      </section>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 18 }}>
+      <nav className="aibom-tabs" aria-label="AI BOM sections">
         {TABS.map((id) => (
           <button
             key={id}
             type="button"
-            className={`button ${tab === id ? "primary" : "ghost"}`}
+            className={`aibom-tab${tab === id ? " is-active" : ""}`}
             onClick={() => setTab(id)}
           >
-            {id === "overview"
-              ? "Overview"
-              : id === "systems"
-                ? "Systems"
-                : id === "matrix"
-                  ? "Field matrix"
-                  : id === "enrich"
-                    ? "Enrich"
-                    : "Snapshots"}
+            {TAB_LABELS[id]}
           </button>
         ))}
-      </div>
+      </nav>
 
       {tab === "overview" ? (
-        <>
-          <section className="panel" style={{ marginTop: 16 }}>
-            <h2>Category coverage</h2>
-            <div className="kpi-grid" style={{ marginTop: 12 }}>
-              {Object.entries(CATEGORY_LABELS).map(([key, label]) => {
-                const stats = s.fieldRollup?.byCategory?.[key];
+        <div className="aibom-stack">
+          <section className="panel aibom-panel">
+            <div className="aibom-panel-head">
+              <h2>Category coverage</h2>
+              <span className="muted">Estate field fill rate</span>
+            </div>
+            <div className="aibom-coverage-grid">
+              {CATEGORY_ORDER.map((key) => {
+                const stats = s.fieldRollup?.byCategory?.[key] || { filled: 0, total: 0, pct: 0 };
                 return (
-                  <KpiCard
-                    key={key}
-                    label={label}
-                    value={`${stats?.pct ?? 0}%`}
-                  />
+                  <div key={key} className="aibom-coverage-card">
+                    <div className="aibom-coverage-card-top">
+                      <strong>{CATEGORY_LABELS[key]}</strong>
+                      <span>{stats.pct}%</span>
+                    </div>
+                    <div className="aibom-cat-bar-track" aria-hidden="true">
+                      <span style={{ width: `${stats.pct}%` }} />
+                    </div>
+                    <p className="muted">
+                      {stats.filled}/{stats.total} fields
+                    </p>
+                  </div>
                 );
               })}
             </div>
           </section>
 
-          <section className="panel" style={{ marginTop: 16 }}>
-            <div className="panel-header" style={{ marginBottom: 10 }}>
+          <section className="panel aibom-panel">
+            <div className="aibom-panel-head">
               <h2>Estate components</h2>
+              <span className="muted">{data.categories?.[componentCategory]?.length || 0} in view</span>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-              {Object.keys(CATEGORY_LABELS).map((key) => (
+            <div className="aibom-chip-row">
+              {CATEGORY_ORDER.map((key) => (
                 <button
                   key={key}
                   type="button"
-                  className={`button ${componentCategory === key ? "primary" : "ghost"}`}
+                  className={`aibom-chip${componentCategory === key ? " is-active" : ""}`}
                   onClick={() => setComponentCategory(key)}
                 >
-                  {CATEGORY_LABELS[key]} ({data.categories?.[key]?.length || 0})
+                  {CATEGORY_LABELS[key]}
+                  <em>{data.categories?.[key]?.length || 0}</em>
                 </button>
               ))}
             </div>
-            <DataTable
-              rows={componentRows}
-              columns={componentColumns}
-              emptyMessage="No components in this category yet."
-            />
+            <DataTable rows={componentRows} columns={componentColumns} emptyMessage="No components in this category yet." />
           </section>
-        </>
+        </div>
       ) : null}
 
       {tab === "systems" ? (
-        <section className="panel" style={{ marginTop: 16 }}>
-          <div className="panel-header">
+        <section className="panel aibom-panel">
+          <div className="aibom-panel-head">
             <h2>AI systems</h2>
             <span className="status-pill">{data.systems.length}</span>
           </div>
@@ -480,18 +586,18 @@ export function AiBomPage() {
             columns={systemColumns}
             getRowKey={(row) => row.agentId}
             emptyMessage="No agents in inventory yet."
+            onRowClick={(row) => setSelected(row)}
           />
         </section>
       ) : null}
 
       {tab === "matrix" ? (
-        <section className="panel" style={{ marginTop: 16 }}>
-          <h2>Field matrix (estate rollup)</h2>
-          <p className="muted" style={{ marginTop: 8 }}>
-            {s.fieldRollup?.pct ?? 0}% of catalog fields filled across all systems · generated{" "}
-            {new Date(data.metadata.generatedAt).toLocaleString()}
-          </p>
-          <table className="data-table" style={{ marginTop: 14 }}>
+        <section className="panel aibom-panel">
+          <div className="aibom-panel-head">
+            <h2>Field matrix</h2>
+            <span className="muted">{s.fieldRollup?.pct ?? 0}% filled</span>
+          </div>
+          <table className="data-table aibom-matrix-table">
             <thead>
               <tr>
                 <th>Category</th>
@@ -501,88 +607,90 @@ export function AiBomPage() {
               </tr>
             </thead>
             <tbody>
-              {Object.entries(CATEGORY_LABELS).map(([key, label]) => {
+              {CATEGORY_ORDER.map((key) => {
                 const row = s.fieldRollup?.byCategory?.[key] || { filled: 0, total: 0, pct: 0 };
                 return (
                   <tr key={key}>
-                    <td>{label}</td>
+                    <td>{CATEGORY_LABELS[key]}</td>
                     <td>{row.filled}</td>
                     <td>{row.total}</td>
                     <td>
-                      <span className="status-pill">{row.pct}%</span>
+                      <div className="aibom-matrix-cell">
+                        <div className="aibom-cat-bar-track" aria-hidden="true">
+                          <span style={{ width: `${row.pct}%` }} />
+                        </div>
+                        <span>{row.pct}%</span>
+                      </div>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          <h3 style={{ marginTop: 20 }}>Typical enrichment gaps</h3>
-          <ul style={{ marginTop: 8, paddingLeft: 18, color: "var(--text-muted)", lineHeight: 1.55 }}>
-            {(s.gaps || []).slice(0, 12).map((gap) => (
-              <li key={gap}>{gap}</li>
-            ))}
-          </ul>
         </section>
       ) : null}
 
       {tab === "enrich" ? (
-        <section className="panel" style={{ marginTop: 16 }}>
-          <h2>Enrich AI BOM fields</h2>
-          <p className="muted" style={{ marginTop: 8 }}>
-            Supply model hashes, licenses, datasets, guardrails, and other fields discovery cannot observe.
-            Operators and admins only.
+        <section className="panel aibom-panel">
+          <div className="aibom-panel-head">
+            <h2>Enrich fields</h2>
+            <span className="muted">Operators / admins</span>
+          </div>
+          <p className="page-description">
+            Add licenses, hashes, datasets, guardrails, and other fields discovery cannot observe.
           </p>
-          <div className="field" style={{ marginTop: 14, maxWidth: 520 }}>
-            <label htmlFor="enrich-agent">Agent</label>
-            <select
-              id="enrich-agent"
-              className="input"
-              value={enrichAgentId}
-              onChange={(e) => {
-                const id = e.target.value;
-                if (id) void loadEnrichment(id);
-                else setEnrichAgentId("");
-              }}
-            >
-              <option value="">Select agent…</option>
-              {data.systems.map((sys) => (
-                <option key={sys.agentId} value={sys.agentId}>
-                  {sys.name} ({sys.score.pct}%)
-                </option>
-              ))}
-            </select>
+          <div className="aibom-enrich-layout">
+            <div className="field">
+              <label htmlFor="enrich-agent">Agent</label>
+              <select
+                id="enrich-agent"
+                className="input"
+                value={enrichAgentId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (id) void loadEnrichment(id);
+                  else setEnrichAgentId("");
+                }}
+              >
+                <option value="">Select agent…</option>
+                {data.systems.map((sys) => (
+                  <option key={sys.agentId} value={sys.agentId}>
+                    {sys.name} ({sys.score.pct}%)
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field aibom-enrich-json">
+              <label htmlFor="enrich-json">Enrichment JSON</label>
+              <textarea
+                id="enrich-json"
+                className="input"
+                value={enrichJson}
+                onChange={(e) => setEnrichJson(e.target.value)}
+              />
+            </div>
+            <div className="aibom-header-actions">
+              <button className="button primary" type="button" disabled={busy || !enrichAgentId} onClick={() => void saveEnrichment()}>
+                Save enrichment
+              </button>
+              <button className="button ghost" type="button" onClick={() => setEnrichJson(ENRICH_TEMPLATE)}>
+                Reset template
+              </button>
+            </div>
+            {enrichMsg ? <p className="aibom-enrich-msg">{enrichMsg}</p> : null}
           </div>
-          <div className="field" style={{ marginTop: 14 }}>
-            <label htmlFor="enrich-json">Enrichment JSON</label>
-            <textarea
-              id="enrich-json"
-              className="input"
-              style={{ minHeight: 360, fontFamily: "var(--font-mono)", fontSize: "0.82rem" }}
-              value={enrichJson}
-              onChange={(e) => setEnrichJson(e.target.value)}
-            />
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button className="button primary" type="button" disabled={busy || !enrichAgentId} onClick={() => void saveEnrichment()}>
-              Save enrichment
-            </button>
-            <button className="button ghost" type="button" onClick={() => setEnrichJson(ENRICH_TEMPLATE)}>
-              Reset template
-            </button>
-          </div>
-          {enrichMsg ? <p style={{ marginTop: 12 }}>{enrichMsg}</p> : null}
         </section>
       ) : null}
 
       {tab === "snapshots" ? (
-        <section className="panel" style={{ marginTop: 16 }}>
-          <div className="panel-header">
+        <section className="panel aibom-panel">
+          <div className="aibom-panel-head">
             <h2>Snapshots</h2>
             <button className="button" type="button" disabled={busy} onClick={() => void createSnapshot("cyclonedx")}>
               Snapshot CycloneDX
             </button>
           </div>
-          <table className="data-table" style={{ marginTop: 12 }}>
+          <table className="data-table">
             <thead>
               <tr>
                 <th>Created</th>
@@ -599,7 +707,9 @@ export function AiBomPage() {
                     <td>{new Date(snap.created_at).toLocaleString()}</td>
                     <td>{snap.format}</td>
                     <td>{snap.label || snap.serial_number}</td>
-                    <td>{String((snap.summary as { completenessPct?: number } | undefined)?.completenessPct ?? "—")}%</td>
+                    <td>
+                      {String((snap.summary as { completenessPct?: number } | undefined)?.completenessPct ?? "—")}%
+                    </td>
                     <td className="muted">{snap.created_by || "—"}</td>
                   </tr>
                 ))
@@ -617,51 +727,13 @@ export function AiBomPage() {
 
       <DetailDrawer
         open={Boolean(selected)}
-        title={selected ? `AI BOM · ${selected.name}` : "AI BOM"}
+        title={selected?.name || "AI BOM"}
+        subtitle="Composition summary"
+        className="drawer-aibom"
         onClose={() => setSelected(null)}
       >
         {selected ? (
-          <div style={{ display: "grid", gap: 14 }}>
-            <div className="kpi-grid">
-              <KpiCard label="Completeness" value={`${selected.score.pct}%`} />
-              <KpiCard label="Filled fields" value={`${selected.score.filled}/${selected.score.total}`} />
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="button" type="button" onClick={() => void loadEnrichment(selected.agentId)}>
-                Enrich this system
-              </button>
-              <Link className="button ghost" to={`/agents/${selected.agentId}`}>
-                Open agent
-              </Link>
-            </div>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Field</th>
-                  <th>Status</th>
-                  <th>Source</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selected.score.fields.map((field) => (
-                  <tr key={field.id}>
-                    <td>
-                      <strong>{field.label}</strong>
-                      <div className="muted" style={{ fontSize: "0.75rem" }}>
-                        {field.category}
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`status-pill ${field.filled ? "status-covered" : ""}`}>
-                        {field.filled ? "filled" : "gap"}
-                      </span>
-                    </td>
-                    <td className="muted">{field.source}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <BomSystemDrawer system={selected} onEnrich={(id) => void loadEnrichment(id)} onClose={() => setSelected(null)} />
         ) : null}
       </DetailDrawer>
     </div>

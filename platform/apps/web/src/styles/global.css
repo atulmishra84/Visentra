@@ -2145,3 +2145,425 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* —— AI BOM module layout —— */
+.aibom-page {
+  gap: 14px;
+  width: 100%;
+  max-width: none;
+}
+
+.aibom-header {
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.aibom-header-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.aibom-header-copy .page-description {
+  margin: 0;
+  max-width: 62ch;
+}
+
+.aibom-header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.aibom-kpi-grid {
+  margin: 0;
+}
+
+.aibom-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-elevated) 70%, transparent);
+}
+
+.aibom-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.aibom-tab:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.aibom-tab.is-active {
+  color: var(--text);
+  background: var(--bg-elevated);
+  box-shadow: inset 0 0 0 1px var(--panel-border-strong);
+}
+
+.aibom-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.aibom-panel {
+  margin: 0;
+  padding: 16px 18px;
+}
+
+.aibom-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.aibom-panel-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.aibom-coverage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.aibom-coverage-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.aibom-coverage-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.88rem;
+}
+
+.aibom-coverage-card p {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.aibom-cat-bar-track {
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-border) 80%, transparent);
+  overflow: hidden;
+}
+
+.aibom-cat-bar-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--brand), color-mix(in srgb, var(--brand) 55%, var(--blue)));
+}
+
+.aibom-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.aibom-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--panel-border);
+  background: var(--bg);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.aibom-chip em {
+  font-style: normal;
+  color: var(--text);
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 0.72rem;
+}
+
+.aibom-chip.is-active {
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--panel-border));
+  color: var(--text);
+  background: color-mix(in srgb, var(--brand) 10%, var(--bg));
+}
+
+.aibom-subline {
+  font-size: 0.78rem;
+  margin-top: 2px;
+}
+
+.aibom-score-pill {
+  display: inline-flex;
+  min-width: 3.2rem;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--panel-border));
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.aibom-row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.aibom-matrix-table td:last-child {
+  min-width: 160px;
+}
+
+.aibom-matrix-cell {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.aibom-enrich-layout {
+  display: grid;
+  gap: 14px;
+  max-width: 760px;
+}
+
+.aibom-enrich-json textarea {
+  min-height: 280px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.aibom-enrich-msg {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.drawer.drawer-aibom {
+  width: min(400px, 100vw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 14px 14px 0;
+}
+
+.drawer.drawer-aibom .drawer-header {
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.drawer.drawer-aibom .drawer-header .eyebrow {
+  margin-bottom: 0;
+}
+
+.drawer.drawer-aibom .drawer-header h2 {
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.drawer.drawer-aibom .drawer-header .muted {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+}
+
+.aibom-drawer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.aibom-drawer-body {
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+  min-height: 0;
+  padding-bottom: 4px;
+}
+
+.aibom-drawer-score {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+}
+
+.aibom-drawer-score-ring {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at center, var(--panel-strong) 58%, transparent 59%),
+    conic-gradient(var(--brand) var(--pct), color-mix(in srgb, var(--panel-border) 80%, transparent) 0);
+}
+
+.aibom-drawer-score-ring strong {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.aibom-drawer-score-ring span {
+  font-size: 0.58rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.aibom-drawer-score-meta p {
+  margin: 0 0 2px;
+  font-size: 0.84rem;
+}
+
+.aibom-fact-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.aibom-fact {
+  display: grid;
+  gap: 1px;
+  padding: 8px 9px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--bg);
+  min-width: 0;
+}
+
+.aibom-fact-label {
+  color: var(--text-subtle);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.aibom-fact-value {
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aibom-drawer-section h3 {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.aibom-cat-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.aibom-cat-bar-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.aibom-drawer .aibom-cat-bar-track {
+  height: 4px;
+}
+
+.aibom-gap-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.aibom-gap-chip {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, var(--panel-border));
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.aibom-drawer-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 10px 0 14px;
+  border-top: 1px solid var(--panel-border);
+  background: var(--panel-strong);
+}
+
+.aibom-drawer-actions .button {
+  justify-content: center;
+}
+
+@media (max-width: 720px) {
+  .aibom-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .aibom-header-actions {
+    justify-content: stretch;
+  }
+
+  .aibom-header-actions .button {
+    flex: 1 1 auto;
+  }
+
+  .aibom-fact-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .drawer.drawer-aibom {
+    width: 100vw;
+  }
+}
