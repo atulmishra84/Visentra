@@ -23,6 +23,10 @@ const sections = [
     ]
   },
   {
+    heading: "AI BOM",
+    items: [{ to: "/ai-bom", label: "Bill of Materials" }]
+  },
+  {
     heading: "Usage Analytics",
     items: [{ to: "/usage", label: "Usage Analytics" }]
   },
