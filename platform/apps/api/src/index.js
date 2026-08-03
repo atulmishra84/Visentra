@@ -30,6 +30,7 @@ import {
   AI_BOM_FIELD_CATALOG,
   getEnrichment,
   upsertEnrichment,
+  completeEnrichments,
   createAiBomSnapshot,
   listAiBomSnapshots,
   getAiBomSnapshot
@@ -1645,6 +1646,27 @@ app.put("/api/ai-bom/enrichments/:agentId", auth, requireRole("platform_admin", 
     if (status === 404) return res.status(404).json({ error: { message: "Agent not found" } });
     console.error("ai-bom enrichment failed:", err);
     res.status(500).json({ error: { message: publicErrorMessage(err, "Enrichment save failed") } });
+  }
+});
+
+app.post("/api/ai-bom/enrichments/complete", auth, requireRole("platform_admin", "operator"), async (req, res) => {
+  try {
+    const agentId = req.body?.agentId || req.query.agentId || null;
+    const result = await completeEnrichments(pool, req.tenantId, req.user?.email || "gap_fill", { agentId });
+    await writeAudit(pool, {
+      tenantId: req.tenantId,
+      actorId: req.user?.sub || req.user?.id || null,
+      actorEmail: req.user?.email,
+      action: "ai_bom.enrichment.complete",
+      resourceType: "ai_bom",
+      resourceId: agentId || "estate",
+      details: { updated: result.updated, completenessPct: result.completenessPct },
+      ip: req.ip
+    });
+    res.json(result);
+  } catch (err) {
+    console.error("ai-bom complete enrichments failed:", err);
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Complete enrichments failed") } });
   }
 });
 
