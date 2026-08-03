@@ -251,3 +251,43 @@ CREATE TABLE IF NOT EXISTS audit_events (
 CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_events(tenant_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_events(tenant_id, action);
 
+  action          TEXT NOT NULL,
+  resource_type   TEXT,
+  resource_id     TEXT,
+  details         JSONB NOT NULL DEFAULT '{}',
+  ip              TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_events(tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_events(tenant_id, action);
+
+
+-- AI BOM enrichment (manual / API-supplied fields discovery cannot observe)
+CREATE TABLE IF NOT EXISTS ai_bom_enrichments (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  agent_id        UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  -- Full enrichment document keyed by category (models, data, software_infra, ...)
+  fields          JSONB NOT NULL DEFAULT '{}'::jsonb,
+  completeness    NUMERIC(5,2) NOT NULL DEFAULT 0,
+  updated_by      TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ai_bom_enrichments_tenant ON ai_bom_enrichments(tenant_id, updated_at DESC);
+
+-- Versioned AI BOM snapshots for audit / release evidence
+CREATE TABLE IF NOT EXISTS ai_bom_snapshots (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  serial_number   TEXT NOT NULL,
+  format          TEXT NOT NULL DEFAULT 'visentra'
+                    CHECK (format IN ('visentra', 'cyclonedx')),
+  label           TEXT,
+  document        JSONB NOT NULL,
+  summary         JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by      TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ai_bom_snapshots_tenant ON ai_bom_snapshots(tenant_id, created_at DESC);
