@@ -17,6 +17,7 @@ const {
   authenticate,
   requireRoles,
   requireWriteAccess,
+  toUiRole,
 } = require('./src/middleware/auth');
 const { attachTenant, allowTenantOverride } = require('./src/middleware/tenant');
 const { rateLimitAuth, csrfProtection, issueCsrfCookie } = require('./src/middleware/rateLimit');
@@ -27,6 +28,7 @@ const { detectPhi } = require('./src/services/phi');
 const { scoreAgent } = require('./src/services/risk');
 const { generateReport, toCsv } = require('./src/services/reports');
 const { encrypt } = require('./src/utils/crypto');
+const { mapAgentToProd, defaultControlsForNew } = require('./src/services/agentMapper');
 
 const app = express();
 
@@ -34,18 +36,29 @@ app.set('trust proxy', 1);
 app.use(
   helmet({
     contentSecurityPolicy: {
-      useDefaults: true,
+      useDefaults: false,
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", "'unsafe-inline'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:'],
-        connectSrc: ["'self'"],
+        scriptSrcAttr: ["'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        connectSrc: [
+          "'self'",
+          'https://api.anthropic.com',
+          'https://login.microsoftonline.com',
+          'https://graph.microsoft.com',
+        ],
         frameAncestors: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        objectSrc: ["'none'"],
       },
     },
     hsts: { maxAge: 31536000, includeSubDomains: true },
     frameguard: { action: 'deny' },
+    crossOriginEmbedderPolicy: false,
   })
 );
 app.use(express.json({ limit: '1mb' }));
@@ -130,10 +143,13 @@ app.post('/api/auth/login', rateLimitAuth, async (req, res) => {
     }
 
     await query(`UPDATE users SET last_login = NOW() WHERE id = $1`, [user.id]);
+    const uiRole = toUiRole(user.role);
     const token = signToken({
       sub: user.id,
       email: user.email,
-      role: user.role,
+      role: uiRole,
+      dbRole: user.role,
+      uiRole,
       tenantId: user.tenant_id,
       name: user.name,
       mfaEnabled: user.mfa_enabled,
@@ -146,16 +162,17 @@ app.post('/api/auth/login', rateLimitAuth, async (req, res) => {
       actorId: user.id,
       actorEmail: user.email,
       action: 'login',
-      detail: { role: user.role },
+      detail: { role: user.role, uiRole },
       ...clientMeta(req),
     });
 
     res.json({
+      token,
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: user.role,
+        role: uiRole,
         tenantId: user.tenant_id,
         mfaEnabled: user.mfa_enabled,
         mfaRequired: needsMfa,
@@ -167,7 +184,7 @@ app.post('/api/auth/login', rateLimitAuth, async (req, res) => {
   }
 });
 
-app.post('/api/auth/logout', authenticate, csrfProtection, async (req, res) => {
+app.post('/api/auth/logout', authenticate, async (req, res) => {
   await logAudit({
     tenantId: req.user.tenantId,
     actorId: req.user.sub,
@@ -181,7 +198,10 @@ app.post('/api/auth/logout', authenticate, csrfProtection, async (req, res) => {
 
 app.get('/api/auth/me', authenticate, async (req, res) => {
   const result = await query(
-    `SELECT id, email, name, role, tenant_id, mfa_enabled, last_login FROM users WHERE id = $1`,
+    `SELECT u.id, u.email, u.name, u.role, u.tenant_id, u.mfa_enabled, u.last_login, t.name AS tenant_name
+     FROM users u
+     LEFT JOIN tenants t ON t.id = u.tenant_id
+     WHERE u.id = $1`,
     [req.user.sub]
   );
   const u = result.rows[0];
@@ -193,6 +213,7 @@ app.get('/api/auth/me', authenticate, async (req, res) => {
       name: u.name,
       role: u.role,
       tenantId: u.tenant_id,
+      tenantName: u.tenant_name,
       mfaEnabled: u.mfa_enabled,
       mfaRequired: mfa.roleRequiresMfa(u.role),
       lastLogin: u.last_login,
@@ -204,7 +225,6 @@ app.get('/api/auth/me', authenticate, async (req, res) => {
 app.post(
   '/api/mfa/setup',
   authenticate,
-  csrfProtection,
   requireRoles(ROLES.PLATFORM_ADMIN, ROLES.CISO),
   async (req, res) => {
     const result = await query(`SELECT id, email, role FROM users WHERE id = $1`, [req.user.sub]);
@@ -224,7 +244,6 @@ app.post(
 app.post(
   '/api/mfa/confirm',
   authenticate,
-  csrfProtection,
   requireRoles(ROLES.PLATFORM_ADMIN, ROLES.CISO),
   async (req, res) => {
     try {
@@ -250,6 +269,8 @@ api.use(attachTenant);
 api.use(allowTenantOverride);
 api.use((req, res, next) => {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  // Bearer-authenticated SPA requests skip CSRF (production console)
+  if (req.authVia === 'bearer') return next();
   return csrfProtection(req, res, next);
 });
 
@@ -352,19 +373,20 @@ api.patch('/users/:id/role', requireRoles(ROLES.PLATFORM_ADMIN), async (req, res
   res.json({ user: result.rows[0] });
 });
 
-// ── Module 1: Discovery / Inventory ─────────────────────
+// ── Module 1: Discovery / Inventory (production shape) ──
 api.get('/agents', async (req, res) => {
   const { risk, phi } = req.query;
   const params = [req.tenantId];
   let sql = `SELECT * FROM agents WHERE tenant_id = $1`;
   if (risk) {
     params.push(risk);
-    sql += ` AND risk_level = $${params.length}`;
+    sql += ` AND (risk = $${params.length} OR risk_level = $${params.length})`;
   }
-  if (phi === 'true') sql += ` AND phi_flagged = true`;
-  sql += ` ORDER BY risk_score DESC, name`;
+  if (phi === 'true') sql += ` AND (phi = true OR phi_flagged = true)`;
+  sql += ` ORDER BY COALESCE(risk_score, 0) DESC, name LIMIT 500`;
   const result = await query(sql, params);
-  res.json({ agents: result.rows });
+  // Production SPA expects a raw array
+  res.json(result.rows.map(mapAgentToProd));
 });
 
 api.get('/agents/:id', async (req, res) => {
@@ -373,7 +395,128 @@ api.get('/agents/:id', async (req, res) => {
     req.tenantId,
   ]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Agent not found' });
-  res.json({ agent: result.rows[0] });
+  res.json(mapAgentToProd(result.rows[0]));
+});
+
+api.post('/agents', requireWriteAccess, async (req, res) => {
+  const a = req.body || {};
+  const id = a.id || uuidv4();
+  const name = String(a.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const type = a.type || a.resource_type || 'Manual';
+  const risk = a.risk || 'medium';
+  const risk_level = risk === 'critical' || risk === 'high' ? 'high' : risk === 'low' ? 'low' : 'medium';
+  const phi = !!a.phi;
+  const controls = a.controls || defaultControlsForNew();
+  try {
+    const result = await query(
+      `INSERT INTO agents (
+         id, tenant_id, name, resource_type, type, env, risk, risk_level, risk_score,
+         shadow, phi, phi_flagged, pii, hosted, quarantined, approved, owner, detect,
+         controls, protocols, metadata, notes, data_access, hipaa_status
+       ) VALUES (
+         $1,$2,$3,$4,$4,$5,$6,$7,$8,$9,$10,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+         CASE WHEN $10 THEN 'fail' ELSE 'na' END
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         name=EXCLUDED.name, risk=EXCLUDED.risk, risk_level=EXCLUDED.risk_level,
+         shadow=EXCLUDED.shadow, phi=EXCLUDED.phi, phi_flagged=EXCLUDED.phi_flagged,
+         pii=EXCLUDED.pii, hosted=EXCLUDED.hosted, quarantined=EXCLUDED.quarantined,
+         owner=EXCLUDED.owner, controls=EXCLUDED.controls, metadata=EXCLUDED.metadata,
+         last_seen=NOW(), updated_at=NOW()
+       RETURNING *`,
+      [
+        id,
+        req.tenantId,
+        name,
+        type,
+        a.env || 'Cloud',
+        risk,
+        risk_level,
+        risk === 'critical' ? 90 : risk === 'high' ? 70 : risk === 'medium' ? 45 : 20,
+        !!a.shadow,
+        phi,
+        !!a.pii || phi,
+        a.hosted != null ? !!a.hosted : true,
+        !!a.quarantined,
+        !!a.approved,
+        a.owner || null,
+        a.detect || 'Manual registration',
+        JSON.stringify(controls),
+        JSON.stringify(a.protocols || []),
+        JSON.stringify(a.metadata || {}),
+        a.notes || null,
+        a.data_access || null,
+      ]
+    );
+    await logAudit({
+      tenantId: req.tenantId,
+      actorId: req.user.sub,
+      actorEmail: req.user.email,
+      action: 'agent_registered',
+      detail: { agentId: id, name },
+      ...clientMeta(req),
+    });
+    await query(
+      `INSERT INTO activity_log (tenant_id, user_id, action, detail, agent_id, severity)
+       VALUES ($1,$2,'agent.registered',$3,$4,'info')`,
+      [req.tenantId, req.user.sub, `Registered ${name}`, id]
+    );
+    res.status(201).json(mapAgentToProd(result.rows[0]));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+api.patch('/agents/:id', requireWriteAccess, async (req, res) => {
+  const updates = req.body || {};
+  const allowed = [
+    'name', 'type', 'env', 'risk', 'shadow', 'phi', 'pii', 'hosted', 'quarantined',
+    'approved', 'owner', 'detect', 'notes', 'data_access', 'controls', 'protocols', 'metadata',
+  ];
+  const fields = Object.keys(updates).filter((k) => allowed.includes(k));
+  if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
+
+  const sets = [];
+  const params = [req.params.id, req.tenantId];
+  for (const f of fields) {
+    params.push(['controls', 'protocols', 'metadata'].includes(f) ? JSON.stringify(updates[f]) : updates[f]);
+    sets.push(`${f} = $${params.length}`);
+    if (f === 'phi') {
+      params.push(!!updates.phi);
+      sets.push(`phi_flagged = $${params.length}`);
+    }
+    if (f === 'risk') {
+      const rl =
+        updates.risk === 'critical' || updates.risk === 'high'
+          ? 'high'
+          : updates.risk === 'low'
+            ? 'low'
+            : 'medium';
+      params.push(rl);
+      sets.push(`risk_level = $${params.length}`);
+    }
+    if (f === 'type') {
+      params.push(updates.type);
+      sets.push(`resource_type = $${params.length}`);
+    }
+  }
+  sets.push('updated_at = NOW()', 'last_seen = NOW()');
+  const result = await query(
+    `UPDATE agents SET ${sets.join(', ')} WHERE id = $1 AND tenant_id = $2 RETURNING *`,
+    params
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: 'Agent not found' });
+  await logAudit({
+    tenantId: req.tenantId,
+    actorId: req.user.sub,
+    actorEmail: req.user.email,
+    action: 'agent_updated',
+    detail: { agentId: req.params.id, fields },
+    ...clientMeta(req),
+  });
+  res.json(mapAgentToProd(result.rows[0]));
 });
 
 api.post(
@@ -563,6 +706,23 @@ api.get(
   }
 );
 
+// ── Production console compatibility routes ─────────────
+api.use('/activity', require('./src/routes/activity'));
+api.use('/autodiscovery', require('./src/routes/autodiscovery'));
+api.use('/integrations/credentials', require('./src/routes/integrations'));
+api.use('/compliance', require('./src/routes/compliance'));
+api.use('/risk-acceptances', require('./src/routes/riskAcceptances'));
+api.use('/webhooks', require('./src/routes/webhooks'));
+api.use('/endpoint', require('./src/routes/endpoint'));
+api.use('/proxy', require('./src/routes/proxy'));
+api.use('/governance', require('./src/routes/governance'));
+api.use('/', require('./src/routes/exports'));
+
+app.get('/api/version', (_req, res) => {
+  res.json({ name: 'agentradar', version: '1.0.0', ui: 'production-console' });
+});
+
+app.use('/api/auth/sso', require('./src/routes/sso'));
 app.use('/api', api);
 
 // Static SPA
