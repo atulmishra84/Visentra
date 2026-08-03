@@ -24,6 +24,7 @@ import {
 import { classifyShadowAi, summarizeShadowFindings } from "./services/shadowAi.js";
 import { writeAudit, listAuditEvents } from "./services/audit.js";
 import { buildCoverageMap } from "./services/coverage.js";
+import { buildAiBom, aiBomToCycloneDxLite } from "./services/aiBom.js";
 import {
   usageBreakdown as usageBreakdownService,
   buildUsageDashboard,
@@ -1567,6 +1568,35 @@ app.get("/api/coverage", auth, async (req, res) => {
     res.json(map);
   } catch (err) {
     res.status(500).json({ error: { message: publicErrorMessage(err, "Coverage map failed") } });
+  }
+});
+
+app.get("/api/ai-bom", auth, async (req, res) => {
+  try {
+    const bom = await buildAiBom(pool, req.tenantId, { limit: req.query.limit });
+    res.json(bom);
+  } catch (err) {
+    console.error("ai-bom failed:", err);
+    res.status(500).json({ error: { message: publicErrorMessage(err, "AI BOM build failed") } });
+  }
+});
+
+app.get("/api/ai-bom/export", auth, async (req, res) => {
+  try {
+    const bom = await buildAiBom(pool, req.tenantId, { limit: req.query.limit });
+    const format = String(req.query.format || "json").toLowerCase();
+    if (format === "cyclonedx") {
+      const doc = aiBomToCycloneDxLite(bom);
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", "attachment; filename=visentra-ai-bom.cdx.json");
+      return res.send(JSON.stringify(doc, null, 2));
+    }
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", "attachment; filename=visentra-ai-bom.json");
+    return res.send(JSON.stringify(bom, null, 2));
+  } catch (err) {
+    console.error("ai-bom export failed:", err);
+    res.status(500).json({ error: { message: publicErrorMessage(err, "AI BOM export failed") } });
   }
 });
 

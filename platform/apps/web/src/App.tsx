@@ -20,6 +20,7 @@ import { AuditPage } from "./pages/AuditPage";
 import { UsageDashboardPage } from "./pages/UsageDashboardPage";
 import { DiscoveryChangesPage } from "./pages/DiscoveryChangesPage";
 import { MeshPage } from "./pages/MeshPage";
+import { AiBomPage } from "./pages/AiBomPage";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { isAuthenticated, loading } = useAuth();
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="/discovery/events" element={<DiscoveryEventsPage />} />
         <Route path="/discovery/changes" element={<DiscoveryChangesPage />} />
         <Route path="/coverage" element={<CoveragePage />} />
+        <Route path="/ai-bom" element={<AiBomPage />} />
         <Route path="/inventory" element={<InventoryPage title="Asset Inventory" />} />
         <Route path="/inventory/explorer" element={<Navigate to="/inventory" replace />} />
         <Route path="/agents/:id" element={<AgentDetailPage />} />
