@@ -107,6 +107,57 @@ function isFilled(value) {
   return true;
 }
 
+/** True when a value is only an attestation/placeholder — not a real BOM component. */
+function isAttestationValue(value) {
+  if (value == null) return true;
+  if (typeof value === "boolean") return false;
+  if (typeof value === "number") return false;
+  if (typeof value === "string") {
+    const text = value.trim().toLowerCase();
+    if (!text) return true;
+    return (
+      text === "unknown" ||
+      text === "unspecified" ||
+      text === "unassigned" ||
+      text === "none" ||
+      text === "none_observed" ||
+      text === "none_declared" ||
+      text === "none_granted" ||
+      text === "n/a" ||
+      text === "noassertion" ||
+      text.startsWith("unspecified-for:") ||
+      text.startsWith("unspecified")
+    );
+  }
+  if (Array.isArray(value)) {
+    if (!value.length) return true;
+    return value.every((item) => isAttestationValue(item));
+  }
+  if (typeof value === "object") {
+    const status = String(value.status || "").toLowerCase();
+    if (status === "unknown" || status === "attested_absent" || status === "attested") return true;
+    if (value.type === "attestation") return true;
+    if (value.name != null) return isAttestationValue(value.name);
+  }
+  return false;
+}
+
+/** Human label for a concrete observed value, or null when attestation-only. */
+function concreteLabel(value) {
+  if (isAttestationValue(value)) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    const labels = value.map(concreteLabel).filter(Boolean);
+    return labels.length ? labels.join(", ") : null;
+  }
+  if (typeof value === "object") {
+    if (value.name != null) return concreteLabel(value.name);
+    if (value.id != null) return concreteLabel(value.id);
+  }
+  return null;
+}
+
 function unknown(reason = "not_observed") {
   return { status: "unknown", reason };
 }
@@ -632,122 +683,161 @@ export async function buildAiBom(pool, tenantId, { limit = 2000, agentId = null 
     };
 
     if (c.model?.name) {
-      add(
-        "models",
-        `model:${String(c.model.name).toLowerCase()}:${String(c.model.provider || "").toLowerCase()}`,
-        {
-          category: "models",
-          type: "ml-model",
-          name: c.model.name,
-          version: c.model.version,
-          provider: c.model.provider,
-          properties: { ...c.model }
-        },
-        "INVOKES_MODEL"
-      );
+      const modelName = concreteLabel(c.model.name);
+      if (modelName) {
+        add(
+          "models",
+          `model:${modelName.toLowerCase()}:${String(concreteLabel(c.model.provider) || "").toLowerCase()}`,
+          {
+            category: "models",
+            type: "ml-model",
+            name: modelName,
+            version: concreteLabel(c.model.version),
+            provider: concreteLabel(c.model.provider),
+            properties: { ...c.model }
+          },
+          "INVOKES_MODEL"
+        );
+      }
     }
     if (c.software?.framework) {
-      add(
-        "software_infra",
-        `framework:${String(c.software.framework).toLowerCase()}`,
-        {
-          category: "software_infra",
-          type: "framework",
-          name: c.software.framework,
-          version: c.software.frameworkVersion,
-          properties: { ...c.software }
-        },
-        "USES_FRAMEWORK"
-      );
+      const framework = concreteLabel(c.software.framework);
+      if (framework) {
+        add(
+          "software_infra",
+          `framework:${framework.toLowerCase()}`,
+          {
+            category: "software_infra",
+            type: "framework",
+            name: framework,
+            version: concreteLabel(c.software.frameworkVersion),
+            properties: { ...c.software }
+          },
+          "USES_FRAMEWORK"
+        );
+      }
     }
     if (c.software?.orchestration) {
-      add(
-        "software_infra",
-        `orch:${String(c.software.orchestration).toLowerCase()}`,
-        {
-          category: "software_infra",
-          type: "orchestration",
-          name: String(c.software.orchestration),
-          properties: {
-            region: c.software.region,
-            servingLayer: c.software.servingLayer,
-            containerImage: c.software.containerImage,
-            containerDigest: c.software.containerDigest,
-            imageCves: c.software.imageCves,
-            packageSbom: c.software.packageSbom
-          }
-        },
-        "DEPLOYED_IN"
-      );
+      const orch = concreteLabel(c.software.orchestration);
+      if (orch) {
+        add(
+          "software_infra",
+          `orch:${orch.toLowerCase()}`,
+          {
+            category: "software_infra",
+            type: "orchestration",
+            name: orch,
+            properties: {
+              region: c.software.region,
+              servingLayer: c.software.servingLayer,
+              containerImage: c.software.containerImage,
+              containerDigest: c.software.containerDigest,
+              imageCves: c.software.imageCves,
+              packageSbom: c.software.packageSbom
+            }
+          },
+          "DEPLOYED_IN"
+        );
+      }
     }
     if (c.data?.vectorDatabase) {
-      add(
-        "data",
-        `vector:${String(c.data.vectorDatabase).toLowerCase()}`,
-        {
-          category: "data",
-          type: "vector-database",
-          name: c.data.vectorDatabase,
-          properties: {
-            ragSources: c.data.ragSources,
-            hasPii: c.data.hasPii,
-            hasPhi: c.data.hasPhi,
-            dataClasses: c.data.dataClasses
-          }
-        },
-        "USES_VECTOR_STORE"
-      );
+      const vectorName = concreteLabel(c.data.vectorDatabase);
+      if (vectorName) {
+        add(
+          "data",
+          `vector:${vectorName.toLowerCase()}`,
+          {
+            category: "data",
+            type: "vector-database",
+            name: vectorName,
+            properties: {
+              ragSources: c.data.ragSources,
+              hasPii: c.data.hasPii,
+              hasPhi: c.data.hasPhi,
+              dataClasses: c.data.dataClasses
+            }
+          },
+          "USES_VECTOR_STORE"
+        );
+      }
     }
     if (c.data?.memoryStore) {
+      const memoryName = concreteLabel(c.data.memoryStore);
+      if (memoryName) {
+        add(
+          "data",
+          `memory:${memoryName.toLowerCase()}`,
+          { category: "data", type: "memory-store", name: memoryName, properties: {} },
+          "USES_MEMORY"
+        );
+      }
+    }
+    for (const ds of asArray(c.data?.trainingDatasets)) {
+      const name = concreteLabel(typeof ds === "string" || typeof ds === "object" ? ds : null);
+      if (!name) continue;
       add(
         "data",
-        `memory:${String(c.data.memoryStore).toLowerCase()}`,
-        { category: "data", type: "memory-store", name: c.data.memoryStore, properties: {} },
-        "USES_MEMORY"
+        `dataset:${name.toLowerCase()}`,
+        { category: "data", type: "dataset", name, properties: { raw: ds } },
+        "USES_DATASET"
+      );
+    }
+    for (const src of asArray(c.data?.ragSources)) {
+      const name = concreteLabel(typeof src === "string" || typeof src === "object" ? src : null);
+      if (!name) continue;
+      add(
+        "data",
+        `rag:${name.toLowerCase()}`,
+        { category: "data", type: "rag-source", name, properties: { raw: src } },
+        "USES_RAG_SOURCE"
       );
     }
     for (const tool of asArray(c.tools?.list)) {
-      const name = typeof tool === "string" ? tool : tool?.name;
+      const name = concreteLabel(typeof tool === "string" ? tool : tool?.name);
       if (!name) continue;
       add(
         "tools_integrations",
-        `tool:${String(name).toLowerCase()}`,
+        `tool:${name.toLowerCase()}`,
         { category: "tools_integrations", type: "tool", name, properties: { raw: tool, schemas: c.tools.schemas } },
         "USES_TOOL"
       );
     }
     for (const mcp of asArray(c.tools?.mcpServers)) {
-      const name = typeof mcp === "string" ? mcp : mcp?.name || mcp?.id;
+      const name = concreteLabel(typeof mcp === "string" ? mcp : mcp?.name || mcp?.id);
       if (!name) continue;
       add(
         "tools_integrations",
-        `mcp:${String(name).toLowerCase()}`,
+        `mcp:${name.toLowerCase()}`,
         { category: "tools_integrations", type: "mcp-server", name, properties: { raw: mcp } },
         "CONNECTS_MCP"
       );
     }
     for (const app of asArray(c.tools?.connectedApps)) {
-      const name = typeof app === "string" ? app : app?.name;
+      const name = concreteLabel(typeof app === "string" ? app : app?.name);
       if (!name) continue;
       add(
         "tools_integrations",
-        `app:${String(name).toLowerCase()}`,
+        `app:${name.toLowerCase()}`,
         { category: "tools_integrations", type: "connected-application", name, properties: {} },
         "ACCESSES"
       );
     }
-    if (c.identity?.principal || c.identity?.secretsDetected || asArray(c.identity?.permissions).length) {
-      add(
-        "identity_access",
-        `identity:${String(c.identity.principal || system.agentId).toLowerCase()}`,
-        {
-          category: "identity_access",
-          type: "identity",
-          name: c.identity.principal || `identity:${system.name}`,
-          properties: { ...c.identity }
-        },
-        "USES_IDENTITY"
-      );
+    {
+      const principal = concreteLabel(c.identity?.principal);
+      const permissions = asArray(c.identity?.permissions).filter((p) => !isAttestationValue(p));
+      if (principal || c.identity?.secretsDetected || permissions.length) {
+        add(
+          "identity_access",
+          `identity:${String(principal || system.agentId).toLowerCase()}`,
+          {
+            category: "identity_access",
+            type: "identity",
+            name: principal || `identity:${system.name}`,
+            properties: { ...c.identity, permissions }
+          },
+          "USES_IDENTITY"
+        );
+      }
     }
     add(
       "governance",

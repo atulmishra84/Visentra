@@ -107,6 +107,24 @@ const CATEGORY_LABELS: Record<string, string> = {
   behavioral: "Behavioral"
 };
 
+function displayText(value: unknown, fallback = "—"): string {
+  if (value == null) return fallback;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    const parts = value.map((item) => displayText(item, "")).filter(Boolean);
+    return parts.length ? parts.join(", ") : fallback;
+  }
+  if (typeof value === "object") {
+    const record = value as { name?: unknown; status?: unknown; reason?: unknown; id?: unknown };
+    if (record.status === "attested_absent" || record.status === "unknown") {
+      return typeof record.reason === "string" ? `Not observed (${record.reason})` : "Not observed";
+    }
+    if (record.name != null) return displayText(record.name, fallback);
+    if (record.id != null) return displayText(record.id, fallback);
+  }
+  return fallback;
+}
+
 const TAB_LABELS: Record<Tab, string> = {
   overview: "Overview",
   systems: "Systems",
@@ -383,15 +401,15 @@ export function AiBomPage() {
         header: "Component",
         render: (row) => (
           <div>
-            <strong>{row.name}</strong>
+            <strong>{displayText(row.name, "Unnamed component")}</strong>
             <div className="muted aibom-subline">
-              {row.type}
-              {row.version ? ` · v${row.version}` : ""}
-              {row.provider ? ` · ${row.provider}` : ""}
+              {displayText(row.type, "component")}
+              {row.version ? ` · v${displayText(row.version)}` : ""}
+              {row.provider ? ` · ${displayText(row.provider)}` : ""}
             </div>
           </div>
         ),
-        sortValue: (row) => row.name
+        sortValue: (row) => displayText(row.name, "")
       },
       {
         key: "occurrenceCount",
@@ -595,7 +613,15 @@ export function AiBomPage() {
                 </button>
               ))}
             </div>
-            <DataTable rows={componentRows} columns={componentColumns} emptyMessage="No components in this category yet." />
+            <DataTable
+              rows={componentRows}
+              columns={componentColumns}
+              emptyMessage={
+                componentCategory === "data"
+                  ? "No concrete data stores observed yet. Attested absences are tracked in system completeness, not listed here."
+                  : "No components in this category yet."
+              }
+            />
           </section>
         </div>
       ) : null}
