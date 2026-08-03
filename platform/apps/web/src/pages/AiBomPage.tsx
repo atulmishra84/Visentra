@@ -172,8 +172,8 @@ function BomSystemDrawer({
   onClose: () => void;
 }) {
   const c = system.composition;
-  const tools = Array.isArray(c.tools?.items) ? c.tools.items.length : Number(c.tools?.count || 0);
-  const mcp = Array.isArray(c.tools?.mcpServers) ? c.tools.mcpServers.length : Number(c.tools?.mcpCount || 0);
+  const tools = Array.isArray(c.tools?.list) ? c.tools.list.length : 0;
+  const mcp = Array.isArray(c.tools?.mcpServers) ? c.tools.mcpServers.length : 0;
   const topGaps = (system.score.gaps || []).slice(0, 4);
   const facts = [
     { label: "Model", value: c.model?.name ? `${c.model.name}${c.model.provider ? ` · ${c.model.provider}` : ""}` : "—" },
