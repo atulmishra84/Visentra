@@ -25,6 +25,7 @@ export function LoginPage() {
   const [theme, setTheme] = useState<ThemeMode>(() => getPreferredTheme());
   const [providers, setProviders] = useState<SsoProvider[]>([]);
   const [ssoBusy, setSsoBusy] = useState(false);
+  const [showLocal, setShowLocal] = useState(false);
 
   const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/executive";
 
@@ -32,7 +33,6 @@ export function LoginPage() {
     apiRequest<{ providers?: SsoProvider[] }>("/api/auth/sso/status")
       .then((payload) => {
         const list = Array.isArray(payload.providers) ? payload.providers : [];
-        // Backward compat: older API returned string[]
         setProviders(
           list.map((item) =>
             typeof item === "string"
@@ -44,7 +44,6 @@ export function LoginPage() {
       .catch(() => setProviders([]));
   }, []);
 
-  // Complete OIDC redirect: /login?code=...&state=...
   useEffect(() => {
     const code = searchParams.get("code");
     if (!code) return;
@@ -70,7 +69,6 @@ export function LoginPage() {
         window.location.replace(from);
       })
       .catch(async (err) => {
-        // Fallback for env-only Entra deployments still using legacy callback
         if (!providerId || providerId === "env-entra" || providerId === "entra") {
           try {
             const legacy = await apiRequest<{ token?: string }>("/api/auth/sso/entra/callback", {
@@ -107,7 +105,6 @@ export function LoginPage() {
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setSubmitError(null);
-
     try {
       await login(email, password);
     } catch (loginError) {
@@ -132,119 +129,152 @@ export function LoginPage() {
     }
   };
 
+  const hasSso = providers.length > 0;
+  const localVisible = !hasSso || showLocal;
+
   return (
     <div className="login-page">
+      <div className="login-atmosphere" aria-hidden="true">
+        <div className="login-orbit login-orbit-a" />
+        <div className="login-orbit login-orbit-b" />
+        <div className="login-mesh" />
+      </div>
+
       <button
         className="theme-toggle login-theme-toggle"
         type="button"
         aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
         onClick={() => setTheme(toggleTheme(theme))}
       >
-        {theme === "light" ? "Dark mode" : "Light mode"}
+        {theme === "light" ? "Dark" : "Light"}
       </button>
+
       <section className="login-hero">
-        <div className="brand-lockup" style={{ borderBottom: 0 }}>
-          <div className="brand-mark">VE</div>
-          <div>
-            <div className="brand-title">Visentra</div>
-            <div className="brand-subtitle">Enterprise AI agent discovery</div>
-          </div>
+        <div className="login-hero-visual" aria-hidden="true">
+          <img
+            className="login-hero-image"
+            src="/images/login-mesh-hero.jpg"
+            alt=""
+            width={1920}
+            height={1080}
+            decoding="async"
+            fetchPriority="high"
+          />
+          <div className="login-hero-scrim" />
         </div>
 
-        <div>
-          <p className="eyebrow">Discovery & Visibility</p>
-          <h1>Know every agent, model, edge, and runtime in motion.</h1>
-          <p className="page-description">
-            A high-trust command center for inventory, topology, usage analytics, discovery events,
-            and enterprise search across the AI estate.
-          </p>
-        </div>
+        <div className="login-hero-content">
+          <div className="login-brand">
+            <div className="brand-mark login-brand-mark">VE</div>
+            <div className="login-brand-name">Visentra</div>
+          </div>
 
-        <div className="three-grid">
-          <div className="panel">
-            <h3>Inventory</h3>
-            <p className="muted">Canonical agents with owners, frameworks, confidence, and recency.</p>
+          <div className="login-hero-copy">
+            <h1>AI agent discovery for the enterprise.</h1>
+            <p>
+              See every agent, model, and runtime across cloud, endpoints, and SaaS — without deploying another
+              agent.
+            </p>
           </div>
-          <div className="panel">
-            <h3>Topology</h3>
-            <p className="muted">Interactive relationship graph with live updates from the API stream.</p>
-          </div>
-          <div className="panel">
-            <h3>Usage</h3>
-            <p className="muted">Models, frameworks, cloud, IDE, and timeline analytics for teams.</p>
-          </div>
+
+          <p className="login-hero-foot muted">Discovery &amp; visibility · Not enforcement</p>
         </div>
       </section>
 
       <section className="login-panel">
-        <form className="login-card" onSubmit={submit}>
-          <p className="eyebrow">Secure access</p>
-          <h2>Sign in to Visentra</h2>
+        <div className="login-form-shell">
+          <header className="login-form-header">
+            <h2>Sign in</h2>
+            <p className="muted">Access your Visentra workspace</p>
+          </header>
+
           {!isProdBuild ? (
-            <p className="muted">
-              API base: <span className="mono">{API_BASE_URL}</span>
+            <p className="login-dev-hint muted">
+              API <span className="mono">{API_BASE_URL}</span>
             </p>
           ) : null}
 
-          {providers.length ? (
-            <div className="connector-list" style={{ marginTop: 18 }}>
+          {hasSso ? (
+            <div className="login-sso">
               {providers.map((provider) => (
                 <button
                   key={provider.id}
-                  className="button"
+                  className="button login-sso-button"
                   type="button"
                   disabled={ssoBusy || loading}
-                  style={{ width: "100%" }}
                   onClick={() => void startSso(provider)}
                 >
-                  {ssoBusy ? "Redirecting…" : `Sign in with ${provider.name}`}
+                  {ssoBusy ? "Redirecting…" : `Continue with ${provider.name}`}
                 </button>
               ))}
             </div>
           ) : null}
 
-          {providers.length ? (
-            <p className="muted" style={{ marginTop: 16, textAlign: "center" }}>
-              or use local admin
-            </p>
+          {hasSso ? (
+            <div className="login-divider" role="separator">
+              <span>or</span>
+            </div>
           ) : null}
 
-          <div className="field" style={{ marginTop: 18 }}>
-            <label htmlFor="email">Email</label>
-            <input
-              autoComplete="email"
-              className="input"
-              id="email"
-              type="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </div>
+          {hasSso && !showLocal ? (
+            <button
+              className="button ghost login-local-toggle"
+              type="button"
+              disabled={ssoBusy || loading}
+              onClick={() => setShowLocal(true)}
+            >
+              Sign in with email
+            </button>
+          ) : null}
 
-          <div className="field" style={{ marginTop: 14 }}>
-            <label htmlFor="password">Password</label>
-            <input
-              autoComplete="current-password"
-              className="input"
-              id="password"
-              type="password"
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </div>
+          {localVisible ? (
+            <form className="login-form" onSubmit={submit}>
+              <div className="field">
+                <label htmlFor="email">Email</label>
+                <input
+                  autoComplete="email"
+                  className="input"
+                  id="email"
+                  type="email"
+                  required
+                  autoFocus={!hasSso}
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </div>
 
-          {(submitError || error) && (
-            <div className="error-state" style={{ minHeight: 72, marginTop: 16 }}>
+              <div className="field">
+                <label htmlFor="password">Password</label>
+                <input
+                  autoComplete="current-password"
+                  className="input"
+                  id="password"
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </div>
+
+              {(submitError || error) && (
+                <div className="login-error" role="alert">
+                  {submitError ?? error}
+                </div>
+              )}
+
+              <button className="button primary login-submit" disabled={loading || ssoBusy} type="submit">
+                {loading ? "Signing in…" : "Sign in"}
+              </button>
+            </form>
+          ) : null}
+
+          {!localVisible && (submitError || error) ? (
+            <div className="login-error" role="alert">
               {submitError ?? error}
             </div>
-          )}
-
-          <button className="button primary" disabled={loading || ssoBusy} style={{ width: "100%", marginTop: 18 }} type="submit">
-            {loading ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
+          ) : null}
+        </div>
       </section>
     </div>
   );
