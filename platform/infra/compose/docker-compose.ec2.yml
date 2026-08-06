@@ -1,0 +1,23 @@
+# docker-compose.ec2.yml
+# EC2-specific fix overlay — apply AFTER docker-compose.prod.yml
+#
+# Fixes a port conflict in docker-compose.prod.yml:
+#   docker-compose.yml      → api: ports: ["8080:8080"]
+#   docker-compose.prod.yml → web: ports: ["8080:80"]
+#   Both fight for host port 8080 — api wins, web never binds,
+#   hitting :8080 returns 404 from the raw Node.js API.
+#
+# This overlay removes the api's host port binding so ONLY the
+# web nginx container is publicly reachable on :8080.
+# The api stays reachable internally as api:8080.
+#
+# USAGE:
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.prod.yml \
+#     -f docker-compose.ec2.yml \
+#     up -d --build
+
+services:
+  api:
+    ports: []   # Remove api from host — it's internal only, proxied via web nginx
