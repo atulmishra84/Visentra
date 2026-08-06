@@ -1,5 +1,5 @@
 # docker-compose.ec2.yml
-# EC2 production overlay — apply AFTER docker-compose.prod.yml
+# EC2 overlay — apply AFTER docker-compose.prod.yml
 #
 # USAGE:
 #   docker compose \
@@ -7,22 +7,22 @@
 #     -f docker-compose.prod.yml \
 #     -f docker-compose.ec2.yml \
 #     up -d --build
+#
+# PORT MAP after all three files are merged:
+#   :8080 → api (Node.js, direct — from base docker-compose.yml)
+#   :9000 → web (nginx → React UI + /api/ proxied to api:8080)
+#
+# WHY port 9000 for web?
+#   The base docker-compose.yml publishes api on host:8080.
+#   Docker Compose appends port lists across overlay files — it does
+#   NOT replace them. If web also used port 8080, both api and web
+#   would fight for it. Using port 9000 for web avoids this entirely.
 
 services:
-
-  # Keep api internal only — web nginx proxies /api/ to it.
-  # Without this, api and web both try to bind host port 8080 → conflict.
-  api:
-    ports: []
-
-  # Override the web service to:
-  #   1. Mount a plain nginx.conf directly (bypasses the unreliable
-  #      nginx.conf.template + envsubst mechanism that caused the 404).
-  #   2. Expose on port 8080 (same as prod overlay, stated explicitly).
   web:
     ports:
-      - "8080:80"
+      - "9000:80"
     volumes:
+      # Mount a plain nginx conf directly — bypasses the nginx.conf.template
+      # + envsubst mechanism which mangles nginx variables like $host.
       - ./nginx-web.conf:/etc/nginx/conf.d/default.conf:ro
-    environment:
-      API_UPSTREAM: api:8080   # kept for reference, not used by the plain conf

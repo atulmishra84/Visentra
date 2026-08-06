@@ -28,7 +28,7 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@agentradar.local}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?set BOOTSTRAP_ADMIN_PASSWORD}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:9000}
       DISCOVERY_DEMO_SEED: "false"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ready || exit 1"]
@@ -47,8 +47,9 @@ services:
       api:
         condition: service_healthy
 
+  # NOTE: web ports are intentionally NOT set here.
+  # They are set per-environment in the env-specific overlay
+  # (e.g. docker-compose.ec2.yml) to avoid port append conflicts.
   web:
-    ports:
-      - "8080:80"
     environment:
       API_UPSTREAM: api:8080
