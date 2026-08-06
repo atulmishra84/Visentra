@@ -40,8 +40,6 @@ services:
     image: neo4j:5-community
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set in .env}
-      # Also expose as plain env var so the healthcheck shell can read it
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
       NEO4J_PLUGINS: "[]"
       NEO4J_server_memory_heap_initial__size: 256m
       NEO4J_server_memory_heap_max__size: 512m
