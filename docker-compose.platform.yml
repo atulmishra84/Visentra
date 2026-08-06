@@ -40,6 +40,8 @@ services:
     image: neo4j:5-community
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set in .env}
+      # Also expose as plain env var so the healthcheck shell can read it
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
       NEO4J_PLUGINS: "[]"
       NEO4J_server_memory_heap_initial__size: 256m
       NEO4J_server_memory_heap_max__size: 512m
@@ -55,11 +57,12 @@ services:
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD:-agentradar} 'RETURN 1' || exit 1"]
+      # HTTP check — no credentials needed, works regardless of what NEO4J_PASSWORD is
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
       interval: 10s
       timeout: 10s
       retries: 18
-      start_period: 30s
+      start_period: 40s
 
   # ── Platform API ────────────────────────────────────────────────
   # ESM Node.js (port 8080 internal). Runs migrations on startup.
