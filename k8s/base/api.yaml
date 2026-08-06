@@ -1,0 +1,137 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentradar-api
+  namespace: agentradar
+  labels:
+    app: agentradar-api
+    version: "1.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: agentradar-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: agentradar-api
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4000"
+        prometheus.io/path: "/health"
+    spec:
+      serviceAccountName: agentradar-api-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z agentradar-postgres 5432; do echo waiting for postgres; sleep 2; done']
+        - name: wait-for-redis
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z agentradar-redis 6379; do echo waiting for redis; sleep 2; done']
+      containers:
+        - name: api
+          image: acragentradarprod.azurecr.io/agentradar-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4000
+              name: http
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "4000"
+            - name: JWT_EXPIRES_IN
+              value: "30m"
+            - name: APP_URL
+              value: "https://agentradar.idenaccess.com"
+            - name: REDIS_URL
+              value: "redis://agentradar-redis:6379"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-secrets
+                  key: JWT_SECRET
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql://agentradar:$(POSTGRES_PASSWORD)@agentradar-postgres:5432/agentradar"
+            - name: AZURE_SSO_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-secrets
+                  key: AZURE_SSO_CLIENT_ID
+            - name: AZURE_SSO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-secrets
+                  key: AZURE_SSO_CLIENT_SECRET
+            - name: AZURE_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: agentradar-secrets
+                  key: AZURE_TENANT_ID
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentradar-api
+  namespace: agentradar
+spec:
+  selector:
+    app: agentradar-api
+  ports:
+    - port: 4000
+      targetPort: 4000
+      name: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agentradar-api-sa
+  namespace: agentradar

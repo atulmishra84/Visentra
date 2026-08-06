@@ -1,0 +1,21 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agentradar-api-pdb
+  namespace: agentradar
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: agentradar-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agentradar-frontend-pdb
+  namespace: agentradar
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: agentradar-frontend

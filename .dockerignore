@@ -1,0 +1,52 @@
+# Version control
+.git
+.gitignore
+
+# Node
+node_modules
+npm-debug.log
+.npm
+
+# Environment files — NEVER bake into image
+.env
+.env.*
+*.env
+
+# Dev/test files
+*.test.js
+*.spec.js
+__tests__/
+coverage/
+.nyc_output/
+jest.config.js
+
+# Docker files themselves
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Kubernetes
+k8s/
+
+# Backups and logs
+*.bak
+*.log
+logs/
+tmp/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (extra safety)
+*.pem
+*.key
+*.p12
+*.pfx
+certs/

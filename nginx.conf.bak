@@ -1,0 +1,71 @@
+server {
+    listen 80;
+    server_name _;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name _;
+
+    ssl_certificate     /etc/nginx/certs/cert.pem;
+    ssl_certificate_key /etc/nginx/certs/key.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+
+    root  /usr/share/nginx/html;
+    index index.html;
+    gzip on;
+    gzip_types text/css application/javascript application/json;
+
+    location /health {
+        access_log off;
+        add_header Content-Type text/plain always;
+        return 200 "ok";
+    }
+
+    location /api {
+        proxy_pass         http://agentRadar-api:4000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto https;
+        proxy_read_timeout 120s;
+        add_header X-Frame-Options           "DENY" always;
+        add_header X-Content-Type-Options    "nosniff" always;
+        add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    }
+
+    location /ws {
+        proxy_pass         http://agentRadar-api:4000;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+
+    location /sso-callback {
+        try_files $uri /index.html;
+        add_header X-Frame-Options           "DENY" always;
+        add_header X-Content-Type-Options    "nosniff" always;
+        add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        add_header Content-Security-Policy   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://login.microsoftonline.com https://*.azure.com; frame-ancestors 'none'; base-uri 'self';" always;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control             "no-store, no-cache, must-revalidate" always;
+        add_header X-Frame-Options           "DENY" always;
+        add_header X-Content-Type-Options    "nosniff" always;
+        add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+        add_header X-XSS-Protection          "1; mode=block" always;
+        add_header Permissions-Policy        "geolocation=(), camera=(), microphone=()" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        add_header Content-Security-Policy   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://login.microsoftonline.com https://*.azure.com; frame-ancestors 'none'; base-uri 'self';" always;
+    }
+
+    location ~ /\. { deny all; }
+}

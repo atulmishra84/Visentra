@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentradar-config
+  namespace: agentradar
+data:
+  NODE_ENV: "production"
+  JWT_EXPIRES_IN: "30m"
+  APP_URL: "https://agentradar.idenaccess.com"
+  REDIS_URL: "redis://agentradar-redis:6379"
+  DATABASE_URL: "postgresql://agentradar:$(POSTGRES_PASSWORD)@agentradar-postgres:5432/agentradar"
+  LOG_LEVEL: "info"
+  RATE_LIMIT_WINDOW_MS: "900000"
+  RATE_LIMIT_MAX: "5"

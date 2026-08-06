@@ -1,0 +1,86 @@
+# Allow frontend → api only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-ingress-policy
+  namespace: agentradar
+spec:
+  podSelector:
+    matchLabels:
+      app: agentradar-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: agentradar-frontend
+      ports:
+        - protocol: TCP
+          port: 4000
+---
+# Allow api → postgres only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-ingress-policy
+  namespace: agentradar
+spec:
+  podSelector:
+    matchLabels:
+      app: agentradar-postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: agentradar-api
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# Allow api → redis only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ingress-policy
+  namespace: agentradar
+spec:
+  podSelector:
+    matchLabels:
+      app: agentradar-redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: agentradar-api
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# Deny all egress from frontend except to api
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-egress-policy
+  namespace: agentradar
+spec:
+  podSelector:
+    matchLabels:
+      app: agentradar-frontend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: agentradar-api
+      ports:
+        - protocol: TCP
+          port: 4000
+    - ports:
+        - protocol: UDP
+          port: 53

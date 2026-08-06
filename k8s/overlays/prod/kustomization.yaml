@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+bases:
+  - ../../base
+namespace: agentradar
+commonLabels:
+  environment: production
+  managed-by: kustomize
+images:
+  - name: acragentradarprod.azurecr.io/agentradar-api
+    newTag: "1.0.0"
+  - name: acragentradarprod.azurecr.io/agentradar-frontend
+    newTag: "1.0.0"
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+    target:
+      kind: Deployment
+      name: agentradar-api
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: agentradar-frontend

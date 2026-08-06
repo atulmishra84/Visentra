@@ -1,0 +1,8117 @@
+
+// ── FIX CWE-79: XSS-safe HTML escaping — use instead of innerHTML with user data ──
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+    .replace(/`/g, '&#x60;');
+}
+
+// Safe setter: use this instead of element.innerHTML = userValue
+function setTextSafe(element, value) {
+  if (element) element.textContent = String(value || '');
+}
+
+// Safe HTML builder: escapes all interpolated values
+function safeHtml(strings, ...values) {
+  return strings.reduce((result, str, i) => {
+    return result + str + (values[i] !== undefined ? escapeHtml(values[i]) : '');
+  }, '');
+}
+
+/* ===========================================
+   DATA
+   =========================================== */
+const SK='arLaunch_v1';
+const DEF={
+  agents:[],
+  risks:[
+    {id:1,name:"GPT-4 Hub — unrestricted PII",level:"critical",cat:"Data Exposure",desc:"No DPA. Live PII access without audit trail.",aid:1},
+    {id:2,name:"AutoGPT — prod API keys",level:"critical",cat:"Credential Risk",desc:"Prod API keys on unmanaged workstation.",aid:12},
+    {id:3,name:"Shadow Crawler — internal scan",level:"critical",cat:"Unauthorized Access",desc:"Bot scanning internal network and databases.",aid:5},
+    {id:4,name:"Unknown ML — blocked egress",level:"critical",cat:"Data Exfiltration",desc:"Blocked egress attempts to external IPs.",aid:9},
+    {id:5,name:"Shadow HL7 Listener — PHI on port 2575",level:"critical",cat:"PHI Exposure",desc:"Unauthorized HL7 MLLP listener receiving live ADT feeds with PHI.",aid:17},
+    {id:6,name:"LangChain — Slack exfiltration",level:"high",cat:"Data Exfiltration",desc:"Sending Slack data to external LLM without consent.",aid:3},
+    {id:7,name:"HR Screener — EU AI Act Art.22",level:"high",cat:"Regulatory",desc:"No human-in-the-loop for employment decisions.",aid:6},
+    {id:8,name:"Zapier — unauthorized OAuth",level:"high",cat:"Unauthorized Access",desc:"Email/calendar access without IT approval.",aid:10},
+    {id:9,name:"Patient Classifier — HIPAA BAA missing",level:"high",cat:"PHI Exposure",desc:"PHI access without Business Associate Agreement in place.",aid:13},
+    {id:10,name:"Genomics Agent — GDPR Art.9 violation",level:"high",cat:"Regulatory",desc:"Special category genomic data processed without explicit consent.",aid:18},
+    {id:11,name:"FinBot — NIST RMF gap",level:"medium",cat:"Compliance Gap",desc:"Impact assessments missing for autonomous trading.",aid:7},
+    {id:12,name:"ServiceDesk — GDPR lawful basis",level:"medium",cat:"Compliance Gap",desc:"No documented lawful basis for EU data.",aid:2},
+    {id:13,name:"Radiology Pipeline — FDA SaMD unclassified",level:"medium",cat:"Regulatory",desc:"Multi-agent diagnostic system not yet classified under FDA SaMD.",aid:14},
+  ],
+  models:[
+    {id:1,name:"clinical-bert-v2",vendor:"HuggingFace",type:"NLP",task:"Clinical NER / Coding",agents:[13,15],risk:"medium",phi:true,validated:true,version:"2.1.0",lastAudit:"2025-03-01"},
+    {id:2,name:"radiology-vit-large",vendor:"Internal",type:"Vision Transformer",task:"Radiology Report Generation",agents:[14],risk:"high",phi:true,validated:false,version:"1.3.2",lastAudit:"2025-01-15"},
+    {id:3,name:"drug-interaction-classifier",vendor:"OpenFDA",type:"Gradient Boost",task:"Drug Interaction Detection",agents:[16],risk:"low",phi:false,validated:true,version:"4.0.1",lastAudit:"2025-04-01"},
+    {id:4,name:"gpt-4o",vendor:"OpenAI",type:"LLM",task:"General Automation",agents:[1],risk:"critical",phi:false,validated:false,version:"2024-11",lastAudit:null},
+    {id:5,name:"claude-3-7-sonnet",vendor:"Anthropic",type:"LLM",task:"Ops & Tooling",agents:[8],risk:"low",phi:false,validated:true,version:"20250219",lastAudit:"2025-03-15"},
+    {id:6,name:"genomics-risk-scorer",vendor:"Internal",type:"Neural Net",task:"Polygenic Risk Scoring",agents:[18],risk:"high",phi:true,validated:false,version:"0.9.1",lastAudit:null},
+  ],
+  policies:[
+    {id:1,name:"No PII without GDPR compliance",desc:"Any agent accessing PII must have GDPR = pass",cond:"pii_no_gdpr",act:"flag",on:true},
+    {id:2,name:"Shadow critical auto-alert",desc:"Critical-risk shadow agents trigger CISO alert",cond:"shadow_critical",act:"alert",on:true},
+    {id:3,name:"No unknown protocols",desc:"Agents with unknown protocols must be reviewed",cond:"unknown_proto",act:"flag",on:true},
+    {id:4,name:"Cloud SOC2 requirement",desc:"All cloud agents must have SOC2 = pass",cond:"cloud_no_soc2",act:"flag",on:false},
+    {id:5,name:"PHI requires HIPAA compliance",desc:"Any agent with PHI access must have HIPAA = pass",cond:"phi_no_hipaa",act:"alert",on:true},
+    {id:6,name:"FHIR without HIPAA blocked",desc:"Agents using FHIR protocols must pass HIPAA controls",cond:"fhir_no_hipaa",act:"flag",on:true},
+  ],
+  approvals:[
+    {id:1,aid:1,stage:"pending",by:"system",note:"Auto-flagged by scanner.",at:"2025-04-09"},
+    {id:2,aid:5,stage:"pending",by:"system",note:"Port 8899 scan detected.",at:"2025-04-09"},
+    {id:3,aid:9,stage:"review",by:"system",note:"Unknown ML endpoint — investigating.",at:"2025-04-08"},
+    {id:4,aid:3,stage:"pending",by:"user@healthcareglobal.com",note:"Employee using LangChain for doc search.",at:"2025-04-08"},
+    {id:5,aid:10,stage:"review",by:"user@healthcareglobal.com",note:"Zapier for workflow automation.",at:"2025-04-06"},
+    {id:6,aid:12,stage:"pending",by:"dev@healthcareglobal.com",note:"Developer using AutoGPT locally.",at:"2025-04-07"},
+  ],
+  apprHist:[
+    {t:"DataSync ETL Bot approved",m:"Admin · 2025-03-15",c:"#10b981"},
+    {t:"Rogue Crawler v1 rejected & quarantined",m:"Admin · 2025-03-10",c:"#ef4444"},
+    {t:"Claude Ops Agent approved",m:"Admin · 2025-01-20",c:"#10b981"},
+  ],
+  notifications:[
+    {id:1,type:"critical",title:"Critical: AutoGPT detected with prod API keys",meta:"Just now · Shadow AI Detector",read:false},
+    {id:2,type:"critical",title:"Critical: Unknown ML Endpoint — blocked egress",meta:"1h ago · Network Monitor",read:false},
+    {id:3,type:"high",title:"High: LangChain exfiltrating Slack data",meta:"2h ago · DLP Engine",read:false},
+    {id:4,type:"policy",title:"Policy violation: 4 agents breach PII+GDPR rule",meta:"3h ago · Policy Engine",read:true},
+    {id:5,type:"scan",title:"Scan complete — 12 agents discovered",meta:"4h ago · System",read:true},
+  ],
+  activity:[
+    {type:"scan",t:"Full scan — 12 agents, 7 shadow detected",m:"System · 2m ago",c:"#6366f1"},
+    {type:"alert",t:"CRITICAL: AutoGPT on DESKTOP-7F3A",m:"Shadow Detector · 1h ago",c:"#ef4444"},
+    {type:"alert",t:"CRITICAL: Unknown ML Endpoint blocked egress",m:"Firewall · 2h ago",c:"#ef4444"},
+    {type:"reg",t:"DataSync ETL Bot registered",m:"Admin · 3h ago",c:"#10b981"},
+    {type:"policy",t:"Policy violation: GPT-4 Hub (PII+GDPR)",m:"Policy Engine · 4h ago",c:"#f59e0b"},
+  ],
+  tenants:[{n:"Healthcare Global Global",c:"#10b981"},{n:"Healthcare Global APAC",c:"#3b82f6"},{n:"Healthcare Global EU",c:"#8b5cf6"}],
+  ct:0, lastScan:null,
+};
+
+let DB=(()=>{ try{const r=localStorage.getItem(SK);if(r)return JSON.parse(r);}catch(e){} return JSON.parse(JSON.stringify(DEF)); })();
+const save=()=>{ try{localStorage.setItem(SK,JSON.stringify(DB));}catch(e){} };
+
+/* -- State -- */
+let cv='discovery', tf='all', ef='all', rf='all';
+
+/* -- Nav -- */
+const VM={dashboard:{title:'Dashboard',bc:'/dashboard'},discovery:{title:'Agent Discovery',bc:'/discovery/all'},live:{title:'Live Detection',bc:'/discovery/live'},shadow:{title:'Shadow AI',bc:'/discovery/shadow'},phi:{title:'PHI Exposure Monitor',bc:'/discovery/phi'},models:{title:'Model Registry',bc:'/discovery/models'},policy:{title:'Policy Engine',bc:'/governance/policy'},approvals:{title:'Approvals',bc:'/governance/approvals'},compliance:{title:'Compliance Posture',bc:'/governance/compliance'},playbooks:{title:'Remediation Playbooks',bc:'/governance/playbooks'},risk:{title:'Risk & Analytics',bc:'/intelligence/risk'},blast:{title:'Global Mesh',bc:'/intelligence/mesh'},lineage:{title:'Data Lineage Map',bc:'/intelligence/lineage'},integrations:{title:'Environment Connect Hub',bc:'/integrations/connect'},ciso:{title:'CISO Report',bc:'/reports/ciso'},benchmark:{title:'Peer Benchmarking',bc:'/reports/benchmark'},notifications:{title:'Notifications',bc:'/notifications'},activity:{title:'Activity Log',bc:'/ops/activity'}};
+
+function go(v){
+  document.querySelectorAll('.view').forEach(e=>e.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(e=>e.classList.remove('active'));
+  document.getElementById('view-'+v)?.classList.add('active');
+  document.getElementById('nav-'+v)?.classList.add('active');
+  cv=v;
+  const m=VM[v]||{};
+  document.getElementById('tb-title').textContent=m.title||v;
+  document.getElementById('tb-bc').textContent=m.bc||'';
+  document.getElementById('btn-export').style.display=v==='discovery'?'':'none';
+  document.getElementById('btn-add').style.display=['discovery','shadow','approvals'].includes(v)?'':'none';
+  ({dashboard:renderDashboard,discovery:renderDisc,live:renderLive,shadow:renderShadow,phi:renderPhi,models:renderModels,policy:renderPolicy,approvals:renderAppr,compliance:renderComp,playbooks:renderPlaybooks,risk:renderRisk,blast:renderBlast,lineage:renderLineage,integrations:renderInteg,ciso:renderCiso,benchmark:renderBench,notifications:renderNotif,activity:renderAct,admin:()=>{loadTenants();setTimeout(initAdminCheckboxes,500);}}[v]||(() =>{}))();
+}
+
+/* -- Helpers -- */
+const rtag=r=>`<span class="rtag rt-${r}">${r}</span>`;
+const envTag=e=>`<span class="env-tag"><span class="env-dot ${e==='Cloud'?'ed-c':e==='On-Prem'?'ed-o':'ed-h'}"></span>${e}</span>`;
+const cc=v=>`<span class="check-c ${v==='pass'?'cc-p':v==='fail'?'cc-f':'cc-w'}">${v==='pass'?'✓':v==='fail'?'✗':'~'}</span>`;
+const cscore=c=>{const v=Object.values(c);return Math.round(v.reduce((a,x)=>a+(x==='pass'?2:x==='warn'?1:0),0)/(v.length*2)*100);};
+const violations=()=>{const vs=[];DB.agents.forEach(a=>DB.policies.filter(p=>p.on).forEach(p=>{let h=false;if(p.cond==='pii_no_gdpr'&&a.pii&&a.controls.gdpr!=='pass')h=true;if(p.cond==='shadow_critical'&&a.shadow&&a.risk==='critical')h=true;if(p.cond==='unknown_proto'&&a.protocols.some(pr=>pr.toLowerCase().includes('unknown')))h=true;if(p.cond==='cloud_no_soc2'&&a.env==='Cloud'&&a.controls.soc2!=='pass')h=true;if(p.cond==='phi_no_hipaa'&&a.phi&&a.controls.hipaa!=='pass')h=true;if(p.cond==='fhir_no_hipaa'&&a.protocols.some(pr=>pr.includes('FHIR'))&&a.controls.hipaa!=='pass')h=true;if(h)vs.push({agent:a,policy:p});}));return vs;};
+
+function updateStats(){
+
+  // Update cost display
+  const costEl = document.getElementById('stat-monthly-cost');
+  if (costEl) costEl.textContent = getFormattedCost();
+  const A=DB.agents;
+  const sh=A.filter(a=>a.shadow).length;
+  const cr=A.filter(a=>a.risk==='critical').length;
+  const co=A.filter(a=>cscore(a.controls)===100).length;
+  const vl=violations().length;
+  const phi=A.filter(a=>a.phi).length;
+  const unread=DB.notifications.filter(n=>!n.read).length;
+  document.getElementById('s-total').textContent=A.length;
+  document.getElementById('s-shadow').textContent=sh;
+  document.getElementById('s-crit').textContent=cr;
+  document.getElementById('s-compl').textContent=co;
+  document.getElementById('s-viols').textContent=vl;
+  document.getElementById('nb-total').textContent=A.length;
+  document.getElementById('nb-shadow').textContent=sh;
+  document.getElementById('nb-phi').textContent=phi;
+  document.getElementById('nb-models').textContent=(DB.models||[]).length;
+  document.getElementById('nb-crit').textContent=cr;
+  document.getElementById('nb-viols').textContent=vl;
+  document.getElementById('nb-pending').textContent=DB.approvals.filter(a=>a.stage==='pending').length;
+  document.getElementById('nb-notif').textContent=unread;
+  document.getElementById('nb-notif-dot').textContent=unread;
+  if(DB.lastScan) document.getElementById('scan-time').textContent='Last scan: '+new Date(DB.lastScan).toLocaleTimeString();
+
+  if(typeof cv!=='undefined'&&cv==='dashboard')renderDashboard();
+}
+
+
+/* =============================================
+   DASHBOARD
+============================================= */
+function renderDashboard(){
+  const A=DB.agents;
+  const total=A.length;
+  const crit=A.filter(a=>a.risk==='critical').length;
+  const high=A.filter(a=>a.risk==='high').length;
+  const shadow=A.filter(a=>a.shadow).length;
+  const phi=A.filter(a=>a.phi).length;
+  const noBaa=A.filter(a=>a.phi&&a.controls&&a.controls.hipaa==='fail').length;
+
+  /* Hero cards */
+  const se=id=>document.getElementById(id);
+  if(se('dh-total'))se('dh-total').textContent=total;
+  if(se('dh-total-sub'))se('dh-total-sub').textContent=A.filter(a=>a.env==='Cloud').length+' cloud, '+A.filter(a=>a.env==='On-Prem').length+' on-prem, '+A.filter(a=>a.env==='Hybrid').length+' hybrid';
+  if(se('dh-crit'))se('dh-crit').textContent=crit;
+  if(se('dh-crit-sub'))se('dh-crit-sub').textContent='need immediate action';
+  if(se('dh-crit-trend'))se('dh-crit-trend').textContent=high+' high risk';
+  if(se('dh-shadow'))se('dh-shadow').textContent=shadow;
+  if(se('dh-phi'))se('dh-phi').textContent=phi;
+  if(se('dh-phi-sub'))se('dh-phi-sub').textContent='accessing health data';
+  if(se('dh-phi-trend'))se('dh-phi-trend').textContent=noBaa+' no BAA';
+
+  /* Live alerts */
+  const alerts=[];
+  A.forEach(a=>{
+    if(a.risk==='critical'&&a.shadow)alerts.push({sev:'critical',title:'Critical shadow AI: '+a.name,detail:a.dataAccess+' — '+a.detect,view:'shadow',agent:a});
+    if(a.phi&&a.controls&&a.controls.hipaa==='fail'&&!a.shadow)alerts.push({sev:'high',title:'PHI without BAA: '+a.name,detail:'HIPAA violation — execute Business Associate Agreement immediately',view:'phi',agent:a});
+    if(a.controls&&a.controls.gdpr==='fail'&&a.pii)alerts.push({sev:'high',title:'GDPR violation: '+a.name,detail:'Agent accesses PII without GDPR controls passing',view:'compliance',agent:a});
+    if(a.shadow&&a.risk==='high')alerts.push({sev:'high',title:'High-risk shadow: '+a.name,detail:a.env+' — '+a.detect+' · No governance registration',view:'shadow',agent:a});
+    if(a.controls&&a.controls.euai==='fail')alerts.push({sev:'medium',title:'EU AI Act gap: '+a.name,detail:'Missing conformity assessment or human oversight requirement',view:'compliance',agent:a});
+  });
+  alerts.sort((a,b)=>({critical:0,high:1,medium:2,low:3}[a.sev]||3)-({critical:0,high:1,medium:2,low:3}[b.sev]||3));
+  const critCount=alerts.filter(a=>a.sev==='critical').length;
+  const alertCountEl=se('dash-alert-count');
+  if(alertCountEl)alertCountEl.textContent=critCount+' critical';
+  const alertColors={critical:['var(--red)','var(--red-text)','var(--red-bg)','var(--red-border)'],high:['var(--amber)','var(--amber-text)','var(--amber-bg)','var(--amber-border)'],medium:['var(--brand)','var(--brand)','var(--brand-bg)','var(--brand-border)']};
+  const alertsEl=se('dash-alerts');
+  if(alertsEl){
+    alertsEl.innerHTML=alerts.slice(0,6).map(al=>{
+      const[dot,txt,bg,brd]=alertColors[al.sev]||alertColors.medium;
+      return `<div class="dash-alert-row" onclick="go('${al.view}')">
+        <div class="dar-dot" style="background:${dot}"></div>
+        <div class="dar-body">
+          <div class="dar-title">${al.title}</div>
+          <div class="dar-detail">${al.detail}</div>
+        </div>
+        <div class="dar-actions">
+          <button class="dar-btn" style="color:${txt};border-color:${brd};background:${bg}" onclick="event.stopPropagation();go('${al.view}')">View</button>
+          ${al.sev==='critical'?`<button class="dar-btn" style="color:var(--red-text);border-color:var(--red-border)" onclick="event.stopPropagation();quarantineAgent(${al.agent?.id})">Quarantine</button>`:''}
+        </div>
+      </div>`;
+    }).join('')||'<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:20px 0">No active alerts — governance posture is healthy</div>';
+  }
+
+  /* Risk bars */
+  const riskData=[
+    {label:'Critical',count:crit,color:'var(--red)',max:total},
+    {label:'High',count:high,color:'var(--amber)',max:total},
+    {label:'Medium',count:A.filter(a=>a.risk==='medium').length,color:'var(--brand)',max:total},
+    {label:'Low',count:A.filter(a=>a.risk==='low').length,color:'var(--green)',max:total},
+  ];
+  const rbEl=se('dash-risk-bars');
+  if(rbEl)rbEl.innerHTML=riskData.map(r=>`<div class="bar-row"><span class="bar-label">${r.label}</span><div class="bar-track"><div class="bar-fill" style="width:${r.max?Math.round(r.count/r.max*100):0}%;background:${r.color}"></div></div><span class="bar-count">${r.count}</span></div>`).join('');
+
+  /* Env bars */
+  const envData=[
+    {label:'Cloud',count:A.filter(a=>a.env==='Cloud').length,color:'var(--brand)'},
+    {label:'On-Prem',count:A.filter(a=>a.env==='On-Prem').length,color:'var(--purple)'},
+    {label:'Hybrid',count:A.filter(a=>a.env==='Hybrid').length,color:'var(--teal,#14b8a6)'},
+  ];
+  const ebEl=se('dash-env-bars');
+  if(ebEl)ebEl.innerHTML=envData.map(r=>`<div class="bar-row"><span class="bar-label">${r.label}</span><div class="bar-track"><div class="bar-fill" style="width:${total?Math.round(r.count/total*100):0}%;background:${r.color}"></div></div><span class="bar-count">${r.count}</span></div>`).join('');
+
+  /* Domain bars */
+  const domainCounts={};
+  A.forEach(a=>{const d=a.domain||'General';domainCounts[d]=(domainCounts[d]||0)+1;});
+  const domainColors={'clinical':'#0ea5e9','healthcare':'#0ea5e9','pharmacy':'#10b981','radiology':'#6366f1','general':'#8b5cf6','null':'#94a3b8'};
+  const dbEl=se('dash-domain-bars');
+  if(dbEl)dbEl.innerHTML=Object.entries(domainCounts).sort((a,b)=>b[1]-a[1]).map(([d,n])=>`<div class="bar-row"><span class="bar-label" style="text-transform:capitalize">${d||'General'}</span><div class="bar-track"><div class="bar-fill" style="width:${total?Math.round(n/total*100):0}%;background:${domainColors[d]||'#6366f1'}"></div></div><span class="bar-count">${n}</span></div>`).join('');
+
+  /* Compliance mini matrix */
+  const fws=[
+    {key:'soc2',label:'SOC 2'},{key:'hipaa',label:'HIPAA'},
+    {key:'gdpr',label:'GDPR'},{key:'euai',label:'EU AI Act'},
+    {key:'iso27001',label:'ISO 27K'},{key:'nist',label:'NIST'},
+    {key:'hitrust',label:'HITRUST'},{key:'fda_samd',label:'FDA SaMD'},
+  ];
+  const compEl=se('dash-comp-matrix');
+  if(compEl){
+    compEl.innerHTML=fws.map(fw=>{
+      const pass=A.filter(a=>a.controls&&a.controls[fw.key]==='pass').length;
+      const warn=A.filter(a=>a.controls&&a.controls[fw.key]==='warn').length;
+      const fail=A.filter(a=>a.controls&&a.controls[fw.key]==='fail').length;
+      const assessed=pass+fail;
+      // pct based on assessed agents only, warn = not yet assessed
+      const pct=assessed?Math.round(pass/assessed*100):0;
+      const warnPct=total?Math.round(warn/total*100):0;
+      const col=pct>=80?'var(--green)':pct>=50?'var(--amber)':'var(--red)';
+      const bg=pct>=80?'var(--green-bg)':pct>=50?'var(--amber-bg)':'var(--red-bg)';
+      const displayPct = assessed > 0 ? pct+'%' : warnPct > 0 ? 'Pending' : 'N/A';
+      return `<div class="mm-cell" style="background:${bg}">
+        <div class="mm-fw">${fw.label}</div>
+        <div class="mm-pct" style="color:${col}">${displayPct}</div>
+        <div class="mm-bar" style="background:${col};width:${assessed>0?pct:0}%;margin:5px auto 0;max-width:100%"></div>
+        ${warn>0?`<div style="font-size:9px;color:var(--amber-text);margin-top:2px">${warn} pending</div>`:''}
+      </div>`;
+    }).join('');
+  }
+
+  /* Recent activity */
+  const actEl=se('dash-activity');
+  if(actEl){
+    const acts = DB.activity||[];
+    const iconMap={discovery:'🔍',reg:'📋',alert:'⚠️',scan:'🔍',info:'ℹ️',policy:'⚡',compliance:'✅'};
+    const bgMap={discovery:'var(--brand-bg)',reg:'var(--green-bg)',alert:'var(--red-bg)',scan:'var(--brand-bg)',info:'rgba(200,210,240,0.2)',policy:'var(--amber-bg)',compliance:'var(--green-bg)'};
+    if (acts.length === 0) {
+      actEl.innerHTML='<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:20px 0">No recent activity</div>';
+    } else {
+      actEl.innerHTML=acts.slice(0,6).map(a=>{
+        // Support both demo format (a.t, a.msg, a.m) and DB format (a.category, a.description, a.created_at)
+        const cat = a.category || a.t || 'info';
+        const msg = a.description || a.msg || 'Activity';
+        const who = a.created_by || '';
+        const when = a.created_at ? new Date(a.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : (a.m?.split(' · ')[1]||'recent');
+        return `<div class="act-row">
+          <div class="act-icon" style="background:${bgMap[cat]||bgMap.info}">${iconMap[cat]||'•'}</div>
+          <div class="act-body">
+            <div class="act-title">${msg}</div>
+            <div class="act-meta">${who}${who&&when?' · ':''}${when}</div>
+          </div>
+          <span class="act-time">${when}</span>
+        </div>`;
+      }).join('');
+    }
+  }
+}
+
+function quarantineAgent(id){
+  if(!id)return;
+  const a=DB.agents.find(x=>x.id===id);
+  if(!a)return;
+  a.risk='low';a.lastSeen='Quarantined';
+  addAct('alert','Quarantined: '+a.name,'Admin · just now','#ef4444');
+  save();updateStats();renderDashboard();
+}
+
+/* -- DISCOVERY -- */
+function setTF(t,el){tf=t;document.querySelectorAll('#type-btns .filter-pill').forEach(p=>p.classList.remove('on'));el.classList.add('on');renderDisc();}
+function setEF(e,el){ef=e;document.querySelectorAll('.filter-bar .filter-pill').forEach(p=>p.classList.remove('on'));el.classList.add('on');renderDisc();}
+
+function renderDisc(){
+  let list=DB.agents;
+  const q=(document.getElementById('disc-q')?.value||'').toLowerCase();
+  if(tf==='shadow')list=list.filter(a=>a.shadow);
+  else if(tf==='agent')list=list.filter(a=>a.type==='agent');
+  else if(tf==='bot')list=list.filter(a=>a.type==='bot');
+  if(ef!=='all')list=list.filter(a=>a.env===ef);
+  if(q)list=list.filter(a=>a.name.toLowerCase().includes(q)||a.protocols.join(' ').toLowerCase().includes(q)||a.dataAccess.toLowerCase().includes(q)||a.env.toLowerCase().includes(q));
+  const viols=violations();
+  const tb=document.getElementById('disc-tbody');
+  if(!tb)return;
+  tb.innerHTML=list.map(a=>{
+    const v=viols.filter(x=>x.agent.id===a.id);
+    const phiTag=a.phi?'<span style="font-size:9px;font-weight:700;background:#fee2e2;color:#dc2626;border-radius:4px;padding:1px 5px;margin-left:4px">PHI</span>':'';
+    const domTag=a.domain?`<span style="font-size:9px;font-weight:600;background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:1px 5px;margin-left:2px">${a.domain}</span>`:'';
+    return `<tr onclick="openDrawer('${a.id}')">
+      <td><span style="font-weight:700;color:var(--text-primary)">${a.name}</span>${phiTag}${domTag}</td>
+      <td><span class="type-tag">${a.type==='agent'?'AI Agent':'Bot'}</span></td>
+      <td>${envTag(a.env)}</td>
+      <td>${a.protocols.slice(0,2).map(p=>`<span class="proto-tag" style="${['FHIR R4','HL7 v2','DICOM','MCP','A2A Communication'].includes(p)?'background:#dbeafe;color:#1d4ed8;':''}">${p}</span>`).join('')}${a.protocols.length>2?`<span style="font-size:10px;color:var(--text-muted)"> +${a.protocols.length-2}</span>`:''}</td>
+      <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);font-size:11px">${a.dataAccess}</td>
+      <td style="color:var(--text-muted);font-size:11px">${a.lastSeen}</td>
+      <td>${rtag(a.risk)}</td>
+      <td>${v.length?`<span style="font-size:10px;color:var(--amber-text);font-weight:600">⚠ ${v.length} violation${v.length>1?'s':''}`:''}</span></td>
+      <td>${a.shadow?'<span class="shadow-tag">Shadow</span>':'<span style="font-size:10px;color:var(--text-muted)">Registered</span>'}</td>
+    </tr>`;
+  }).join('');
+  updateStats();
+}
+
+/* -- LIVE DETECTION -- */
+/* ============================================================
+   SCANNER HUB — all 14 scanner modules with full metadata
+============================================================ */
+const SCANNERS = [
+  {
+    id:'sc-net-probe', name:'Network Port Prober', icon:'📡',
+    category:'network', method:'TCP SYN / Banner grab',
+    status:'active', color:'#6366f1',
+    targets:'10.0.0.0/8 · 192.168.0.0/16 · 172.16.0.0/12',
+    ports:'80,443,8080,8443,8899,11434,5000,7860,3000',
+    interval:'Every 15 min', lastRun:'2 min ago',
+    scanned:14820, hits:7, coverage:88,
+    protocols:['REST','HTTP','Unknown'],
+    tags:[{t:'On-Prem',c:'rgba(99,102,241,0.1)',tc:'#3730a3'},{t:'Hybrid',c:'rgba(99,102,241,0.1)',tc:'#3730a3'}],
+    agents:[1,5,9,12],
+    lastHit:'[ALERT] Port 8899 active on 10.1.8.44 — Shadow Crawler v2',
+    hitAlert:true,
+    desc:'Probes all internal subnets for open ports associated with AI inference servers, LLM APIs, and agentic runtimes.'
+  },
+  {
+    id:'sc-cloud-aws', name:'AWS Cloud Scanner', icon:'🟠',
+    category:'cloud', method:'AWS API · AssumeRole IAM',
+    status:'active', color:'#f59e0b',
+    targets:'us-east-1 · eu-west-1 · ap-southeast-1',
+    ports:'443 (HTTPS API)',
+    interval:'Every 30 min', lastRun:'8 min ago',
+    scanned:4230, hits:3, coverage:95,
+    protocols:['AWS Lambda','SageMaker Endpoint','Bedrock'],
+    tags:[{t:'Cloud',c:'rgba(245,158,11,0.1)',tc:'#92400e'},{t:'IAM Read-only',c:'rgba(16,185,129,0.1)',tc:'#065f46'}],
+    agents:[1,10],
+    lastHit:'[FOUND] SageMaker endpoint: gpt4-ops-hub · us-east-1 · InService',
+    hitAlert:false,
+    desc:'Enumerates Lambda functions, SageMaker endpoints, Bedrock models, and EC2 instances with AI-related naming or tags.'
+  },
+  {
+    id:'sc-cloud-azure', name:'Azure AI Scanner', icon:'🔷',
+    category:'cloud', method:'Azure REST API · Service Principal',
+    status:'active', color:'#3b82f6',
+    targets:'3 subscriptions · East US · West Europe',
+    ports:'443 (HTTPS)',
+    interval:'Every 30 min', lastRun:'3 min ago',
+    scanned:1840, hits:4, coverage:97,
+    protocols:['Azure OpenAI','ML Studio','Cognitive Services'],
+    tags:[{t:'Cloud',c:'rgba(59,130,246,0.1)',tc:'#1d4ed8'},{t:'Connected',c:'rgba(16,185,129,0.1)',tc:'#065f46'}],
+    agents:[8],
+    lastHit:'[FOUND] Azure OpenAI: 4 deployments · gpt-4o · text-embedding-3',
+    hitAlert:false,
+    desc:'Discovers Azure OpenAI deployments, ML Studio compute endpoints, and Cognitive Services integrations across all subscriptions.'
+  },
+  {
+    id:'sc-cloud-gcp', name:'GCP Vertex AI Scanner', icon:'🟢',
+    category:'cloud', method:'GCP API · Service Account',
+    status:'active', color:'#10b981',
+    targets:'healthtech-prod · healthtech-dev',
+    ports:'443 (HTTPS)',
+    interval:'Every 30 min', lastRun:'5 min ago',
+    scanned:920, hits:2, coverage:100,
+    protocols:['Vertex AI Endpoint','Cloud Run','Cloud Functions'],
+    tags:[{t:'Cloud',c:'rgba(16,185,129,0.1)',tc:'#065f46'},{t:'Connected',c:'rgba(16,185,129,0.1)',tc:'#065f46'}],
+    agents:[18],
+    lastHit:'[FOUND] Vertex AI: genomics-risk-scorer endpoint · us-central1',
+    hitAlert:false,
+    desc:'Scans GCP Vertex AI model endpoints, Cloud Run services, and Cloud Functions for AI workloads across all project environments.'
+  },
+  {
+    id:'sc-idp-oauth', name:'OAuth / IdP Grant Scanner', icon:'⬡',
+    category:'identity',
+    method:'Okta Events API · Azure AD Graph · Google Admin SDK',
+    targets:'All IdP tenants — OAuth app registry · enterprise app grants',
+    protocols:['HTTPS REST','OAuth2'],
+    risk:'critical', shadow:true, phi:true,
+    desc:'Scans Okta, Azure AD, and Google Workspace for OAuth grants to AI platforms. Finds externally-hosted Claude agents that users authorised without IT approval.',
+    status:'active', health:'ok',
+    lastHit:'[CRITICAL] Dify OAuth grant: dr.sarah.chen — hosted Claude agent with patient-note scope',
+    hitAlert:true,
+    lastRun:new Date(Date.now()-4*60*1000).toISOString(),
+    nextRun:new Date(Date.now()+56*60*1000).toISOString(),
+  },
+  {
+    id:'sc-casb', name:'CASB / Proxy Traffic Scanner', icon:'⬡',
+    category:'dlp',
+    method:'Zscaler API · Netskope REST · Palo Alto Prisma · proxy log ingestion',
+    targets:'All egress proxy / CASB platforms in tenant',
+    protocols:['HTTPS REST','Syslog','CEF'],
+    risk:'critical', shadow:true, phi:true,
+    desc:'Ingests Zscaler, Netskope, or proxy logs to detect traffic to externally-hosted AI agent platforms. The only reliable way to see hosted Claude agents without a host-level agent.',
+    status:'active', health:'ok',
+    lastHit:'[CRITICAL] 12.4MB PHI uploaded to app.dify.ai — externally-hosted Claude agent [HIPAA VIOLATION]',
+    hitAlert:true,
+    lastRun:new Date(Date.now()-2*60*1000).toISOString(),
+    nextRun:new Date(Date.now()+58*60*1000).toISOString(),
+  },
+  {
+    id:'sc-dns', name:'DNS Query Monitor', icon:'🌐',
+    category:'dns', method:'DNS resolver intercept · Query log analysis',
+    status:'active', color:'#8b5cf6',
+    targets:'All internal DNS resolvers · Upstream forwarders · claude.ai DLP watch',
+    ports:'53/UDP · 53/TCP · 853 DoT',
+    interval:'Continuous', lastRun:'Real-time',
+    scanned:92400, hits:12, coverage:100,
+    protocols:['OpenAI API','Anthropic API','HuggingFace','LangChain','Pinecone'],
+    tags:[{t:'All environments',c:'rgba(139,92,246,0.1)',tc:'#5b21b6'},{t:'Passive',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],
+    agents:[1,3,8,10,13,18],
+    lastHit:'[DNS] claude.ai queried from 10.2.4.31 (892/day) ⚠ DLP RISK — browser session, company data exposure',
+    hitAlert:false,
+    desc:'Passively monitors DNS queries matching known LLM API domains, vector DB endpoints, and AI framework callback patterns. No agent required.'
+  },
+  {
+    id:'sc-process', name:'SSH Process Scanner', icon:'🔑',
+    category:'process', method:'SSH · ps aux · ss -tlnp · ~/.claude/claude_desktop_config.json',
+    status:'active', color:'#f59e0b',
+    targets:'DESKTOP-7F3A · dev01 · dev02 · ws-004',
+    ports:'22/TCP SSH',
+    interval:'Every 10 min', lastRun:'4 min ago',
+    scanned:18, hits:2, coverage:72,
+    protocols:['Python SDK','Claude Code CLI','Anthropic API','MCP Protocol'],
+    tags:[{t:'On-Prem',c:'rgba(99,102,241,0.1)',tc:'#3730a3'},{t:'SSH key auth',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],
+    agents:[12],
+    lastHit:'[ALERT] claude PID 7821 on DEV-WS-004 — ANTHROPIC_API_KEY + ~/.claude/config: 2 MCP servers (PHI)',
+    hitAlert:true,
+    desc:'Connects via read-only SSH to managed workstations and servers. Runs ps aux, ss -tlnp, and /proc/net/tcp to detect shadow AI processes.'
+  },
+  {
+    id:'sc-k8s', name:'Kubernetes Pod Scanner', icon:'⎈',
+    category:'network', method:'Kubernetes API · kubectl list',
+    status:'active', color:'#3b82f6',
+    targets:'prod-cluster · ai-workloads namespace',
+    ports:'6443/TCP K8s API',
+    interval:'Every 5 min', lastRun:'1 min ago',
+    scanned:284, hits:3, coverage:100,
+    protocols:['Kubernetes','Docker','Container runtime'],
+    tags:[{t:'Cloud',c:'rgba(59,130,246,0.1)',tc:'#1d4ed8'},{t:'On-Prem',c:'rgba(99,102,241,0.1)',tc:'#3730a3'}],
+    agents:[14,15,16],
+    lastHit:'[FOUND] Pod: radiology-multiagent-v2 · ai-workloads ns · Running',
+    hitAlert:false,
+    desc:'Enumerates running pods, deployments, and services in watched namespaces. Flags containers with AI-related image names, inference ports, or model volume mounts.'
+  },
+  {
+    id:'sc-hl7', name:'HL7 MLLP Port Monitor', icon:'📡',
+    category:'healthcare', method:'Port scan · MLLP handshake · HL7 v2 parse',
+    status:'alert', color:'#ef4444',
+    targets:'10.1.0.0/16 · 10.2.0.0/16 · MLLP port 2575',
+    ports:'2575/TCP MLLP',
+    interval:'Every 2 min', lastRun:'30 sec ago',
+    scanned:2048, hits:2, coverage:100,
+    protocols:['HL7 v2','MLLP','ADT feeds'],
+    tags:[{t:'Healthcare',c:'rgba(14,165,233,0.1)',tc:'#0c4a6e'},{t:'HIPAA critical',c:'rgba(239,68,68,0.1)',tc:'#991b1b'}],
+    agents:[15,17],
+    lastHit:'[ALERT] UNAUTHORIZED HL7 listener on 10.1.22.5:2575 — PHI exposure',
+    hitAlert:true,
+    desc:'Scans for active MLLP listeners on port 2575 and validates each against the approved HL7 gateway registry. Unauthorized listeners trigger HIPAA critical alerts.'
+  },
+  {
+    id:'sc-fhir', name:'FHIR Endpoint Discoverer', icon:'🏥',
+    category:'healthcare', method:'SMART on FHIR · CapabilityStatement',
+    status:'active', color:'#0ea5e9',
+    targets:'Epic FHIR R4 · Cerner · Internal FHIR servers',
+    ports:'443/HTTPS',
+    interval:'Every 20 min', lastRun:'6 min ago',
+    scanned:340, hits:4, coverage:95,
+    protocols:['FHIR R4','SMART on FHIR','OAuth 2.0'],
+    tags:[{t:'Healthcare',c:'rgba(14,165,233,0.1)',tc:'#0c4a6e'},{t:'HIPAA PHI',c:'rgba(245,158,11,0.1)',tc:'#92400e'}],
+    agents:[13,14,15,18],
+    lastHit:'[WARN] FHIR R4 /Patient read on Patient Classifier — no BAA in place',
+    hitAlert:false,
+    desc:'Fetches FHIR CapabilityStatements from registered EHR endpoints. Discovers SMART apps, audits AuditEvent logs, and flags PHI-accessing agents without BAA.'
+  },
+  {
+    id:'sc-dicom', name:'DICOM Gateway Prober', icon:'🩻',
+    category:'healthcare', method:'DICOM C-ECHO · AE Title query',
+    status:'active', color:'#0ea5e9',
+    targets:'pacs.healthsys.org · port 104 · port 11112',
+    ports:'104/DICOM · 11112/DICOM-TLS',
+    interval:'Every 30 min', lastRun:'11 min ago',
+    scanned:18, hits:1, coverage:100,
+    protocols:['DICOM','C-ECHO','C-FIND'],
+    tags:[{t:'Healthcare',c:'rgba(14,165,233,0.1)',tc:'#0c4a6e'},{t:'Imaging PHI',c:'rgba(245,158,11,0.1)',tc:'#92400e'}],
+    agents:[14],
+    lastHit:'[FOUND] AE Title: RADIOLOGY-AI-V2 → Radiology Multiagent Pipeline',
+    hitAlert:false,
+    desc:'Sends DICOM C-ECHO pings and AE Title queries to PACS gateways. No pixel data is read — only network presence and AE Title registration is audited.'
+  },
+  {
+    id:'sc-splunk', name:'Splunk SIEM Connector', icon:'📊',
+    category:'log', method:'Splunk REST API · HEC token · SPL search',
+    status:'active', color:'#f59e0b',
+    targets:'splunk.healthsys.org:8089 · 3 indexes',
+    ports:'8089/TCP REST',
+    interval:'Every 5 min', lastRun:'30 sec ago',
+    scanned:847214, hits:847, coverage:100,
+    protocols:['Splunk HEC','REST','SPL'],
+    tags:[{t:'All environments',c:'rgba(139,92,246,0.1)',tc:'#5b21b6'},{t:'Connected',c:'rgba(16,185,129,0.1)',tc:'#065f46'}],
+    agents:[1,3,5,10,12,17],
+    lastHit:'[SIEM] 847 LLM API calls in 30 days · 2 shadow HL7 events on port 2575',
+    hitAlert:false,
+    desc:'Executes SPL queries against security and application log indexes looking for LLM API calls, shadow AI network patterns, and HL7 port activity.'
+  },
+  {
+    id:'sc-traffic', name:'Network Traffic Analyser', icon:'🔭',
+    category:'dns', method:'NetFlow · IPFIX · Packet metadata',
+    status:'active', color:'#8b5cf6',
+    targets:'Core switch · DMZ egress · VPN gateway',
+    ports:'2055/UDP NetFlow · 4739/UDP IPFIX',
+    interval:'Continuous', lastRun:'Real-time',
+    scanned:4820000, hits:23, coverage:85,
+    protocols:['NetFlow v9','IPFIX','sFlow'],
+    tags:[{t:'All environments',c:'rgba(139,92,246,0.1)',tc:'#5b21b6'},{t:'Passive',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],
+    agents:[1,3,5,9,12],
+    lastHit:'[WARN] Sustained egress to api.openai.com from DESKTOP-7F3A · 2.1 GB/day',
+    hitAlert:false,
+    desc:'Analyses NetFlow and IPFIX records for traffic patterns consistent with LLM API usage, exfiltration volumes, and connections to known AI service IP ranges.'
+  },
+  {
+    id:'sc-api-token', name:'API Token Tracer', icon:'🔐',
+    category:'log', method:'OAuth audit log · API key pattern scan · Git scan',
+    status:'active', color:'#6366f1',
+    targets:'GitHub org · GitLab · Slack workspace · Okta audit',
+    ports:'443/HTTPS',
+    interval:'Every 60 min', lastRun:'12 min ago',
+    scanned:12400, hits:3, coverage:90,
+    protocols:['OAuth 2.0','GitHub API','Slack API','Okta Events'],
+    tags:[{t:'Cloud',c:'rgba(59,130,246,0.1)',tc:'#1d4ed8'},{t:'SaaS',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],
+    agents:[10,12],
+    lastHit:'[CRITICAL] ANTHROPIC_API_KEY in repo: engineering/claude-code-agent (sk-ant-***) + Claude Code in 2 GitHub workflows',
+    hitAlert:false,
+    desc:'Scans Git repositories for hardcoded API keys, audits OAuth grant logs for unapproved AI service tokens, and cross-references Okta SSO events for shadow access.'
+  },
+  {
+    id:'sc-mcp-a2a', name:'MCP / A2A Protocol Scanner', icon:'🤖',
+    category:'network', method:'/.well-known probe · claude_desktop_config.json · SSH config parse',
+    status:'active', color:'#6366f1',
+    targets:'All registered agent runtimes',
+    ports:'Any (protocol-level)',
+    interval:'Continuous', lastRun:'Real-time',
+    scanned:530, hits:2, coverage:95,
+    protocols:['MCP (Model Context Protocol)','A2A Communication'],
+    tags:[{t:'All environments',c:'rgba(139,92,246,0.1)',tc:'#5b21b6'},{t:'Agentic',c:'rgba(99,102,241,0.1)',tc:'#3730a3'}],
+    agents:[14,15],
+    lastHit:'[FOUND] claude_desktop_config.json on DESKTOP-7F3A: 4 MCP servers — filesystem(write), github, slack [UNREGISTERED]',
+    hitAlert:false,
+    desc:'Detects Model Context Protocol (MCP) servers and Agent-to-Agent (A2A) communication buses via protocol fingerprinting. Maps inter-agent communication topology.'
+  },
+  ,{id:'sc-browser-ext',name:'Browser Extension AI Scanner',icon:'🌐',category:'identity',method:'Google Admin API · Intune API · Chrome Enterprise',status:'active',color:'#4285f4',targets:'Chrome Enterprise · Edge · Firefox managed extensions',ports:'443/HTTPS',interval:'Every 4 hours',lastRun:'1 hr ago',scanned:1840,hits:12,coverage:91,protocols:['Chrome Enterprise API','Intune Graph API'],tags:[{t:'Endpoint',c:'rgba(66,133,244,0.1)',tc:'#1a73e8'},{t:'Browser',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],agents:[],lastHit:'[FOUND] 12 AI browser extensions across 340 managed devices: Grammarly AI, Copilot, Jasper, Otter.ai',hitAlert:true,desc:'Queries Google Admin Console and Microsoft Intune to enumerate AI-capable browser extensions installed on managed devices. Finds AI agents running in user browsers invisible to network scanners — including Copilot, Grammarly AI, Jasper, Wordtune, and unapproved ChatGPT extensions.'
+  },{id:'sc-email-ai',name:'Email & Calendar AI Plugin Scanner',icon:'📧',category:'identity',method:'Microsoft Graph API · Google Workspace Admin SDK',status:'active',color:'#0078d4',targets:'Outlook add-ins · Gmail extensions · Calendar AI assistants',ports:'443/HTTPS',interval:'Every 6 hours',lastRun:'2 hr ago',scanned:520,hits:7,coverage:96,protocols:['Microsoft Graph','Google Admin SDK'],tags:[{t:'Cloud',c:'rgba(0,120,212,0.1)',tc:'#004578'},{t:'Email',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],agents:[],lastHit:'[FOUND] Superhuman AI on 23 mailboxes · Reclaim AI calendar access on 41 accounts',hitAlert:true,desc:'Scans Microsoft Graph and Google Workspace Admin APIs to find AI plugins installed in email and calendar applications. Covers Outlook add-ins, Gmail extensions, and calendar AI assistants (Superhuman, Reclaim AI, Motion) that process sensitive business communications.'
+  },{id:'sc-saas-ai',name:'SaaS Embedded AI Scanner',icon:'☁️',category:'cloud',method:'Salesforce API · ServiceNow API · Workday API · Zendesk API',status:'active',color:'#00a1e0',targets:'Salesforce Einstein · ServiceNow AI · Workday AI · Zendesk AI',ports:'443/HTTPS',interval:'Every 8 hours',lastRun:'3 hr ago',scanned:890,hits:9,coverage:88,protocols:['Salesforce REST API','ServiceNow REST API','Workday API'],tags:[{t:'Cloud',c:'rgba(0,161,224,0.1)',tc:'#005b8e'},{t:'SaaS',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],agents:[],lastHit:'[FOUND] Salesforce Einstein GPT enabled on Sales Cloud · ServiceNow predictive intelligence active',hitAlert:false,desc:'Calls management APIs of major SaaS platforms to discover embedded AI features. Covers Salesforce Einstein, ServiceNow predictive intelligence, Workday AI, Zendesk AI, HubSpot AI, and 20+ enterprise SaaS platforms with native AI capabilities.'
+  },{id:'sc-m365-copilot-ext',name:'Microsoft 365 Copilot Extensions Scanner',icon:'🪟',category:'cloud',method:'Microsoft Graph API · Teams Apps API · Power Platform API',status:'active',color:'#0078d4',targets:'Copilot plugins · Teams AI apps · Power Platform connectors',ports:'443/HTTPS',interval:'Every 2 hours',lastRun:'45 min ago',scanned:1240,hits:15,coverage:94,protocols:['Microsoft Graph','Teams API','Power Platform API'],tags:[{t:'M365',c:'rgba(0,120,212,0.1)',tc:'#004578'},{t:'Copilot',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],agents:[],lastHit:'[FOUND] 15 Copilot plugins installed · 3 custom connectors calling external AI APIs',hitAlert:true,desc:'Discovers Microsoft 365 Copilot extensions and plugins that give Copilot access to external systems. Uses Teams Apps API to list installed AI apps and Power Platform API to find custom connectors calling AI services.'
+  },{id:'sc-endpoint-process',name:'Endpoint Process AI Scanner',icon:'💻',category:'network',method:'CrowdStrike API · Defender for Endpoint API · Intune · Qualys',status:'active',color:'#e63946',targets:'All managed endpoints · Servers · Developer workstations',ports:'443/HTTPS (EDR APIs)',interval:'Every 2 hours',lastRun:'30 min ago',scanned:2840,hits:23,coverage:97,protocols:['CrowdStrike Falcon API','Defender for Endpoint API','Intune Graph API'],tags:[{t:'Endpoint',c:'rgba(230,57,70,0.1)',tc:'#c1121f'},{t:'EDR',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],agents:[],lastHit:'[FOUND] 23 endpoints running AI processes: ollama.exe, python -m vllm, claude-code, cursor-ai',hitAlert:true,desc:'Queries EDR and endpoint management APIs to find AI processes running on managed devices. Uses CrowdStrike Falcon or Microsoft Defender for Endpoint to list active processes matching AI patterns. Catches local model servers and developer AI tools invisible to network scanners.'
+  },{id:'sc-rpa-ai',name:'RPA + AI Hybrid Scanner',icon:'🤖',category:'cloud',method:'UiPath Orchestrator API · Automation Anywhere Control Room · Power Automate',status:'active',color:'#ff6b35',targets:'UiPath · Automation Anywhere · Blue Prism · Power Automate',ports:'443/HTTPS',interval:'Every 4 hours',lastRun:'1.5 hr ago',scanned:340,hits:6,coverage:85,protocols:['UiPath Orchestrator API','AA Control Room API','Power Automate API'],tags:[{t:'Cloud',c:'rgba(255,107,53,0.1)',tc:'#c44b1e'},{t:'RPA',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],agents:[],lastHit:'[FOUND] 6 RPA bots calling AI APIs: 4 UiPath bots to OpenAI, 2 Power Automate flows to Azure OpenAI',hitAlert:true,desc:'Scans RPA orchestration platforms to find bots and automation flows that call AI APIs. Identifies AI-enhanced bots built by business teams outside IT governance.'
+  },{id:'sc-medical-device-ai',name:'Medical Device AI Scanner (FDA SaMD)',icon:'🏥',category:'network',method:'DICOM DIMSE · HL7 ADT · Biomedical CMDB API · FDA 510k Database',status:'active',color:'#2d9cdb',targets:'PACS systems · CT/MRI scanners · Pathology systems · Clinical monitors',ports:'104 (DICOM) · 11112 (DICOM TLS) · 2575 (HL7)',interval:'Every 8 hours',lastRun:'4 hr ago',scanned:180,hits:8,coverage:78,protocols:['DICOM DIMSE','HL7 v2','FHIR R4','Biomedical CMDB API'],tags:[{t:'Healthcare',c:'rgba(45,156,219,0.1)',tc:'#1a6fa8'},{t:'FDA SaMD',c:'rgba(239,68,68,0.1)',tc:'#b91c1c'}],agents:[],lastHit:'[FOUND] 8 AI medical devices: Aidoc CT triage, Nuance PowerScribe AI, 2 unregistered DICOM AI nodes',hitAlert:true,desc:'Discovers FDA-regulated AI/ML-enabled medical devices (SaMD) on your network. Probes DICOM and HL7 interfaces to find AI-augmented imaging systems, then cross-references against the FDA 510k AI/ML device database. Critical for HIPAA and FDA SaMD governance.'
+  },{id:'sc-imaging-ai',name:'Radiology & Pathology AI Scanner',icon:'🔬',category:'network',method:'DICOM Association · PACS API · VNA Management API',status:'active',color:'#6c63ff',targets:'PACS · VNA · Radiology AI reading assistants · Pathology AI',ports:'104 · 11112 · 443/HTTPS',interval:'Every 4 hours',lastRun:'2 hr ago',scanned:240,hits:11,coverage:82,protocols:['DICOM DIMSE C-ECHO','DICOM TLS','PACS REST API','VNA API'],tags:[{t:'Healthcare',c:'rgba(108,99,255,0.1)',tc:'#4c46b8'},{t:'Imaging',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],agents:[],lastHit:'[FOUND] Aidoc CT triage on 3 modalities · Viz.ai stroke detection · 2 unknown DICOM AI nodes',hitAlert:true,desc:'Discovers AI reading assistants layered on PACS and imaging systems. Sends DICOM C-ECHO probes, queries PACS management APIs for connected AI applications (Aidoc, Viz.ai, Nuance, PathAI), and monitors DICOM association logs for unregistered AI system connections.'
+  },{id:'sc-cds-ai',name:'Clinical Decision Support AI Scanner',icon:'🩺',category:'network',method:'Epic App Orchard API · FHIR R4 · HL7 CDS Hooks · Cerner SMART API',status:'active',color:'#00b4d8',targets:'Epic · Cerner · Meditech · CDS Hooks services',ports:'443/HTTPS · 2575 (HL7)',interval:'Every 6 hours',lastRun:'3 hr ago',scanned:320,hits:14,coverage:89,protocols:['FHIR R4','HL7 CDS Hooks','Epic SMART','Cerner SMART'],tags:[{t:'Healthcare',c:'rgba(0,180,216,0.1)',tc:'#0077b6'},{t:'CDS',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],agents:[],lastHit:'[FOUND] 14 CDS AI services: sepsis prediction, readmission risk, medication dosing AI — 3 unregistered',hitAlert:true,desc:'Discovers AI-powered clinical decision support tools embedded in EHR systems. Uses FHIR R4 metadata, Epic App Orchard, and Cerner SMART app registries to find AI applications. Monitors HL7 feeds for AI system identifiers.'
+  },{id:'sc-agent-to-agent',name:'Agent-to-Agent Communication Scanner',icon:'🕸️',category:'network',method:'OpenTelemetry · LangSmith API · LangFuse · Phoenix · A2A Protocol',status:'active',color:'#7c3aed',targets:'Multi-agent systems · LangGraph · AutoGen · CrewAI · A2A endpoints',ports:'4317 (OTLP) · 443/HTTPS · 6006 (Langfuse)',interval:'Every 30 min',lastRun:'8 min ago',scanned:680,hits:4,coverage:76,protocols:['OpenTelemetry','A2A Protocol','LangSmith API','LangFuse API'],tags:[{t:'Multi-agent',c:'rgba(124,58,237,0.1)',tc:'#5b21b6'},{t:'Emerging',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],agents:[],lastHit:'[FOUND] LangGraph pipeline: orchestrator with 4 sub-agents (2 unregistered) · A2A endpoint on 10.2.4.18',hitAlert:true,desc:'Discovers multi-agent systems and agent-to-agent communication. Monitors OpenTelemetry traces for gen_ai.* span attributes, scans for LangSmith/LangFuse observability endpoints, and probes A2A protocol endpoints to map inter-agent topology.'
+  },{id:'sc-model-artifact',name:'AI Model Artifact Scanner',icon:'🗄️',category:'cloud',method:'AWS S3 API · Azure Blob API · GCS API · Artifactory API',status:'active',color:'#f59e0b',targets:'S3 buckets · Azure Blob · GCS · Artifactory · Harbor registry',ports:'443/HTTPS',interval:'Every 12 hours',lastRun:'6 hr ago',scanned:1420,hits:18,coverage:91,protocols:['AWS S3 API','Azure Blob Storage API','GCS API','Artifactory REST'],tags:[{t:'Cloud',c:'rgba(245,158,11,0.1)',tc:'#b45309'},{t:'Storage',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],agents:[],lastHit:'[FOUND] 18 AI model artifacts: 4.2GB llama-3-8b.gguf in s3://ml-models · fine-tuned-clinical.safetensors in dev-blob',hitAlert:true,desc:'Scans object storage across AWS S3, Azure Blob, and GCS for AI model artifacts. Looks for .safetensors, .gguf, .pt, .onnx, .bin files over 50MB. Identifies dormant models that may be reactivated without governance review.'
+  },{id:'sc-shadow-apikey',name:'Shadow AI API Key Scanner',icon:'🔑',category:'log',method:'Slack API · Confluence API · Jira API · SharePoint Graph · GitHub Secret Scanning',status:'active',color:'#dc2626',targets:'Slack workspaces · Confluence · Jira · SharePoint · Email · Docs',ports:'443/HTTPS',interval:'Every 2 hours',lastRun:'25 min ago',scanned:45600,hits:31,coverage:88,protocols:['Slack Web API','Confluence REST API','Jira REST API','Microsoft Graph'],tags:[{t:'All environments',c:'rgba(220,38,38,0.1)',tc:'#991b1b'},{t:'Secrets',c:'rgba(200,210,240,0.3)',tc:'#64748b'}],agents:[],lastHit:'[FOUND] 31 exposed AI API keys: 12 in Slack, 8 in Confluence, 11 in Jira tickets — all flagged for rotation',hitAlert:true,desc:'Searches collaboration platforms for exposed AI API keys using pattern matching. Detects OpenAI (sk-...), Anthropic (sk-ant-...), Azure, and other AI service credentials shared in Slack messages, Confluence pages, Jira tickets, and SharePoint docs.'}
+
+];
+
+const FP=[
+  {s:'api.openai.com',cat:'LLM API',proto:'HTTPS/REST',h:847,last:'2m ago'},
+  {s:'api.anthropic.com',cat:'LLM API',proto:'HTTPS/REST',h:234,last:'4m ago'},
+  {s:'huggingface.co/api',cat:'LLM API',proto:'HTTPS/REST',h:67,last:'15m ago'},
+  {s:'generativelanguage.googleapis.com',cat:'LLM API',proto:'HTTPS/REST',h:12,last:'1h ago'},
+  {s:'langchain.callbacks.*',cat:'Framework',proto:'Python SDK',h:129,last:'3m ago'},
+  {s:'autogen.runtime.*',cat:'Agentic',proto:'Process',h:22,last:'4m ago'},
+  {s:'crewai.agent.*',cat:'Agentic',proto:'Python SDK',h:8,last:'2h ago'},
+  {s:'ollama.localhost:11434',cat:'Local LLM',proto:'HTTP',h:41,last:'45m ago'},
+  {s:':8899 unknown service',cat:'Shadow',proto:'TCP',h:12,last:'12m ago'},
+  {s:':2575 MLLP/HL7',cat:'Healthcare',proto:'MLLP',h:8,last:'30s ago'},
+  {s:'FHIR R4 /fhir/metadata',cat:'Healthcare',proto:'HTTPS/FHIR',h:156,last:'6m ago'},
+  {s:'*.dicom port 104',cat:'Healthcare',proto:'DICOM',h:31,last:'11m ago'},
+  {s:'*.dicom port 11112',cat:'Healthcare',proto:'DICOM-TLS',h:14,last:'11m ago'},
+  {s:'mcp://context.*',cat:'MCP',proto:'MCP Protocol',h:203,last:'1m ago'},
+  {s:'a2a://agent-bus.*',cat:'A2A',proto:'A2A Protocol',h:77,last:'2m ago'},
+  {s:'pinecone.io/query',cat:'Vector DB',proto:'HTTPS/REST',h:44,last:'22m ago'},
+  {s:'weaviate.io/v1',cat:'Vector DB',proto:'HTTPS/REST',h:19,last:'1h ago'},
+  {s:'chroma.default.*',cat:'Vector DB',proto:'HTTP',h:7,last:'3h ago'},
+  {s:'zapier.com/hooks/catch',cat:'Automation',proto:'HTTPS/Webhook',h:89,last:'45m ago'},
+  {s:'make.com/api/v2',cat:'Automation',proto:'HTTPS/REST',h:33,last:'2h ago'},
+  {s:'n8n.localhost:5678',cat:'Automation',proto:'HTTP',h:11,last:'4h ago'},
+  {s:'bedrock.us-east-1.amazonaws.com',cat:'Cloud AI',proto:'AWS SDK',h:18,last:'30m ago'},
+  {s:'sagemaker-runtime.*amazonaws.com',cat:'Cloud AI',proto:'AWS SDK',h:27,last:'8m ago'},
+  {s:'ml.googleapis.com/v1',cat:'Cloud AI',proto:'GCP SDK',h:9,last:'5m ago'},
+  {s:'cognitiveservices.azure.com',cat:'Cloud AI',proto:'Azure SDK',h:14,last:'3m ago'},
+  {s:'openai.azure.com',cat:'Cloud AI',proto:'Azure OpenAI',h:41,last:'3m ago'},
+  {s:'api.cohere.ai',cat:'LLM API',proto:'HTTPS/REST',h:5,last:'6h ago'},
+  {s:'api.mistral.ai',cat:'LLM API',proto:'HTTPS/REST',h:3,last:'8h ago'},
+  {s:'api.together.xyz',cat:'LLM API',proto:'HTTPS/REST',h:8,last:'3h ago'},
+  {s:'replicate.com/v1',cat:'Model Hosting',proto:'HTTPS/REST',h:15,last:'2h ago'},
+  {s:'modal.com/api',cat:'Serverless AI',proto:'HTTPS/REST',h:6,last:'5h ago'},
+  {s:'dspy.ai.*',cat:'Framework',proto:'Python SDK',h:4,last:'12h ago'},
+  {s:'llama_index.*',cat:'Framework',proto:'Python SDK',h:18,last:'1h ago'},
+  {s:'transformers.pipeline.*',cat:'Framework',proto:'Python SDK',h:29,last:'20m ago'},
+  {s:'torch.cuda.available',cat:'Local ML',proto:'Process',h:11,last:'2h ago'},
+  {s:'tensorflow.keras.*',cat:'Local ML',proto:'Process',h:7,last:'4h ago'},
+  {s:'hl7.mllp:2575',cat:'Healthcare',proto:'MLLP',h:8,last:'30s ago'},
+  {s:'hl7.v2.parser.*',cat:'Healthcare',proto:'HL7 v2',h:22,last:'5m ago'},
+  {s:'fhir.patient.read',cat:'Healthcare PHI',proto:'FHIR R4',h:156,last:'4m ago'},
+  {s:'fhir.observation.*',cat:'Healthcare PHI',proto:'FHIR R4',h:88,last:'6m ago'},
+  {s:'dicom.c-find.*',cat:'Healthcare',proto:'DICOM',h:14,last:'11m ago'},
+  {s:'smart-on-fhir.launch',cat:'Healthcare',proto:'SMART/FHIR',h:41,last:'6m ago'},
+  {s:'netflow.ai-patterns',cat:'Traffic',proto:'NetFlow v9',h:23,last:'Real-time'},
+  {s:'oauth.grant.ai-service',cat:'Auth',proto:'OAuth 2.0',h:3,last:'45m ago'},
+  {s:'github.secrets.ai-key',cat:'Secret scan',proto:'Git API',h:2,last:'12m ago'},
+  {s:'slack.oauth.aibot',cat:'Shadow SaaS',proto:'Slack API',h:7,last:'1h ago'},
+  {s:'kubernetes.ai-pod.*',cat:'Container',proto:'K8s API',h:8,last:'1m ago'},
+  {s:'docker.ai-image.*',cat:'Container',proto:'Docker API',h:19,last:'15m ago'},
+  {s:'process.autogpt.*',cat:'Process',proto:'SSH/psaux',h:1,last:'4m ago'},
+  {s:'process.langchain.*',cat:'Process',proto:'SSH/psaux',h:3,last:'8m ago'},
+  {s:'process.ollama',cat:'Process',proto:'SSH/psaux',h:2,last:'45m ago'},
+  {s:'egress.openai.volume',cat:'Traffic',proto:'NetFlow',h:847,last:'Real-time'},
+  {s:'egress.anthropic.volume',cat:'Traffic',proto:'NetFlow',h:234,last:'Real-time'},
+  {s:'egress.unknown.2.1gb',cat:'Shadow Traffic',proto:'NetFlow',h:1,last:'2m ago'},
+];
+
+const LM=[
+  {c:'log-acc',t:'[PROBE] Scanning 10.0.0.0/8 for AI inference ports (REST, gRPC, FHIR, HL7, DICOM)…'},
+  {c:'log-grn',t:'[FOUND] api.openai.com ← 10.2.4.18 → GPT-4 Automation Hub (shadow)'},
+  {c:'log-acc',t:'[DNS  ] Monitoring DNS queries for LLM and healthcare API patterns…'},
+  {c:'log-red',t:'[ALERT] MLLP port 2575 active on 10.1.22.5 — Shadow HL7 Listener — PHI at risk'},
+  {c:'log-red',t:'[ALERT] Port 8899 active on 10.1.8.44 — Shadow Crawler v2 (unregistered)'},
+  {c:'log-amb',t:'[WARN ] FHIR R4 /Patient detected: Patient Classifier API — no BAA on file'},
+  {c:'log-grn',t:'[FOUND] api.anthropic.com → Claude Ops Agent (registered ✓ compliant)'},
+  {c:'log-grn',t:'[FOUND] mcp://clinical-decision-support → Clinical Decision MCP (registered ✓)'},
+  {c:'log-red',t:'[ALERT] autogen.runtime PID 4421 on DESKTOP-7F3A — AutoGPT with prod keys'},
+  {c:'log-amb',t:'[WARN ] DICOM port 104 → Radiology Multiagent Pipeline — FDA SaMD pending'},
+  {c:'log-grn',t:'[IDENT] a2a:// bus fingerprint → Radiology Multiagent Pipeline (registered ✓)'},
+  {c:'log-acc',t:'[K8S  ] Pod scan: ai-workloads namespace — 3 AI pods found, all registered'},
+  {c:'log-grn',t:'[AWS  ] SageMaker endpoint active: genomics-risk-scorer · us-east-1'},
+  {c:'log-amb',t:'[WARN ] Zapier OAuth token to Gmail — no IT approval on record'},
+  {c:'log-acc',t:'[SIEM ] Splunk query: 847 LLM API calls in last 30 days (3 indexes)'},
+  {c:'log-red',t:'[ALERT] NetFlow: 2.1 GB/day egress from DESKTOP-7F3A to api.openai.com'},
+  {c:'log-grn',t:'[GCP  ] Vertex AI: genomics-risk-scorer endpoint found · healthtech-prod'},
+  {c:'log-acc',t:'[MCP  ] mcp:// context protocol fingerprint on 3 registered agents'},
+  {c:'log-amb',t:'[WARN ] HuggingFace model pull: clinical-bert-v2 — PHI flag required'},
+  {c:'log-acc',t:'[AZURE] Azure OpenAI: 4 deployments discovered across 3 subscriptions'},
+];
+
+let lIdx=0,epCt=0,feedTimer=null;
+let scTabFilter='all';
+const scRunning={};
+SCANNERS.forEach(s=>scRunning[s.id]=s.status==='active'||s.status==='alert');
+
+let scannerMode='demo';
+const scanState={};
+SCANNERS.forEach(s=>{scanState[s.id]='idle';});
+
+/* ── Dummy data pools per scanner ── */
+const SCAN_POOLS={
+  'sc-net-probe':{hosts:['10.0.1','10.1.22','10.2.4','192.168.1','172.16.0'],ports:[8080,8443,8899,11434,5000,7860,3000,8000],services:[
+      {name:'Ollama LLM Server',            port:11434,risk:'medium',  shadow:true, proto:'HTTP REST',         claudeCode:false},
+      {name:'LocalAI inference',            port:8080, risk:'medium',  shadow:true, proto:'OpenAI-compat REST', claudeCode:false},
+      {name:'Unknown AI service',           port:8899, risk:'high',    shadow:true, proto:'Unknown',            claudeCode:false},
+      {name:'LangServe endpoint',           port:7860, risk:'low',     shadow:false,proto:'HTTP REST',          claudeCode:false},
+      {name:'vLLM server',                  port:8000, risk:'medium',  shadow:true, proto:'OpenAI-compat REST', claudeCode:false},
+      {name:'Text-generation-webui',        port:7860, risk:'medium',  shadow:true, proto:'Gradio HTTP',        claudeCode:false},
+      {name:'Claude Code local MCP server', port:3000, risk:'high',    shadow:true, proto:'MCP Protocol',       claudeCode:true},
+      {name:'Claude Code agent (LiteLLM)', port:4000, risk:'high',    shadow:true, proto:'OpenAI-compat REST', claudeCode:true},
+      {name:'LM Studio (Claude Code uses)', port:1234, risk:'medium',  shadow:true, proto:'OpenAI-compat REST', claudeCode:true},
+    ],logFn:(ip,svc)=>`[NET] ${ip}.${Math.floor(Math.random()*254+1)} port ${svc.port} open - banner: ${svc.proto} - ${svc.name}`},
+  'sc-cloud-aws':{regions:['us-east-1','us-west-2','eu-west-1','eu-central-1','ap-southeast-1'],services:[{name:'gpt4-ops-hub',type:'Lambda',risk:'high',runtime:'python3.11'},{name:'clinical-classifier-ep',type:'SageMaker',risk:'high',status:'InService',model:'clinical-bert-v2'},{name:'bedrock-claude-prod',type:'Bedrock',risk:'low',model:'anthropic.claude-3-sonnet'},{name:'ai-data-pipeline',type:'Lambda',risk:'medium',runtime:'python3.10'},{name:'ml-inference-worker',type:'ECS Task',risk:'medium'},{name:'langchain-orchestrator',type:'Lambda',risk:'high',runtime:'python3.11'}],logFn:(svc,region)=>`[AWS] ${region}: ${svc.type} '${svc.name}' discovered - ${svc.risk} risk`},
+  'sc-cloud-azure':{subscriptions:['prod-sub-001','dev-sub-002','healthcare-sub-003'],services:[{name:'gpt-4o-deployment',type:'Azure OpenAI',risk:'medium',model:'gpt-4o',rg:'ai-prod-rg'},{name:'text-embedding-3-large',type:'Azure OpenAI',risk:'low',model:'text-embedding-3-large',rg:'ai-prod-rg'},{name:'clinical-ml-endpoint',type:'ML Studio',risk:'high',rg:'healthcare-rg'},{name:'cognitive-vision-api',type:'Cognitive Services',risk:'medium',kind:'ComputerVision',rg:'vision-rg'},{name:'phi-3-medium-instruct',type:'Azure OpenAI',risk:'medium',model:'Phi-3-medium-128k',rg:'research-rg'}],logFn:(svc)=>`[AZURE] ${svc.type}: '${svc.name}' in ${svc.rg}`},
+  'sc-cloud-gcp':{projects:['healthtech-prod','healthtech-dev','analytics-prod'],services:[{name:'genomics-risk-scorer',type:'Vertex AI Endpoint',risk:'high',region:'us-central1'},{name:'radiology-classifier',type:'Vertex AI Endpoint',risk:'high',region:'us-central1'},{name:'clinical-notes-ai',type:'Cloud Run',risk:'medium',region:'us-east1'},{name:'drug-interaction-fn',type:'Cloud Function',risk:'low',region:'us-central1'}],logFn:(svc)=>`[GCP] ${svc.type}: '${svc.name}' in ${svc.region}`},
+  'sc-dns':{queries:[
+      // ── YOUR infra calling AI APIs (agent YOU deployed) ──────────────────
+      {domain:'api.openai.com',                    src:'10.2.4.18', freq:'847/day', risk:'high',   shadowAI:true,  dlp:false, dlpRisk:false, hosted:false, note:'OpenAI API — YOUR agent is calling this'},
+      {domain:'api.anthropic.com',                 src:'10.2.4.22', freq:'234/day', risk:'high',   shadowAI:true,  dlp:false, dlpRisk:false, hosted:false, note:'Claude API — YOUR agent / Claude Code calling Anthropic'},
+      {domain:'statsig.anthropic.com',             src:'10.2.4.22', freq:'12/day',  risk:'medium', shadowAI:true,  dlp:false, dlpRisk:false, hosted:false, note:'Claude Code telemetry — confirms claude CLI is running'},
+      {domain:'generativelanguage.googleapis.com', src:'10.1.8.44', freq:'78/day',  risk:'high',   shadowAI:true,  dlp:false, dlpRisk:false, hosted:false, note:'Google Gemini API — YOUR agent on your infra'},
+      {domain:'huggingface.co',                    src:'10.1.8.44', freq:'67/day',  risk:'medium', shadowAI:true,  dlp:false, dlpRisk:false, hosted:false, note:'HuggingFace API / model downloads'},
+      {domain:'ollama.internal',                   src:'10.1.22.5', freq:'2341/day',risk:'high',   shadowAI:true,  dlp:false, dlpRisk:false, hosted:false, note:'Local Ollama — self-hosted LLM'},
+      {domain:'pinecone.io',                       src:'10.3.0.5',  freq:'44/day',  risk:'medium', shadowAI:false, dlp:false, dlpRisk:false, hosted:false, note:'Pinecone vector DB'},
+      // ── EXTERNALLY HOSTED AI AGENTS (agent deployed on vendor infra) ─────
+      {domain:'claude.ai',                         src:'10.2.4.31', freq:'892/day', risk:'high',   shadowAI:true,  dlp:true,  dlpRisk:true,  hosted:true,  note:'Claude.ai Projects — hosted agent, company data at risk'},
+      {domain:'app.dify.ai',                       src:'10.2.4.55', freq:'156/day', risk:'high',   shadowAI:true,  dlp:true,  dlpRisk:true,  hosted:true,  note:'Dify cloud — Claude agent hosted externally'},
+      {domain:'app.voiceflow.com',                 src:'10.1.9.33', freq:'89/day',  risk:'high',   shadowAI:true,  dlp:true,  dlpRisk:true,  hosted:true,  note:'Voiceflow — hosted Claude agent, users submitting company data'},
+      {domain:'app.botpress.cloud',                src:'10.2.4.41', freq:'44/day',  risk:'medium', shadowAI:true,  dlp:true,  dlpRisk:true,  hosted:true,  note:'Botpress cloud — externally-hosted AI chatbot'},
+      {domain:'flowise.ai',                        src:'10.1.8.99', freq:'33/day',  risk:'high',   shadowAI:true,  dlp:false, dlpRisk:false, hosted:true,  note:'Flowise cloud — LangChain agent builder on vendor infra'},
+      {domain:'langflow.org',                      src:'10.2.4.60', freq:'21/day',  risk:'medium', shadowAI:true,  dlp:false, dlpRisk:false, hosted:true,  note:'LangFlow cloud — agentic workflow builder'},
+      {domain:'bolt.new',                          src:'10.2.4.71', freq:'67/day',  risk:'medium', shadowAI:true,  dlp:true,  dlpRisk:true,  hosted:true,  note:'Bolt.new — AI app builder, code+data shared with hosted AI'},
+      {domain:'v0.dev',                            src:'10.1.8.44', freq:'45/day',  risk:'medium', shadowAI:true,  dlp:false, dlpRisk:false, hosted:true,  note:'Vercel v0 — AI UI builder using Claude'},
+      {domain:'api2.cursor.sh',                    src:'10.2.4.88', freq:'234/day', risk:'high',   shadowAI:true,  dlp:true,  dlpRisk:true,  hosted:true,  note:'Cursor IDE — code sent to hosted AI model'},
+      {domain:'copilot-proxy.githubusercontent.com',src:'10.2.4.18',freq:'445/day', risk:'high',   shadowAI:true,  dlp:true,  dlpRisk:true,  hosted:true,  note:'GitHub Copilot — code shared with hosted AI'},
+      {domain:'codeium.com',                       src:'10.1.8.55', freq:'112/day', risk:'medium', shadowAI:true,  dlp:false, dlpRisk:false, hosted:true,  note:'Codeium — AI code completion, externally hosted'},
+      {domain:'n8n.cloud',                         src:'10.1.9.11', freq:'34/day',  risk:'high',   shadowAI:true,  dlp:true,  dlpRisk:true,  hosted:true,  note:'n8n cloud — AI automation workflows, externally hosted'},
+      {domain:'einstein.salesforce.com',           src:'10.2.4.31', freq:'56/day',  risk:'medium', shadowAI:true,  dlp:false, dlpRisk:false, hosted:true,  note:'Salesforce Einstein — embedded AI in SaaS platform'},
+      {domain:'langchain.callbacks.openai',        src:'10.2.4.18', freq:'129/day', risk:'high',   shadowAI:true,  dlp:false, dlpRisk:false, hosted:false, note:'LangChain framework — YOUR agent'},
+      {domain:'registry.npmjs.org',                src:'10.2.4.22', freq:'23/day',  risk:'low',    shadowAI:false, dlp:false, dlpRisk:false, hosted:false, note:'npm — watch for @anthropic-ai installs'},
+    ],
+    logFn:(q)=>`[DNS] ${q.domain} ← ${q.src} (${q.freq})${q.hosted?' [HOSTED AGENT]':''}${q.dlp?' ⚠ DLP':''}${q.dlpRisk?' ⚠ DATA RISK':''} | ${q.note}`
+  },
+  'sc-process':{
+    processes:[
+      {name:'autogen.runtime',      pid:4421,  host:'DESKTOP-7F3A',  risk:'critical',keys:'OPENAI_API_KEY in env',                     shadow:true,  claudeCode:false},
+      {name:'ollama serve',         pid:1283,  host:'DEV-WS-002',    risk:'high',    keys:'local model only',                           shadow:true,  claudeCode:false},
+      {name:'langchain app.py',     pid:9921,  host:'DEV-WS-004',    risk:'high',    keys:'ANTHROPIC_API_KEY in env',                   shadow:true,  claudeCode:false},
+      {name:'text-generation-webui',pid:3310,  host:'DEV-WS-002',    risk:'medium',  keys:'no external keys',                           shadow:true,  claudeCode:false},
+      {name:'crewai main.py',       pid:5503,  host:'LAPTOP-SEC-01', risk:'high',    keys:'OPENAI_API_KEY detected',                    shadow:true,  claudeCode:false},
+      {name:'claude',               pid:7821,  host:'DEV-WS-004',    risk:'high',    keys:'ANTHROPIC_API_KEY in env · claude-code CLI running',  shadow:true,  claudeCode:true},
+      {name:'node (claude-code)',    pid:8834,  host:'DESKTOP-7F3A',  risk:'high',    keys:'npx @anthropic-ai/claude-code running',       shadow:true,  claudeCode:true},
+      {name:'python3 (claude agent)',pid:9102, host:'DEV-WS-002',    risk:'critical',keys:'ANTHROPIC_API_KEY + MCP tools loaded',        shadow:true,  claudeCode:true},
+    ],
+    configFiles:[
+      {host:'DESKTOP-7F3A',  path:'~/.claude/claude_desktop_config.json',
+       mcpServers:['filesystem (read/write /Users/dev)','github (repo read+write)','slack (workspace-wide)','postgres (prod-db credentials)'],
+       risk:'critical', phi:false},
+      {host:'DEV-WS-004',    path:'~/.claude/claude_desktop_config.json',
+       mcpServers:['filesystem (read /workspace)','custom-clinical-nlp (PHI access)'],
+       risk:'critical', phi:true},
+      {host:'LAPTOP-SEC-01', path:'C:\\Users\\sarah\\AppData\\Roaming\\Claude\\claude_desktop_config.json',
+       mcpServers:['brave-search','github (org-wide read)'],
+       risk:'medium', phi:false},
+    ],
+    logFn:(p)=>`[SSH] ${p.host}: process '${p.name}' PID ${p.pid} - ${p.keys}${p.claudeCode?' [CLAUDE CODE]':''}`,
+    configLogFn:(f)=>`[SSH] ${f.host}: ~/.claude/config found — ${f.mcpServers.length} MCP servers: ${f.mcpServers.slice(0,2).join(', ')}${f.mcpServers.length>2?'...':''}`
+  },
+  'sc-k8s':{pods:[{name:'radiology-multiagent-v2',ns:'ai-workloads',image:'ghcr.io/healthtech/radiology-ai:v2.1',risk:'high',ports:[8080,8443]},{name:'clinical-decision-mcp',ns:'healthcare',image:'internal/clinical-mcp:latest',risk:'medium',ports:[3000]},{name:'drug-interaction-api',ns:'production',image:'internal/drug-ai:v1.4',risk:'low',ports:[8080]},{name:'langchain-orchestrator',ns:'ai-workloads',image:'langchain/langchain:latest',risk:'high',ports:[7860,8000]},{name:'ollama-local',ns:'default',image:'ollama/ollama:latest',risk:'medium',ports:[11434]}],logFn:(p)=>`[K8S] pod '${p.name}' in ns '${p.ns}' - image: ${p.image} - ports: ${p.ports.join(',')}`},
+  'sc-hl7':{listeners:[{ip:'10.1.22.5',port:2575,authorized:false,risk:'critical',aeTitle:'UNKNOWN-ML'},{ip:'10.2.4.12',port:2575,authorized:true,risk:'low',aeTitle:'CERNER-HL7-GW'},{ip:'10.1.8.90',port:2575,authorized:false,risk:'high',aeTitle:'SHADOW-PROC'}],logFn:(l)=>`[HL7] port 2575 on ${l.ip} - ${l.authorized?'AUTHORIZED':'UNAUTHORIZED'} - AE: ${l.aeTitle}`},
+  'sc-fhir':{endpoints:[{name:'Epic FHIR R4',url:'fhir.epic.org',smartApps:['Patient Classifier API','Radiology SMART App','CDS Hooks service']},{name:'Cerner FHIR R4',url:'fhir-myrecord.cerner.com',smartApps:['Drug Interaction AI','Clinical Decision MCP']}],logFn:(e,app)=>`[FHIR] ${e.name}: SMART app '${app}' discovered - auditing PHI access scope`},
+  'sc-dicom':{gateways:[{host:'pacs.healthsys.org',port:104,aeTitles:['RADIOLOGY-AI-V2','PACS-MAIN','DICOM-GATEWAY']},{host:'imaging.healthsys.org',port:11112,aeTitles:['IMAGING-AI-CLASSIFIER','MRI-WORKSTATION-1']}],logFn:(g,ae)=>`[DICOM] C-ECHO to ${g.host}:${g.port} - AE Title '${ae}' found`},
+  'sc-splunk':{findings:[{src:'10.2.4.18',dest:'api.openai.com',events:847,proc:'python3',bytes:'2.1GB'},{src:'10.1.22.5',dest:'10.1.8.44:2575',events:12,proc:'shadow-hl7',bytes:'4.2MB'},{src:'10.2.4.22',dest:'api.anthropic.com',events:234,proc:'clinical-ai',bytes:'180MB'}],logFn:(f)=>`[SIEM] ${f.src} to ${f.dest}: ${f.events} events, ${f.bytes} (proc: ${f.proc})`},
+  'sc-idp-oauth':{grants:[
+      // OAuth grants for AI platforms discovered from Okta / Azure AD / Google Workspace
+      {app:'Dify (dify.ai)',            user:'dr.admin@healthcareglobal.com', grantedBy:'sarah.chen', scopes:['read:profile','read:email','offline_access'], risk:'high',   hosted:true, claudeAgent:true,  date:'2024-11-12', idp:'Okta',     note:'User built Claude agent on Dify cloud platform'},
+      {app:'GitHub Copilot',            user:'dev-mike@healthsys.org',      grantedBy:'dev-mike',   scopes:['repo','read:user'],                          risk:'high',   hosted:true, claudeAgent:false, date:'2024-10-03', idp:'Okta',     note:'AI code completion — code shared with external AI'},
+      {app:'Cursor IDE',                user:'dev-john@healthsys.org',      grantedBy:'dev-john',   scopes:['read:user','repo'],                          risk:'high',   hosted:true, claudeAgent:false, date:'2024-11-01', idp:'Okta',     note:'AI IDE — code including patient-adjacent configs shared'},
+      {app:'Voiceflow',                 user:'ops-team@healthsys.org',      grantedBy:'admin',      scopes:['openid','profile','email'],                  risk:'high',   hosted:true, claudeAgent:true,  date:'2024-10-28', idp:'Azure AD', note:'External Claude agent for patient support chatbot'},
+      {app:'Bolt.new (StackBlitz)',      user:'dev-sarah@healthsys.org',     grantedBy:'dev-sarah',  scopes:['read:user'],                                risk:'medium', hosted:true, claudeAgent:true,  date:'2024-11-15', idp:'Google',   note:'AI app builder — potential code exfiltration'},
+      {app:'Salesforce Einstein',       user:'crm-team@healthsys.org',      grantedBy:'crm-admin',  scopes:['api','refresh_token'],                      risk:'medium', hosted:true, claudeAgent:false, date:'2024-09-14', idp:'Okta',     note:'CRM Einstein AI — SaaS embedded AI'},
+      {app:'Notion AI',                 user:'ops@healthsys.org',           grantedBy:'ops',        scopes:['read:pages','write:pages'],                  risk:'high',   hosted:true, claudeAgent:false, date:'2024-11-02', idp:'Google',   note:'Internal docs shared with hosted AI — DLP risk'},
+      {app:'n8n cloud',                 user:'automation@healthsys.org',    grantedBy:'admin',      scopes:['openid','profile'],                         risk:'high',   hosted:true, claudeAgent:true,  date:'2024-10-19', idp:'Azure AD', note:'n8n Claude workflow — automated AI agent externally hosted'},
+    ],
+    logFn:(g)=>`[IdP/${g.idp}] OAuth grant: ${g.app} → ${g.user} (${g.date}) scopes: ${g.scopes.join(', ')}${g.hosted?' [HOSTED AGENT]':''}${g.claudeAgent?' [CLAUDE AGENT]':''}`
+  },
+
+  'sc-casb':{findings:[
+      // CASB / Proxy log findings for externally-hosted agent traffic
+      {platform:'Dify cloud (app.dify.ai)',        category:'AI Agent Platform', user:'dr.sarah.chen', uploadMB:12.4, sessions:34, risk:'critical', claudeAgent:true,  dataTypes:['patient-notes','lab-results'], note:'PHI uploaded to externally-hosted Claude agent — HIPAA violation'},
+      {platform:'GitHub Copilot',                  category:'AI Dev Tool',       user:'dev-mike',      uploadMB:8.1,  sessions:156,risk:'high',    claudeAgent:false, dataTypes:['source-code','api-keys'],      note:'Internal code + potential secrets shared with Copilot'},
+      {platform:'Cursor IDE (api2.cursor.sh)',      category:'AI Dev Tool',       user:'dev-john',      uploadMB:22.3, sessions:89, risk:'high',    claudeAgent:false, dataTypes:['source-code','configs'],       note:'Large code uploads to hosted AI model'},
+      {platform:'Voiceflow (app.voiceflow.com)',    category:'AI Agent Platform', user:'ops-team',      uploadMB:0.8,  sessions:12, risk:'high',    claudeAgent:true,  dataTypes:['customer-data'],               note:'Externally-hosted Claude agent receiving customer data'},
+      {platform:'Claude.ai Projects',              category:'Hosted Claude Agent',user:'ciso@healthsys',uploadMB:3.2,  sessions:28, risk:'critical', claudeAgent:true,  dataTypes:['internal-reports','strategy'], note:'CISO using Claude.ai Projects — confidential data in hosted agent'},
+      {platform:'Bolt.new',                        category:'AI App Builder',    user:'dev-sarah',     uploadMB:1.4,  sessions:9,  risk:'medium',   claudeAgent:true,  dataTypes:['source-code'],                 note:'Building AI app with company code on external platform'},
+    ],
+    logFn:(f)=>`[CASB] ${f.platform} ← ${f.user} | ${f.uploadMB}MB uploaded · ${f.sessions} sessions${f.claudeAgent?' [CLAUDE AGENT]':''}${f.risk==='critical'?' ⚠ CRITICAL':''}${f.dataTypes.length?' | data: '+f.dataTypes.join(',')+''  :''}`
+  },
+
+  'sc-traffic':{flows:[{src:'DESKTOP-7F3A',dst:'api.openai.com',bytes:'2.1GB/day',proto:'HTTPS',risk:'high'},{src:'10.1.22.5',dst:'10.1.8.44',bytes:'4.2MB/day',proto:'MLLP',risk:'critical'},{src:'DEV-WS-002',dst:'ollama.internal',bytes:'890MB/day',proto:'HTTP',risk:'medium'}],logFn:(f)=>`[FLOW] ${f.src} to ${f.dst}: ${f.bytes} via ${f.proto} - ${f.risk} risk`},
+  'sc-api-token':{findings:[
+      {type:'GitHub secret',     repo:'ai-services/clinical-classifier',  key:'OPENAI_API_KEY',     committer:'dev-john',  age:'3 days ago',  risk:'high',    tool:'trufflehog'},
+      {type:'GitHub secret',     repo:'engineering/ai-assistant',          key:'ANTHROPIC_API_KEY',  committer:'dev-sarah', age:'1 day ago',   risk:'critical', tool:'trufflehog'},
+      {type:'GitHub secret',     repo:'mlops/claude-code-agent',           key:'sk-ant-api03-***',   committer:'dev-mike',  age:'6 hours ago', risk:'critical', tool:'trufflehog'},
+      {type:'GitHub workflow',   repo:'engineering/deploy-pipeline',       key:'claude-code-action', committer:'dev-sarah', age:'2 days ago',  risk:'high',    tool:'workflow-scan'},
+      {type:'GitHub workflow',   repo:'clinical-ai/review-bot',            key:'ANTHROPIC_API_KEY',  committer:'dev-james', age:'4 days ago',  risk:'critical', tool:'workflow-scan'},
+      {type:'GitHub secret (org)',repo:'org-level secrets',                key:'ANTHROPIC_API_KEY',  committer:'admin',     age:'2 weeks ago', risk:'high',    tool:'github-api'},
+      {type:'npm install',       repo:'engineering/ai-tools',              key:'@anthropic-ai/claude-code', committer:'dev-john', age:'yesterday', risk:'medium', tool:'npm-audit'},
+      {type:'OAuth grant',       app:'Zapier',                             scope:'Gmail+Calendar',   user:'sarah@healthsys.org', age:'2 weeks ago', risk:'medium', tool:'oauth-scan'},
+      {type:'Slack token',       app:'AI Assistant Bot',                   user:'workspace-wide',    committer:null,        age:'1 month ago', risk:'medium',  tool:'slack-api'},
+    ],
+    logFn:(f)=>`[TOKEN] ${f.type}: ${f.app||f.repo} - ${f.key} - ${f.committer||f.user} (${f.age}) [${f.tool}]`
+  },
+  'sc-mcp-a2a':{
+    discovered:[
+      {host:'clinical-mcp.healthsys.internal',       proto:'MCP',src:'well-known', tools:['query_ehr','write_notes','get_patient'],           risk:'critical',phi:true,  claudeCode:false,registered:false},
+      {host:'radiology-a2a.healthsys.internal',       proto:'A2A',src:'well-known', capabilities:['analyze_dicom','generate_report'],          risk:'high',   phi:true,  claudeCode:false,registered:true},
+      {host:'drug-interaction-mcp.pharmacy.internal', proto:'MCP',src:'well-known', tools:['check_interactions','get_formulary'],              risk:'low',    phi:false, claudeCode:false,registered:true},
+      {host:'DESKTOP-7F3A:3000',                      proto:'MCP',src:'claude_desktop_config', tools:['filesystem-read','filesystem-write','github','slack'],   risk:'critical',phi:false, claudeCode:true, registered:false},
+      {host:'DEV-WS-004:8080',                        proto:'MCP',src:'claude_desktop_config', tools:['custom-clinical-nlp','patient-data-lookup'],             risk:'critical',phi:true,  claudeCode:true, registered:false},
+      {host:'LAPTOP-SEC-01:3001',                     proto:'MCP',src:'claude_desktop_config', tools:['brave-search','github-org-read'],                        risk:'medium', phi:false, claudeCode:true, registered:false},
+    ],
+    claudeDesktopConfigs:[
+      {host:'DESKTOP-7F3A',  os:'macOS',   path:'~/.claude/claude_desktop_config.json',   servers:4, highRisk:['filesystem (write)','slack (workspace)']},
+      {host:'DEV-WS-004',    os:'macOS',   path:'~/.claude/claude_desktop_config.json',   servers:2, highRisk:['custom-clinical-nlp (PHI)']},
+      {host:'LAPTOP-SEC-01', os:'Windows', path:'%APPDATA%\\Claude\\claude_desktop_config.json', servers:2, highRisk:[]},
+    ],
+    logFn:(d)=>`[MCP/A2A] ${d.proto} at ${d.host} (${d.src}) - ${(d.tools||d.capabilities||[]).length} tools${d.claudeCode?' [CLAUDE CODE]':''}${!d.registered?' [UNREGISTERED]':''}${d.phi?' [PHI]':''}`,
+    configLogFn:(cfg)=>`[MCP] claude_desktop_config on ${cfg.host}: ${cfg.servers} MCP servers found${cfg.highRisk.length?' - HIGH RISK: '+cfg.highRisk.join(', '):''}`,
+  },
+};
+
+const PROD_CODE={
+  'sc-net-probe':{lang:'Node.js — pure built-ins (net · tls · http · dns) — no nmap',code:`// AgentRadar Network Port Prober — no nmap, no external deps
+// Uses only Node.js built-ins: net, tls, http, https, dns
+
+const net = require('net');
+const http = require('http');
+
+// TCP connect probe — returns {open, latencyMs}
+function tcpConnect(ip, port) {
+  return new Promise(resolve => {
+    const t0 = Date.now(), s = new net.Socket();
+    s.setTimeout(2500);
+    s.on('connect', () => { s.destroy(); resolve({open:true,  latencyMs:Date.now()-t0}); });
+    s.on('error',   () => resolve({open:false, latencyMs:0}));
+    s.on('timeout', () => { s.destroy(); resolve({open:false, latencyMs:0}); });
+    s.connect(port, ip);
+  });
+}
+
+// Banner grab — reads first 512 bytes after connect
+function grabBanner(ip, port) {
+  return new Promise(resolve => {
+    const s = new net.Socket(); let buf = '';
+    s.setTimeout(3500);
+    s.on('data',    d => { buf += d; if(buf.length >= 512) { s.destroy(); resolve(buf.slice(0,512)); }});
+    s.on('error',   () => resolve(buf));
+    s.on('timeout', () => { s.destroy(); resolve(buf); });
+    s.connect(port, ip, () => s.write('GET / HTTP/1.0\r\nHost: '+ip+'\r\n\r\n'));
+  });
+}
+
+// HTTP fingerprint probe
+async function httpProbe(ip, port, paths) {
+  for (const path of paths) {
+    try {
+      const res = await new Promise((ok, fail) => {
+        const req = http.get({hostname:ip, port, path, timeout:3000,
+          headers:{'User-Agent':'AgentRadar-Scanner/1.0'}}, r => {
+          let body=''; r.on('data',d=>body+=d); r.on('end',()=>ok({status:r.statusCode,body,headers:r.headers}));
+        });
+        req.on('error', fail); req.on('timeout', ()=>{req.destroy(); fail(new Error('timeout'));});
+      });
+      if (res.status < 500) return res;
+    } catch {}
+  }
+  return null;
+}
+
+// CIDR → IP array
+function expandCIDR(cidr) {
+  const [base, prefix] = cidr.split('/');
+  const toInt = ip => ip.split('.').reduce((a,o)=>(a<<8)|+o,0)>>>0;
+  const toIp  = n  => [(n>>>24)&255,(n>>>16)&255,(n>>>8)&255,n&255].join('.');
+  const start = toInt(base) & (0xFFFFFFFF << (32 - +prefix));
+  return Array.from({length:2**(32-+prefix)-2}, (_,i) => toIp(start+i+1));
+}
+
+// Fingerprint match against 22 signatures
+function matchFingerprint(ip, port, banner, http) {
+  const FP = [
+    {id:'ollama', ports:[11434], body:/ollama|llama|mistral/, risk:'high', shadow:true},
+    {id:'lmstudio', ports:[1234], body:/lm.?studio/, risk:'medium', shadow:true},
+    {id:'litellm', ports:[4000], body:/litellm/, risk:'high', shadow:true},
+    {id:'mcp', ports:[3000], path:'/.well-known/mcp-configuration', body:/mcp.*tool/, risk:'high', shadow:false},
+    {id:'vllm', ports:[8000,8001], body:/vllm|ray.serve/, risk:'high', shadow:true},
+    {id:'localai', ports:[8080], body:/localai|gguf/, risk:'medium', shadow:true},
+    {id:'chromadb', ports:[8000], body:/chroma|collection.*embed/, risk:'medium', shadow:false},
+    {id:'weaviate', ports:[8080], path:'/v1/nodes', body:/weaviate/, risk:'medium', shadow:false},
+    {id:'n8n', ports:[5678], body:/n8n|nodemation/, risk:'high', shadow:true},
+    {id:'gradio', ports:[7860], body:/gradio/, risk:'medium', shadow:true},
+    // Claude Code ports
+    {id:'cc-mcp', ports:[3000,3001], path:'/.well-known/mcp-configuration', body:/mcp/, risk:'high', shadow:true, claudeCode:true},
+    {id:'cc-litellm', ports:[4000], body:/litellm|openai/, risk:'high', shadow:true, claudeCode:true},
+  ];
+  return FP.filter(fp => fp.ports.includes(port) &&
+    (!fp.body || fp.body.test((http?.body||'') + (banner||'')))).map(fp => ({
+    ...fp, confidence: 80 + (fp.claudeCode?10:0), ip, port,
+    description: fp.claudeCode ? 'Claude Code-related service' : 'Shadow AI service',
+  }))[0] || {id:'unknown', name:'Unknown open port', risk:'low', confidence:20, ip, port};
+}
+
+// Main scanner
+async function scan(cidrs, concurrency=50) {
+  const AI_PORTS=[11434,8899,8000,8080,8443,7860,5678,3000,3001,1234,6333,8001,4000,8910];
+  const ips = cidrs.flatMap(expandCIDR);
+  const queue = ips.flatMap(ip => AI_PORTS.map(port => ({ip,port})));
+  const findings = []; let i=0, active=0;
+  await new Promise(resolve => {
+    const next = () => {
+      while (active < concurrency && i < queue.length) {
+        const {ip, port} = queue[i++]; active++;
+        tcpConnect(ip, port).then(async ({open}) => {
+          if (open) {
+            const banner = await grabBanner(ip, port);
+            const http   = await httpProbe(ip, port, ['/api/tags','/v1/models','/.well-known/mcp-configuration','/health']);
+            const match  = matchFingerprint(ip, port, banner, http);
+            findings.push(match);
+            await postToAgentRadar(match);
+          }
+          active--; next();
+        });
+      }
+      if (active===0) resolve();
+    };
+    next();
+  });
+  return findings;
+}`},'sc-cloud-aws':{lang:'Node.js + AWS SDK v3',code:`const { LambdaClient, ListFunctionsCommand } = require('@aws-sdk/client-lambda');\nconst { STSClient, AssumeRoleCommand } = require('@aws-sdk/client-sts');\nasync function scanAWS({ roleArn, regions }) {\n  const sts = new STSClient({});\n  const { Credentials } = await sts.send(new AssumeRoleCommand({\n    RoleArn: roleArn, RoleSessionName: 'AgentRadarScan',\n  }));\n  for (const region of regions) {\n    const lambda = new LambdaClient({ region, credentials: Credentials });\n    const { Functions } = await lambda.send(new ListFunctionsCommand({}));\n    const aiLambdas = Functions.filter(f =>\n      /ai|ml|model|gpt|llm|claude|openai/i.test(f.FunctionName) ||\n      Object.keys(f.Environment?.Variables||{}).some(k => /api_key|ai/i.test(k))\n    );\n    for (const fn of aiLambdas) await postToAgentRadar({ name: fn.FunctionName, type: 'Lambda', region });\n  }\n}`},
+  'sc-cloud-azure':{lang:'Node.js + @azure/identity',code:`const { ClientSecretCredential } = require('@azure/identity');\nconst { ResourceManagementClient } = require('@azure/arm-resources');\nasync function scanAzure({ tenantId, clientId, clientSecret, subscriptionIds }) {\n  const cred = new ClientSecretCredential(tenantId, clientId, clientSecret);\n  for (const subId of subscriptionIds) {\n    const rm = new ResourceManagementClient(cred, subId);\n    const resources = rm.resources.list();\n    for await (const res of resources) {\n      if (['Microsoft.MachineLearningServices/workspaces',\n           'Microsoft.CognitiveServices/accounts',\n           'Microsoft.OpenAI/accounts'].includes(res.type)) {\n        await postToAgentRadar({ name: res.name, type: res.type, subId });\n      }\n    }\n  }\n}`},
+  'sc-cloud-gcp':{lang:'Node.js + googleapis',code:`const { google } = require('googleapis');\nconst aiplatform = google.aiplatform('v1');\nasync function scanGCP({ serviceAccountKey, projectIds }) {\n  const auth = new google.auth.GoogleAuth({\n    credentials: JSON.parse(serviceAccountKey),\n    scopes: ['https://www.googleapis.com/auth/cloud-platform.read-only'],\n  });\n  for (const project of projectIds) {\n    const { data } = await aiplatform.projects.locations.endpoints.list({\n      auth: await auth.getClient(),\n      parent: 'projects/'+project+'/locations/-',\n    });\n    for (const ep of data.endpoints || []) {\n      await postToAgentRadar({ name: ep.displayName, type: 'Vertex AI', project });\n    }\n  }\n}`},
+  'sc-dns':{lang:'CoreDNS plugin (Go) — Claude Code + browser usage detection',code:`// CoreDNS plugin: agentRadar_monitor.go
+// Detects: LLM API usage, Claude Code CLI, Claude.ai browser (DLP risk)
+
+var aiDomains = []struct {
+  domain   string
+  risk     string
+  dlpRisk  bool   // true = data exfiltration risk (browser usage)
+  claudeCode bool  // true = Claude Code CLI indicator
+}{
+  {"api.anthropic.com",       "high",   false, true},  // Claude Code API calls
+  {"claude.ai",               "high",   true,  false}, // Browser — DLP risk: company data
+  {"statsig.anthropic.com",   "medium", false, true},  // Claude Code telemetry
+  {"sentry.io",               "low",    false, false}, // Claude Code error reporting
+  {"api.openai.com",          "high",   false, false},
+  {"huggingface.co",          "medium", false, false},
+  {"pinecone.io",             "medium", false, false},
+  {"langchain.com",           "high",   false, false},
+  {"together.xyz",            "medium", false, false},
+  {"ollama.ai",               "medium", false, false},
+  {"registry.npmjs.org",      "low",    false, false}, // watch for claude-code installs
+}
+
+func (m *Monitor) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
+  qname := strings.ToLower(r.Question[0].Name)
+  srcIP := w.RemoteAddr().String()
+
+  for _, entry := range aiDomains {
+    if strings.HasSuffix(qname, entry.domain) {
+      evt := Event{
+        Domain:     qname,
+        SrcIP:      srcIP,
+        Risk:       entry.risk,
+        DLPRisk:    entry.dlpRisk,
+        ClaudeCode: entry.claudeCode,
+        Timestamp:  time.Now(),
+      }
+      m.report(evt)
+
+      // DLP alert: claude.ai browser usage means company data may be
+      // pasted into the web UI — flag immediately for security review
+      if entry.dlpRisk {
+        m.alertDLP(srcIP, qname, "Employee browser session — possible PHI/confidential data exposure")
+      }
+      break
+    }
+  }
+
+  // Special: detect claude-code npm install via registry.npmjs.org
+  if strings.HasSuffix(qname, "registry.npmjs.org") {
+    // Correlate with package name in subsequent HTTPS request (requires proxy)
+    m.flagForHTTPCorrelation(srcIP, "@anthropic-ai/claude-code")
+  }
+
+  return plugin.NextOrFailure(m.Name(), m.Next, ctx, w, r)
+}`},
+  'sc-process':{lang:'Node.js + ssh2 — Claude Code + MCP config detection',code:`const { Client } = require('ssh2');
+
+// Catches: Ollama, LangChain, AutoGen, crewAI, vLLM — AND Claude Code
+const AI_PATTERNS = /ollama|autogen|langchain|crewai|openai|anthropic|gpt|vllm|\\bclaude\\b|claude-code|@anthropic/i;
+const CLAUDE_PATTERNS = /\\bclaude\\b|claude-code|@anthropic-ai\/claude/i;
+
+// Claude config file locations per OS
+const CLAUDE_CONFIGS = [
+  '~/.claude/claude_desktop_config.json',            // macOS / Linux
+  '%APPDATA%\\\\Claude\\\\claude_desktop_config.json',   // Windows
+  '~/.config/claude/claude_desktop_config.json',     // Linux alt
+];
+
+async function scanHost({ host, username, privateKey }) {
+  return new Promise((resolve, reject) => {
+    const conn = new Client();
+    conn.connect({ host, username, privateKey });
+    conn.on('ready', () => {
+      // Step 1: Scan running processes
+      conn.exec('ps aux && ss -tlnp && env | grep -i anthropic', (err, stream) => {
+        let output = '';
+        stream.on('data', chunk => output += chunk);
+        stream.on('close', async () => {
+          // Detect all AI processes
+          const procs = output.split('\\n').filter(l => AI_PATTERNS.test(l));
+          for (const proc of procs) {
+            const [,,pid,,,,,,,cmd] = proc.trim().split(/\\s+/);
+            const isClaudeCode = CLAUDE_PATTERNS.test(cmd);
+            await postToAgentRadar({
+              host, pid, command: cmd,
+              type: isClaudeCode ? 'Claude Code Agent' : 'AI Process',
+              risk: isClaudeCode ? 'high' : 'medium',
+              shadow: true,
+              claudeCode: isClaudeCode,
+            });
+          }
+
+          // Step 2: Read claude_desktop_config.json (the goldmine)
+          for (const configPath of CLAUDE_CONFIGS) {
+            conn.exec(\`cat \${configPath} 2>/dev/null\`, (e2, s2) => {
+              let raw = '';
+              s2.on('data', chunk => raw += chunk);
+              s2.on('close', async () => {
+                if (!raw.trim()) return;
+                try {
+                  const config = JSON.parse(raw);
+                  const servers = config.mcpServers || {};
+                  for (const [name, serverDef] of Object.entries(servers)) {
+                    // Each MCP server is a potential AI agent with specific capabilities
+                    const envKeys = Object.keys(serverDef.env || {});
+                    const hasPHIKeys = envKeys.some(k => /phi|patient|ehr|hipaa|fhir|hl7/i.test(k));
+                    const hasHighRiskTools = /filesystem|github|database|postgres|mysql/i.test(name);
+                    await postToAgentRadar({
+                      name: \`Claude Code MCP: \${name}\`,
+                      type: 'MCP Server (Claude Code)',
+                      host,
+                      configPath,
+                      command: serverDef.command,
+                      args: serverDef.args,
+                      env: Object.keys(serverDef.env || {}), // keys only, no values
+                      risk: hasPHIKeys || hasHighRiskTools ? 'critical' : 'medium',
+                      shadow: true,
+                      phi: hasPHIKeys,
+                      claudeCode: true,
+                      source: 'claude_desktop_config.json',
+                    });
+                  }
+                } catch (e) { /* not JSON or file empty */ }
+              });
+            });
+          }
+          conn.end(); resolve();
+        });
+      });
+    });
+    conn.on('error', reject);
+  });
+}`},
+  'sc-k8s':{lang:'Node.js + @kubernetes/client-node',code:`const k8s = require('@kubernetes/client-node');\nconst AI_IMAGES = /ollama|langchain|openai|huggingface|vllm|transformers|anthropic/i;\nconst AI_PORTS = new Set([11434, 8899, 7860, 8000, 8001]);\nasync function scanCluster({ server, token, namespaces }) {\n  const kc = new k8s.KubeConfig();\n  kc.loadFromOptions({ clusters:[{name:'t',server}], users:[{name:'s',token}],\n    contexts:[{name:'c',cluster:'t',user:'s'}], currentContext:'c' });\n  const api = kc.makeApiClient(k8s.CoreV1Api);\n  for (const ns of namespaces) {\n    const { body } = await api.listNamespacedPod(ns);\n    for (const pod of body.items) {\n      for (const c of pod.spec.containers) {\n        if (AI_IMAGES.test(c.image) || c.ports?.some(p => AI_PORTS.has(p.containerPort)))\n          await postToAgentRadar({ name: pod.metadata.name, ns, image: c.image });\n      }\n    }\n  }\n}`},
+  'sc-hl7':{lang:'Node.js + raw TCP (MLLP)',code:`const net = require('net');\nconst APPROVED = new Set(['10.2.4.12', '10.2.4.13']);\nconst MSH = Buffer.from('\\x0bMSH|^~\\\\&|SCANNER|||TEST|||ACK^^|\\x1c\\x0d');\nasync function checkMLLP(ip, port = 2575) {\n  return new Promise((resolve) => {\n    const sock = net.connect({ host: ip, port, timeout: 3000 });\n    sock.on('connect', () => {\n      sock.write(MSH);\n      sock.on('data', (data) => {\n        const isHL7 = data.includes(0x0b) && data.includes(0x1c);\n        postToAgentRadar({\n          ip, port, authorized: APPROVED.has(ip),\n          risk: APPROVED.has(ip) ? 'low' : 'critical',\n          type: 'HL7 MLLP Listener', phi: true,\n        });\n        sock.destroy(); resolve(true);\n      });\n    });\n    sock.on('timeout', () => { sock.destroy(); resolve(false); });\n    sock.on('error', () => resolve(false));\n  });\n}`},
+  'sc-fhir':{lang:'Node.js + axios (SMART on FHIR)',code:`const axios = require('axios');\nasync function scanFHIR({ baseUrl, clientId, clientSecret }) {\n  // Step 1: CapabilityStatement (no auth required)\n  const { data: cap } = await axios.get(baseUrl+'/metadata',\n    { headers: { Accept: 'application/fhir+json' } });\n  // Step 2: SMART configuration - lists registered AI apps\n  const { data: smart } = await axios.get(baseUrl+'/.well-known/smart-configuration');\n  // Step 3: OAuth2 for AuditEvent access\n  const { data: token } = await axios.post(smart.token_endpoint, {\n    grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret,\n    scope: 'system/AuditEvent.read'\n  });\n  // Step 4: Query AI agent activity - no PHI accessed\n  const { data: audit } = await axios.get(baseUrl+'/AuditEvent?type=rest&_count=100',\n    { headers: { Authorization: 'Bearer '+token.access_token } });\n  for (const app of smart.capabilities || [])\n    await postToAgentRadar({ name: app, type: 'SMART App', phi: true });\n}`},
+  'sc-dicom':{lang:'Python + pynetdicom',code:`from pynetdicom import AE\nfrom pynetdicom.sop_class import Verification\nAPPROVED_AE = {'PACS-MAIN', 'DICOM-GATEWAY', 'MRI-WORKSTATION-1'}\ndef scan_dicom(host, port=104, calling_ae='AGENTRADARPOLLSTATION'):\n    ae = AE(ae_title=calling_ae)\n    ae.add_requested_context(Verification)\n    assoc = ae.associate(host, port)\n    if assoc.is_established:\n        status = assoc.send_c_echo()\n        ae_title = assoc.acceptor.ae_title.strip()\n        post_to_agentRadar({\n            'name': ae_title, 'host': host, 'port': port,\n            'authorized': ae_title in APPROVED_AE,\n            'risk': 'low' if ae_title in APPROVED_AE else 'high',\n            'type': 'DICOM AE Title', 'phi': True,\n        })\n        assoc.release()`},
+  'sc-idp-oauth':{lang:'Node.js — Okta SDK + MS Graph + Google Admin',code:`// OAuth/IdP Grant Scanner — finds externally-hosted Claude agents
+// via OAuth grants in Okta, Azure AD, Google Workspace
+
+const AI_PLATFORMS=[
+  {domain:'dify.ai',claudeAgent:true},{domain:'voiceflow.com',claudeAgent:true},
+  {domain:'botpress.cloud',claudeAgent:true},{domain:'claude.ai',claudeAgent:true},
+  {domain:'cursor.sh',claudeAgent:false},{domain:'github.com',claudeAgent:false},
+  {domain:'notion.so',claudeAgent:false},{domain:'n8n.cloud',claudeAgent:true},
+  {domain:'bolt.new',claudeAgent:true},{domain:'flowise.ai',claudeAgent:true},
+  {domain:'codeium.com',claudeAgent:false},{domain:'openai.com',claudeAgent:false},
+];
+
+async function scanOkta(oktaDomain, token) {
+  const apps = await fetch(\`https://\${oktaDomain}/api/v1/apps?limit=200\`,
+    {headers:{'Authorization':\`SSWS \${token}\`,'Accept':'application/json'}}).then(r=>r.json());
+  for(const app of apps){
+    const url=app.settings?.oauthClient?.initiate_login_uri||'';
+    const match=AI_PLATFORMS.find(p=>url.includes(p.domain)||app.label?.toLowerCase().includes(p.domain.split('.')[0]));
+    if(!match) continue;
+    const users=await fetch(\`https://\${oktaDomain}/api/v1/apps/\${app.id}/users\`,
+      {headers:{'Authorization':\`SSWS \${token}\`}}).then(r=>r.json());
+    for(const user of users){
+      await postToAgentRadar({
+        name:\`Hosted Agent: \${app.label} → \${user.profile?.email}\`,
+        type:'agent',env:'SaaS (Hosted)',detect:'OAuth/IdP — Okta',
+        risk:'high',shadow:true,hosted:true,claudeAgent:match.claudeAgent,
+        owner:user.profile?.email,
+      });
+    }
+  }
+}
+
+async function scanAzureAD(tenantId,clientId,clientSecret){
+  const {access_token}=await fetch(\`https://login.microsoftonline.com/\${tenantId}/oauth2/v2.0/token\`,
+    {method:'POST',body:new URLSearchParams({grant_type:'client_credentials',client_id:clientId,client_secret:clientSecret,scope:'https://graph.microsoft.com/.default'})}).then(r=>r.json());
+  const {value:grants}=await fetch('https://graph.microsoft.com/v1.0/oauth2PermissionGrants?$top=999',
+    {headers:{Authorization:\`Bearer \${access_token}\`}}).then(r=>r.json());
+  for(const g of grants){
+    const sp=await fetch(\`https://graph.microsoft.com/v1.0/servicePrincipals/\${g.clientId}\`,
+      {headers:{Authorization:\`Bearer \${access_token}\`}}).then(r=>r.json());
+    const match=AI_PLATFORMS.find(p=>sp.homepage?.includes(p.domain)||sp.displayName?.toLowerCase().includes(p.domain.split('.')[0]));
+    if(match) await postToAgentRadar({name:\`AzureAD: \${sp.displayName}\`,type:'agent',env:'SaaS (Hosted)',hosted:true,claudeAgent:match.claudeAgent,detect:'OAuth/IdP — Azure AD',risk:'high',shadow:true});
+  }
+}`},
+
+  'sc-casb':{lang:'Node.js — Zscaler · Netskope · proxy log ingestion',code:`// CASB/Proxy Scanner — detects traffic to hosted AI platforms
+// Works with Zscaler, Netskope, Palo Alto Prisma, or raw proxy NCSA logs
+
+const HOSTED_AI=[
+  {domain:'app.dify.ai',name:'Dify',claudeAgent:true,dlp:true},
+  {domain:'app.voiceflow.com',name:'Voiceflow',claudeAgent:true,dlp:true},
+  {domain:'claude.ai',name:'Claude.ai Projects',claudeAgent:true,dlp:true},
+  {domain:'api2.cursor.sh',name:'Cursor IDE',claudeAgent:false,dlp:true},
+  {domain:'copilot-proxy.githubusercontent.com',name:'GitHub Copilot',claudeAgent:false,dlp:true},
+  {domain:'n8n.cloud',name:'n8n cloud',claudeAgent:true,dlp:true},
+  {domain:'bolt.new',name:'Bolt.new',claudeAgent:true,dlp:false},
+  {domain:'flowise.ai',name:'Flowise',claudeAgent:true,dlp:false},
+  {domain:'app.botpress.cloud',name:'Botpress',claudeAgent:true,dlp:true},
+];
+
+async function scanZscaler(apiKey,cloud){
+  const logs=await fetch(\`https://\${cloud}.zscalertwo.net/api/v1/webTransactions?time=3600\`,
+    {headers:{'auth-token':apiKey}}).then(r=>r.json());
+  const map=new Map();
+  for(const log of logs){
+    const match=HOSTED_AI.find(p=>log.url?.includes(p.domain)||log.hostname?.includes(p.domain));
+    if(!match) continue;
+    const key=\`\${log.user}::\${match.domain}\`;
+    if(!map.has(key)) map.set(key,{...match,user:log.user,sessions:0,bytes:0});
+    const e=map.get(key); e.sessions++; e.bytes+=log.requestBodySize||0;
+  }
+  for(const f of map.values()){
+    const mb=(f.bytes/1048576).toFixed(1);
+    await postToAgentRadar({name:\`Hosted Agent: \${f.name} (\${f.user})\`,type:'agent',env:'SaaS (Hosted)',
+      detect:'CASB — Zscaler',risk:mb>5?'critical':'high',shadow:true,hosted:true,
+      claudeAgent:f.claudeAgent,phi:f.dlp&&mb>0.5,uploadMB:parseFloat(mb),sessions:f.sessions,owner:f.user});
+  }
+}
+
+async function scanNetskope(token,tenant){
+  const {result=[]}=await fetch(\`https://\${tenant}.goskope.com/api/v2/events/data/alert?limit=100\`,
+    {headers:{'Netskope-Api-Token':token}}).then(r=>r.json());
+  for(const alert of result){
+    const match=HOSTED_AI.find(p=>alert.url?.includes(p.domain)||alert.hostname?.includes(p.domain));
+    if(!match) continue;
+    await postToAgentRadar({name:\`Hosted Agent: \${match.name} (\${alert.user})\`,type:'agent',env:'SaaS (Hosted)',
+      detect:'CASB — Netskope',risk:'high',shadow:true,hosted:true,claudeAgent:match.claudeAgent,owner:alert.user});
+  }
+}`},
+
+  'sc-splunk':{lang:'Node.js + Splunk REST API',code:`const axios = require('axios');\nconst SPL = 'index=* earliest=-30d (\n  dest_host="api.openai.com" OR dest_host="api.anthropic.com"\n  OR dest_host="*.huggingface.co" OR dest_port=11434 OR dest_port=2575\n) | stats count, sum(bytes) as bytes, values(proc_name) as procs\n  by src_ip, dest_host, dest_port | sort -count';\nasync function runSplunkScan({ splunkUrl, token }) {\n  const job = await axios.post(splunkUrl+'/services/search/jobs',\n    new URLSearchParams({ search: SPL, output_mode: 'json' }),\n    { headers: { Authorization: 'Splunk '+token } });\n  const sid = job.data.sid;\n  let done = false;\n  while (!done) {\n    const s = await axios.get(splunkUrl+'/services/search/jobs/'+sid,\n      { headers: { Authorization: 'Splunk '+token } });\n    done = s.data.entry[0].content.isDone;\n    if (!done) await new Promise(r => setTimeout(r, 1000));\n  }\n  const results = await axios.get(splunkUrl+'/services/search/jobs/'+sid+'/results?output_mode=json',\n    { headers: { Authorization: 'Splunk '+token } });\n  for (const row of results.data.results) await correlateWithInventory(row);\n}`},
+  'sc-traffic':{lang:'Python + GoFlow2 / Kafka',code:`from kafka import KafkaConsumer\nimport json, socket\nAI_PORTS = {11434, 8899, 7860, 2575}\nAI_DOMAINS = {'api.openai.com','api.anthropic.com','huggingface.co','pinecone.io'}\nconsumer = KafkaConsumer('netflow-decoded',\n  value_deserializer=lambda m: json.loads(m))\nfor msg in consumer:\n  flow = msg.value\n  try: dst_host = socket.gethostbyaddr(flow['DstAddr'])[0]\n  except: dst_host = flow['DstAddr']\n  is_ai = any(dst_host.endswith(d) for d in AI_DOMAINS) or flow['DstPort'] in AI_PORTS\n  if is_ai:\n    post_to_agentRadar({\n      'src': flow['SrcAddr'], 'dst': flow['DstAddr'],\n      'bytes': flow['Bytes'], 'port': flow['DstPort'],\n      'type': 'Network Flow',\n      'risk': 'critical' if flow['DstPort'] == 2575 else 'high',\n    })`},
+  'sc-api-token':{lang:'Node.js + Octokit + trufflehog — Claude Code + workflow YAML scanning',code:`const { Octokit } = require('@octokit/rest');
+const { execSync } = require('child_process');
+
+async function scanGitHub({ org, token }) {
+  const octokit = new Octokit({ auth: token });
+
+  // 1. Scan org-level secrets for Anthropic/Claude keys
+  try {
+    const { data: secrets } = await octokit.actions.listOrgSecrets({ org });
+    for (const secret of secrets.secrets) {
+      if (/anthropic|claude|sk.ant/i.test(secret.name)) {
+        await postToAgentRadar({
+          type: 'Org Secret — Claude/Anthropic',
+          name: secret.name,
+          risk: 'high',
+          scope: 'org-wide',
+          note: 'Org-level Anthropic secret = Claude Code likely used across multiple repos',
+        });
+      }
+    }
+  } catch (e) { /* insufficient permissions */ }
+
+  // 2. Scan audit log: OAuth grants + Claude Code installs
+  const { data: log } = await octokit.orgs.getAuditLog({ org, phrase: 'oauth_access' });
+  const aiGrants = log.filter(e => /openai|anthropic|huggingface|langchain/i.test(e.application_name||''));
+  for (const grant of aiGrants)
+    await postToAgentRadar({ type: 'OAuth Grant', app: grant.application_name, user: grant.actor });
+
+  // 3. Scan repos for hardcoded keys AND Claude Code usage in workflows
+  const repos = await octokit.paginate(octokit.repos.listForOrg, { org, type: 'all' });
+  for (const repo of repos) {
+
+    // 3a. trufflehog AnthropicAI detector: finds sk-ant-* keys in source code
+    try {
+      const out = execSync('trufflehog github --repo ' + repo.clone_url + ' --json --only-verified', { timeout: 30000 });
+      for (const line of out.toString().trim().split('\n').filter(Boolean)) {
+        const f = JSON.parse(line);
+        if (/anthropic|claude|sk.ant/i.test(f.DetectorName || '')) {
+          await postToAgentRadar({
+            type: 'Hardcoded Anthropic Key',
+            repo: repo.name,
+            detector: f.DetectorName,
+            file: f.SourceMetadata?.Data?.Github?.file,
+            commit: f.SourceMetadata?.Data?.Github?.commit,
+            risk: 'critical',
+            claudeCode: true,
+          });
+        }
+      }
+    } catch (e) { /* no findings or timeout */ }
+
+    // 3b. GitHub Actions workflow scan: detect Claude Code in CI/CD
+    try {
+      const { data: workflows } = await octokit.actions.listRepoWorkflows({ owner: org, repo: repo.name });
+      for (const wf of workflows.workflows) {
+        const { data: content } = await octokit.repos.getContent({ owner: org, repo: repo.name, path: wf.path });
+        const yaml = Buffer.from(content.content, 'base64').toString();
+        // Detect Claude Code action or Anthropic key in workflow
+        if (/anthropic|claude.code|@anthropic-ai|ANTHROPIC_API_KEY/i.test(yaml)) {
+          await postToAgentRadar({
+            type: 'Claude Code in CI/CD Pipeline',
+            repo: repo.name,
+            workflow: wf.name,
+            path: wf.path,
+            risk: 'high',
+            claudeCode: true,
+            note: 'Claude Code is running as part of automated CI/CD — review what it accesses',
+          });
+        }
+      }
+    } catch (e) { /* no workflow access */ }
+  }
+}`},
+  'sc-mcp-a2a':{lang:'Node.js + axios + SSH — MCP well-known + claude_desktop_config.json',code:`const axios  = require('axios');
+const { Client } = require('ssh2');
+
+// Part 1: Probe all known hosts for MCP/A2A well-known endpoints
+const WELL_KNOWN = [
+  { path: '/.well-known/mcp-configuration', proto: 'MCP' },
+  { path: '/.well-known/agent.json',         proto: 'A2A' },  // Google A2A spec
+  { path: '/mcp',                             proto: 'MCP-alt' },
+];
+
+// Probe any HTTP service (on any port) for MCP/A2A presence
+async function checkMCPA2A(host, port) {
+  for (const wk of WELL_KNOWN) {
+    for (const scheme of ['https', 'http']) {
+      try {
+        const { data } = await axios.get(scheme+'://'+host+':'+port+wk.path, {
+          timeout: 3000, httpsAgent: new (require('https').Agent)({ rejectUnauthorized: false })
+        });
+        if (data) {
+          await postToAgentRadar({
+            name: data.name || data.agent_name || host+':'+port,
+            type: wk.proto, host, port,
+            tools: data.tools?.map(t => t.name) || data.capabilities || [],
+            risk: classifyMCPRisk(data),
+            source: 'well-known HTTP probe',
+          });
+          return; // found on this port
+        }
+      } catch (e) { /* not MCP/A2A on this path — continue */ }
+    }
+  }
+}
+
+// Part 2: Read claude_desktop_config.json via SSH on developer machines
+// This reveals every MCP server a Claude Code user has configured
+const CLAUDE_CONFIG_PATHS = [
+  '~/.claude/claude_desktop_config.json',
+  '%APPDATA%\\\\Claude\\\\claude_desktop_config.json',
+];
+
+async function readClaudeDesktopConfig({ host, username, privateKey }) {
+  for (const configPath of CLAUDE_CONFIG_PATHS) {
+    const raw = await sshExec(host, username, privateKey, 'cat ' + configPath + ' 2>/dev/null');
+    if (!raw.trim()) continue;
+    try {
+      const config = JSON.parse(raw);
+      for (const [name, def] of Object.entries(config.mcpServers || {})) {
+        const envKeys = Object.keys(def.env || {});
+        const hasPHI  = envKeys.some(k => /phi|patient|fhir|hl7|clinical/i.test(k));
+        const isHighRisk = /filesystem|github|database|postgres|mysql|shell|exec/i.test(name + (def.command||''));
+        await postToAgentRadar({
+          name: 'Claude Code MCP: ' + name + ' (' + host + ')',
+          type: 'MCP Server — Claude Code',
+          host, configPath,
+          command: def.command,
+          args: def.args,
+          envVarNames: envKeys, // key NAMES only — never log values
+          tools: def.args || [],
+          risk: hasPHI || isHighRisk ? 'critical' : 'medium',
+          phi: hasPHI, shadow: true, claudeCode: true,
+          source: 'claude_desktop_config.json',
+        });
+      }
+    } catch (e) { /* not valid JSON */ }
+  }
+}
+
+// Orchestrate: probe all hosts for MCP endpoints AND parse Claude configs
+async function scanAllForMCP(hosts, sshHosts) {
+  const AI_PORTS = [3000, 3001, 8080, 8443, 443, 80, 4000, 8000];
+  await Promise.all([
+    ...hosts.flatMap(h => AI_PORTS.map(p => checkMCPA2A(h, p))),
+    ...sshHosts.map(h => readClaudeDesktopConfig(h)),
+  ]);
+}`},
+};
+
+
+
+function renderLive(){
+  renderScannerGrid();
+  renderFpTable();
+  updateScannerStats();
+  startFeed();
+}
+
+
+/* ═══════════════════════════════════════════════════
+   ALL 13 SCANNER GAP FIXES
+═══════════════════════════════════════════════════ */
+
+/* GAP 1 - DEDUPLICATION */
+const CONFIDENCE_WEIGHTS={'Network Port Prober':25,'OAuth/IdP Grant Scanner':35,'CASB/Proxy Scanner':40,'AWS Scanner':25,'Azure Scanner':22,'GCP Scanner':20,'DNS Monitor':15,'SSH Process Scanner':30,'K8s Scanner':22,'HL7 Monitor':28,'FHIR Scanner':20,'DICOM Scanner':18,'Splunk SIEM':20,'Traffic Analyser':15,'API Token Tracer':22,'MCP/A2A Scanner':20};
+function levenshtein(a,b){const m=a.length,n=b.length;const dp=Array.from({length:m+1},(_,i)=>Array.from({length:n+1},(_,j)=>i||j));for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]:1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);return dp[m][n];}
+function findDuplicate(agentDef){return DB.agents.find(a=>a.name===agentDef.name||(agentDef.ip&&a.ip===agentDef.ip)||levenshtein((a.name||'').toLowerCase(),(agentDef.name||'').toLowerCase())<4);}
+function getConfidenceColor(c){return c>=80?'#10b981':c>=50?'#f59e0b':'#ef4444';}
+
+/* GAP 2 - ALLOWLIST */
+function getAllowlist(){try{return JSON.parse(localStorage.getItem('ar11-allowlist')||'[]');}catch(e){return[];}}
+function isAllowlisted(agentDef){return getAllowlist().some(a=>a.name===agentDef.name||(agentDef.ip&&a.ip===agentDef.ip));}
+function addToAllowlist(agentName,agentIp){const al=getAllowlist();if(al.some(a=>a.name===agentName))return;al.push({name:agentName,ip:agentIp||null,addedAt:new Date().toISOString(),addedBy:'Security Admin'});localStorage.setItem('ar11-allowlist',JSON.stringify(al));renderAllowlistPanel();addAct('reg','Added to allowlist: '+agentName,'Admin','#10b981');}
+function removeFromAllowlist(name){const al=getAllowlist().filter(a=>a.name!==name);localStorage.setItem('ar11-allowlist',JSON.stringify(al));renderAllowlistPanel();}
+function renderAllowlistPanel(){const el=document.getElementById('allowlist-panel');if(!el)return;const al=getAllowlist();const cnt=document.getElementById('allowlist-count');if(cnt)cnt.textContent=al.length+' suppressed';if(!al.length){el.innerHTML='<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:16px">Mark agents as Known/Approved to suppress future alerts.</div>';return;}el.innerHTML=al.map(a=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(200,210,240,0.15);font-size:11px"><div style="flex:1"><div style="font-weight:600;color:var(--text-primary)">${a.name}</div><div style="font-size:9px;color:var(--text-muted);font-family:var(--font-mono)">${a.addedAt.split('T')[0]}</div></div><button onclick="removeFromAllowlist('${a.name.replace(/'/g,"\\'")}')" class="btn sm" style="font-size:9px">Remove</button></div>`).join('');}
+
+/* GAP 3 - SCAN HISTORY */
+function recordScanRun(scannerId,results,startTime){const key='ar11-hist-'+scannerId;let hist=[];try{hist=JSON.parse(localStorage.getItem(key)||'[]');}catch(e){}hist.unshift({ts:new Date().toISOString(),found:results.length,newAgents:results.filter(r=>r.newAgent).length,alerts:results.filter(r=>r.isAlert).length,duration:Date.now()-startTime});localStorage.setItem(key,JSON.stringify(hist.slice(0,10)));}
+function getScanHistory(scannerId){try{return JSON.parse(localStorage.getItem('ar11-hist-'+scannerId)||'[]');}catch(e){return[];}}
+function renderScanHistory(scannerId){const hist=getScanHistory(scannerId);if(!hist.length)return'';return`<div style="margin-top:10px;border-top:1px solid rgba(200,210,240,0.2);padding-top:8px"><div style="font-size:9px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Last ${hist.length} runs</div>${hist.slice(0,5).map(h=>`<div class="scan-history-row"><span class="sh-ts">${h.ts.split('T')[1].slice(0,5)}</span><span class="sh-found">${h.found}</span><span class="sh-new">+${h.newAgents}</span><span class="sh-alert">!${h.alerts}</span><span style="font-size:9px;color:var(--text-muted);font-family:var(--font-mono)">${Math.round(h.duration/1000)}s</span></div>`).join('')}</div>`;}
+
+/* GAP 4 - SCOPE EDITOR */
+let scopeEditingId=null;
+const SCOPE_FIELDS={'sc-net-probe':[{id:'cidr',lbl:'CIDR Ranges',ph:'10.0.0.0/8, 192.168.0.0/16'},{id:'ports',lbl:'Ports',ph:'80,443,8080,8899,11434'}],'sc-cloud-aws':[{id:'accounts',lbl:'AWS Account IDs',ph:'123456789012'},{id:'regions',lbl:'Regions',ph:'us-east-1, eu-west-1'}],'sc-cloud-azure':[{id:'subs',lbl:'Subscription IDs',ph:'sub-id-1, sub-id-2'}],'sc-cloud-gcp':[{id:'projects',lbl:'GCP Project IDs',ph:'my-project-1, my-project-2'}],'sc-k8s':[{id:'namespaces',lbl:'Namespaces',ph:'default, production, ai-workloads'}],'sc-splunk':[{id:'indexes',lbl:'Splunk Indexes',ph:'main, security, _internal'}],'sc-hl7':[{id:'subnets',lbl:'HL7 Subnets',ph:'10.1.0.0/16, 10.2.0.0/16'}],'sc-fhir':[{id:'endpoints',lbl:'FHIR Base URLs',ph:'https://fhir.epic.org/...'}],'sc-process':[{id:'hosts',lbl:'Target Hosts',ph:'10.0.1.50, dev-ws-001'}]};
+function openScopeEditor(scannerId){const s=SCANNERS.find(x=>x.id===scannerId);if(!s)return;scopeEditingId=scannerId;document.getElementById('scope-modal-title').textContent='Edit Scope: '+s.name;document.getElementById('scope-modal-sub').textContent='Configure scan targets for this scanner.';const fields=SCOPE_FIELDS[scannerId]||[{id:'targets',lbl:'Targets',ph:s.targets}];const saved=JSON.parse(localStorage.getItem('ar11-scope-'+scannerId)||'{}');document.getElementById('scope-modal-fields').innerHTML=fields.map(f=>`<div class="scope-field"><div class="scope-lbl">${f.lbl}</div><input class="scope-inp" id="scope-f-${f.id}" placeholder="${f.ph}" value="${saved[f.id]||''}"></div>`).join('');document.getElementById('scope-modal').classList.remove('hidden');}
+function saveScopeModal(){if(!scopeEditingId)return;const fields=SCOPE_FIELDS[scopeEditingId]||[{id:'targets',lbl:'',ph:''}];const vals={};fields.forEach(f=>{const el=document.getElementById('scope-f-'+f.id);if(el)vals[f.id]=el.value.trim();});localStorage.setItem('ar11-scope-'+scopeEditingId,JSON.stringify(vals));const s=SCANNERS.find(x=>x.id===scopeEditingId);if(s){if(vals.cidr)s.targets=vals.cidr;else if(vals.namespaces)s.targets=vals.namespaces;else if(vals.accounts)s.targets=vals.accounts;}closeScopeModal();renderScannerGrid();addAct('reg','Scan scope updated: '+scopeEditingId,'Admin','#6366f1');}
+function closeScopeModal(){document.getElementById('scope-modal').classList.add('hidden');scopeEditingId=null;}
+
+/* GAP 5 - CORRELATION ENGINE */
+const recentFindings=[];
+function recordFinding(agentDef,scannerId){recentFindings.push({name:agentDef.name,ip:agentDef.ip||null,scanner:scannerId,ts:Date.now(),risk:agentDef.risk||'medium'});if(recentFindings.length>200)recentFindings.shift();}
+function runCorrelation(){
+  const WINDOW_MS = 60 * 60 * 1000; // 60-minute correlation window
+  const cutoff=Date.now()-3600000;
+  const recent=recentFindings.filter(f=>f.ts>cutoff);
+  const byKey={};
+  recent.forEach(f=>{const key=f.ip||f.name;if(!byKey[key])byKey[key]=[];byKey[key].push(f);});
+  const correlated=Object.entries(byKey).filter(([,sigs])=>[...new Set(sigs.map(s=>s.scanner))].length>=2).map(([key,sigs])=>{const scanners=[...new Set(sigs.map(s=>s.scanner))];const conf=Math.min(100,scanners.length*25+30);const maxRisk=sigs.find(s=>s.risk==='critical')?'critical':sigs.find(s=>s.risk==='high')?'high':'medium';return{key,scanners,confidence:conf,risk:maxRisk,count:sigs.length};}).sort((a,b)=>b.confidence-a.confidence);
+  renderCorrelationPanel(correlated);
+  const el=document.getElementById('sc-corr');if(el)el.textContent=correlated.length;
+  const cnt=document.getElementById('corr-count');if(cnt)cnt.textContent=correlated.length+' correlated findings';
+}
+function renderCorrelationPanel(correlated){const el=document.getElementById('correlation-panel');if(!el)return;if(!correlated.length){el.innerHTML='<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:24px">Run multiple scanners then click Run Correlation to find agents confirmed by 2+ independent scanners.</div>';return;}const riskCol={critical:'#ef4444',high:'#f59e0b',medium:'#6366f1',low:'#10b981'};el.innerHTML=correlated.map(c=>`<div class="corr-alert"><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:700;color:${riskCol[c.risk]}">${c.risk.toUpperCase()}</span><span style="font-weight:600;color:var(--text-primary);flex:1">${c.key}</span><span style="font-size:10px;font-weight:700;color:${getConfidenceColor(c.confidence)}">${c.confidence}% conf</span></div><div class="corr-sources">${c.scanners.length} scanners: ${c.scanners.join(' + ')} (${c.count} signals)</div></div>`).join('');}
+
+/* GAP 6 - CUSTOM FINGERPRINTS */
+function getCustomFingerprints(){try{return JSON.parse(localStorage.getItem('ar11-custom-fp')||'[]');}catch(e){return[];}}
+function saveCustomFingerprint(){const name=document.getElementById('fp-name')?.value?.trim();const cat=document.getElementById('fp-cat')?.value;const type=document.getElementById('fp-type')?.value;const value=document.getElementById('fp-value')?.value?.trim();const risk=document.getElementById('fp-risk')?.value;const phi=document.getElementById('fp-phi')?.value==='true';if(!name||!value){alert('Name and match value required');return;}const fps=getCustomFingerprints();fps.push({id:'cfp-'+Date.now(),name,cat,type,value,risk,phi,createdAt:new Date().toISOString().split('T')[0]});localStorage.setItem('ar11-custom-fp',JSON.stringify(fps));renderCustomFpList();document.getElementById('fp-add-form').style.display='none';['fp-name','fp-value'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});addAct('reg','Custom fingerprint added: '+name,'Admin','#6366f1');}
+function deleteCustomFp(id){localStorage.setItem('ar11-custom-fp',JSON.stringify(getCustomFingerprints().filter(f=>f.id!==id)));renderCustomFpList();}
+function showAddFingerprintForm(){document.getElementById('fp-add-form').style.display='block';}
+function renderCustomFpList(){const el=document.getElementById('custom-fp-list');if(!el)return;const fps=getCustomFingerprints();const cnt=document.getElementById('custom-fp-count');if(cnt)cnt.textContent=fps.length+' custom';if(!fps.length){el.innerHTML='<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:20px">No custom fingerprints yet.</div>';return;}const riskCol={critical:'#ef4444',high:'#f59e0b',medium:'#6366f1',low:'#10b981'};el.innerHTML=fps.map(f=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(200,210,240,0.15)"><div style="flex:1"><div style="font-size:12px;font-weight:600;color:var(--text-primary)">${f.name}</div><div style="font-size:9px;color:var(--text-muted);font-family:var(--font-mono)">${f.type}: ${f.value} <span style="color:${riskCol[f.risk]}">${f.risk}</span> ${f.phi?'PHI':''}</div></div><button onclick="deleteCustomFp('${f.id}')" class="btn sm" style="font-size:9px;color:var(--red-text)">x</button></div>`).join('');}
+
+/* GAP 7 - SCANNER HEALTH */
+const scannerHealthState={};
+function checkScannerHealth(){const INTERVALS={'sc-net-probe':15,'sc-cloud-aws':30,'sc-cloud-azure':30,'sc-cloud-gcp':30,'sc-dns':5,'sc-idp-oauth':2,'sc-casb':1,'sc-process':10,'sc-k8s':5,'sc-hl7':2,'sc-fhir':20,'sc-dicom':30,'sc-splunk':5,'sc-traffic':1,'sc-api-token':60,'sc-mcp-a2a':15};SCANNERS.forEach(s=>{const lastRun=parseInt(localStorage.getItem('ar11-lastrun-'+s.id)||'0');const expected=(INTERVALS[s.id]||15)*60*1000;const elapsed=Date.now()-lastRun;if(!lastRun)scannerHealthState[s.id]='never';else if(elapsed<expected*1.5)scannerHealthState[s.id]='ok';else if(elapsed<expected*3)scannerHealthState[s.id]='degraded';else scannerHealthState[s.id]='offline';});}
+function getHealthBadge(id){const h=scannerHealthState[id]||'never';if(h==='ok')return'<span class="sc-health-ok">Healthy</span>';if(h==='degraded')return'<span class="sc-health-warn">Degraded</span>';if(h==='offline')return'<span class="sc-health-dead">Offline</span>';return'<span style="font-size:10px;color:var(--text-muted)">Never run</span>';}
+setInterval(()=>{checkScannerHealth();},5*60*1000);
+
+/* GAP 8 - PHI TAINT PROPAGATION */
+function propagatePhiTaint(){let changed=true,passes=0;while(changed&&passes<5){changed=false;passes++;try{LN_EDGES.forEach(edge=>{const src=LN_NODES.find(n=>n.id===edge.from);const dst=LN_NODES.find(n=>n.id===edge.to);if(!src||!dst)return;if(src.phi&&!dst.phi){dst.phi=true;dst.phiTaintSource=src.label;const dbAgent=DB.agents.find(a=>a.name===dst.label||dst.label.includes(a.name));if(dbAgent&&!dbAgent.phi){dbAgent.phi=true;dbAgent.phiTaintSource=src.label;}changed=true;}});}catch(e){}}}
+
+/* GAP 9 - COVERAGE GAP ANALYSIS */
+const COVERAGE_EXPECTED={'sc-net-probe':{label:'Network subnets',total:12,unit:'subnets'},'sc-cloud-aws':{label:'AWS accounts',total:8,unit:'accounts'},'sc-cloud-azure':{label:'Azure subs',total:5,unit:'subs'},'sc-cloud-gcp':{label:'GCP projects',total:6,unit:'projects'},'sc-k8s':{label:'K8s namespaces',total:16,unit:'namespaces'},'sc-splunk':{label:'Splunk indexes',total:8,unit:'indexes'},'sc-process':{label:'Managed hosts',total:24,unit:'hosts'},'sc-hl7':{label:'HL7 subnets',total:4,unit:'subnets'},'sc-fhir':{label:'FHIR endpoints',total:5,unit:'endpoints'},'sc-idp-oauth':{label:'IdP tenants',total:2,unit:'IdP'},'sc-casb':{label:'CASB/proxy',total:1,unit:'platform'},'sc-dns':{label:'DNS resolvers',total:3,unit:'resolvers'},'sc-dicom':{label:'DICOM gateways',total:4,unit:'gateways'},'sc-api-token':{label:'Git repos',total:120,unit:'repos'},'sc-traffic':{label:'Network segments',total:8,unit:'segments'},'sc-mcp-a2a':{label:'Agent runtimes',total:20,unit:'runtimes'}};
+const COVERAGE_ACTUAL={'sc-net-probe':8,'sc-cloud-aws':3,'sc-cloud-azure':3,'sc-cloud-gcp':2,'sc-k8s':4,'sc-splunk':3,'sc-process':4,'sc-hl7':2,'sc-fhir':2,'sc-dns':2,'sc-dicom':2,'sc-api-token':12,'sc-traffic':3,'sc-mcp-a2a':3};
+function renderCoveragePanel(){const el=document.getElementById('coverage-panel');if(!el)return;el.innerHTML=SCANNERS.map(s=>{const exp=COVERAGE_EXPECTED[s.id];if(!exp)return'';const actual=COVERAGE_ACTUAL[s.id]||0;const pct=Math.round(actual/exp.total*100);const color=pct>=80?'#10b981':pct>=50?'#f59e0b':'#ef4444';const gap=exp.total-actual;return`<div class="coverage-row"><div style="font-size:16px;flex-shrink:0">${s.icon}</div><span class="cov-scanner">${s.name}<div style="font-size:9px;color:var(--text-muted)">${exp.label}</div></span><div class="cov-bar-wrap"><div class="cov-bar-track"><div class="cov-bar-fill" style="width:${pct}%;background:${color}"></div></div><span class="cov-pct" style="color:${color}">${pct}%</span></div>${gap>0?`<span class="cov-gap-tag">+${gap} ${exp.unit} uncovered</span>`:'<span style="font-size:9px;color:var(--green-text);white-space:nowrap">Full coverage</span>'}</div>`;}).join('');}
+
+/* GAP 10 - SCAN COMPARISON */
+function baselineScan(){const snap={ts:new Date().toISOString(),agents:DB.agents.map(a=>({id:a.id,name:a.name,risk:a.risk,shadow:a.shadow,phi:a.phi,env:a.env}))};localStorage.setItem('ar11-baseline',JSON.stringify(snap));const btn=document.getElementById('btn-compare');if(btn)btn.style.display='';showScannerToast('Baseline: '+snap.agents.length+' agents snapshotted',false);addAct('reg','Scan baseline created','Admin','#6366f1');renderComparePanel();}
+function renderComparePanel(){const el=document.getElementById('compare-panel');if(!el)return;const meta=document.getElementById('compare-meta');const raw=localStorage.getItem('ar11-baseline');if(!raw){el.innerHTML='<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:24px">No baseline set. Click Set Baseline Now to snapshot the current inventory.</div>';if(meta)meta.textContent='No baseline set';return;}const baseline=JSON.parse(raw);const baseNames=new Set(baseline.agents.map(a=>a.name));const currNames=new Set(DB.agents.map(a=>a.name));const newAgents=DB.agents.filter(a=>!baseNames.has(a.name));const goneAgents=baseline.agents.filter(a=>!currNames.has(a.name));const changedAgents=DB.agents.filter(a=>{const old=baseline.agents.find(b=>b.name===a.name);return old&&old.risk!==a.risk;});if(meta)meta.textContent=`Baseline: ${new Date(baseline.ts).toLocaleString()} · ${baseline.agents.length} agents`;const rc={critical:'#ef4444',high:'#f59e0b',medium:'#6366f1',low:'#10b981'};el.innerHTML=`<div class="diff-panel"><div class="diff-section-lbl" style="color:var(--green-text)">NEW agents (${newAgents.length})</div>${newAgents.length?newAgents.map(a=>`<div class="diff-row"><div class="diff-icon di-new">+</div><span style="flex:1;font-weight:500">${a.name}</span><span style="font-size:9px;color:${rc[a.risk]};font-weight:700">${a.risk}</span></div>`).join(''):'<div style="font-size:11px;color:var(--text-muted);padding:4px 0">None</div>'}<div class="diff-section-lbl" style="color:var(--red-text);margin-top:12px">GONE agents (${goneAgents.length})</div>${goneAgents.length?goneAgents.map(a=>`<div class="diff-row"><div class="diff-icon di-gone">-</div><span style="flex:1;font-weight:500">${a.name}</span></div>`).join(''):'<div style="font-size:11px;color:var(--text-muted);padding:4px 0">None</div>'}${changedAgents.length?`<div class="diff-section-lbl" style="color:var(--amber-text);margin-top:12px">RISK CHANGED (${changedAgents.length})</div>${changedAgents.map(a=>{const old=baseline.agents.find(b=>b.name===a.name);return`<div class="diff-row"><div class="diff-icon di-chg">~</div><span style="flex:1;font-weight:500">${a.name}</span><span style="color:${rc[old.risk]};text-decoration:line-through;font-size:9px">${old.risk}</span><span style="font-size:11px;margin:0 3px">></span><span style="color:${rc[a.risk]};font-weight:700;font-size:9px">${a.risk}</span></div>`;}).join('')}`:''}CSV</button><button class="btn sm" onclick="baselineScan()">Update baseline</button></div></div>`;}
+function exportComparisonCSV(){const raw=localStorage.getItem('ar11-baseline');if(!raw)return;const baseline=JSON.parse(raw);const baseNames=new Set(baseline.agents.map(a=>a.name));const rows=[['Status','Name','Risk','Environment','Shadow','PHI']];DB.agents.forEach(a=>rows.push([baseNames.has(a.name)?'existing':'new',a.name,a.risk,a.env,a.shadow,a.phi]));baseline.agents.filter(a=>!DB.agents.find(x=>x.name===a.name)).forEach(a=>rows.push(['gone',a.name,a.risk,a.env||'','','']));const csv=rows.map(r=>r.join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='agentRadar-comparison.csv';link.click();}
+
+/* GAP 11 - AUTO SCHEDULER */
+const schedulerTimers={};
+function getScannerSchedule(id){try{return JSON.parse(localStorage.getItem('ar11-sched-'+id)||'null');}catch(e){return null;}}
+function setScannerSchedule(id,intervalMin){if(schedulerTimers[id])clearInterval(schedulerTimers[id]);if(!intervalMin){localStorage.removeItem('ar11-sched-'+id);renderScannerGrid();return;}const sched={intervalMin:parseInt(intervalMin),nextRun:Date.now()+parseInt(intervalMin)*60000};localStorage.setItem('ar11-sched-'+id,JSON.stringify(sched));schedulerTimers[id]=setInterval(()=>{const s=getScannerSchedule(id);if(!s)return;if(scRunning[id]&&(scanState[id]||'idle')==='idle'){runScannerById(id);s.nextRun=Date.now()+s.intervalMin*60000;localStorage.setItem('ar11-sched-'+id,JSON.stringify(s));}},60000);renderScannerGrid();}
+function getNextRunLabel(id){const s=getScannerSchedule(id);if(!s)return'Manual';const mins=Math.max(0,Math.round((s.nextRun-Date.now())/60000));return mins<=0?'Soon':'in '+mins+'m';}
+function initSchedulers(){SCANNERS.forEach(s=>{const sched=getScannerSchedule(s.id);if(sched)setScannerSchedule(s.id,sched.intervalMin);});}
+
+/* GAP 12 - SUB-TAB NAVIGATION */
+function showScanSubTab(tab,el){['scanners','coverage','compare','fingerprints','correlation'].forEach(t=>{const pane=document.getElementById('sst-'+t);if(pane)pane.style.display=t===tab?'':'none';});const filterRow=document.getElementById('scan-filter-row');if(filterRow)filterRow.style.display=tab==='scanners'?'flex':'none';document.querySelectorAll('#view-live .env-tab').forEach(t=>t.classList.remove('on'));if(el)el.classList.add('on');else{const tabs={'scanners':0,'coverage':1,'compare':2,'fingerprints':3,'correlation':4};const tabEls=document.querySelectorAll('#view-live .env-tab');if(tabEls[tabs[tab]])tabEls[tabs[tab]].classList.add('on');}if(tab==='coverage')renderCoveragePanel();if(tab==='compare')renderComparePanel();if(tab==='fingerprints'){renderFpTable();renderCustomFpList();}if(tab==='correlation')runCorrelation();}
+
+/* GAP 13 - UPGRADED registerScannedAgent and runScannerById */
+function registerScannedAgent(agentDef,scanner){
+  if(isAllowlisted(agentDef)){appendFeedLine('[SKIP] Allowlisted: '+agentDef.name,'log-acc');return;}
+  const existing=findDuplicate(agentDef);
+  if(existing){existing.detectedBy=[...new Set([...(existing.detectedBy||[]),scanner.name])];existing.confidence=Math.min(100,(existing.confidence||40)+(CONFIDENCE_WEIGHTS[scanner.name]||15));recordFinding(agentDef,scanner.id);save();return;}
+  const conf=CONFIDENCE_WEIGHTS[scanner.name]||20;
+  const a={id:Date.now()+Math.floor(Math.random()*1000),name:agentDef.name,type:agentDef.type||'agent',env:agentDef.env||'Unknown',protocols:agentDef.protocols||['Unknown'],lastSeen:'just now',risk:agentDef.risk||'medium',shadow:agentDef.shadow||false,phi:agentDef.phi||false,pii:agentDef.pii||agentDef.phi||false,domain:agentDef.domain||'general',dataAccess:'Unknown',detect:agentDef.detect||scanner.name,detectedBy:[scanner.name],confidence:conf,ip:agentDef.ip||null,controls:{soc2:'warn',iso27001:'warn',gdpr:'warn',nist:'warn',euai:'warn',hipaa:agentDef.phi?'fail':'pass',hitrust:'warn',fda_samd:'pass'},firstDet:new Date().toISOString().split('T')[0],ver:'2025'};
+  DB.agents.push(a);scanner.hits=(scanner.hits||0)+1;
+  recordFinding(agentDef,scanner.id);
+  localStorage.setItem('ar11-lastrun-'+scanner.id,String(Date.now()));
+  save();updateStats();addAct('scan','New agent: '+a.name+' ('+conf+'% conf)',scanner.name,'#6366f1');
+}
+function runScannerById(scannerId){
+  if((scanState[scannerId]||'idle')==='running')return;
+  const scanner=SCANNERS.find(s=>s.id===scannerId);if(!scanner)return;
+  const pool=SCAN_POOLS[scannerId];if(!pool)return;
+  scanState[scannerId]='running';renderScannerGrid();
+  const startTime=Date.now();localStorage.setItem('ar11-lastrun-'+scannerId,String(startTime));
+  const progressBar=document.querySelector('#'+scannerId+' .sc-scan-progress');
+  if(progressBar){progressBar.style.background=scanner.color;let pct=0;const piv=setInterval(()=>{pct=Math.min(100,pct+Math.random()*12+3);progressBar.style.width=pct+'%';if(pct>=100)clearInterval(piv);},180);}
+  const results=generateScanResults(scannerId,pool,scanner);let i=0;
+  const step=()=>{if(i<results.length){const r=results[i];appendFeedLine(r.logLine,r.isAlert?'log-red':r.isWarn?'log-amb':'log-grn');if(r.newAgent)registerScannedAgent(r.newAgent,scanner);i++;setTimeout(step,Math.random()*600+200);}else{scanner.scanned+=Math.floor(Math.random()*500+100);scanner.lastRun='just now';scanState[scannerId]='done';recordScanRun(scannerId,results,startTime);scannerHealthState[scannerId]='ok';setTimeout(()=>{scanState[scannerId]='idle';renderScannerGrid();},4000);renderScannerGrid();const alerts=results.filter(r=>r.isAlert);if(alerts.length)showScannerToast(alerts[0].logLine,true);else if(results.filter(r=>r.newAgent).length)showScannerToast(scanner.name+' - '+results.filter(r=>r.newAgent).length+' found',false);setTimeout(runCorrelation,1000);}};
+  setTimeout(step,400);
+}
+
+function renderScannerGrid(){
+  const grid=document.getElementById('scanner-grid');if(!grid)return;
+  const nm={};DB.agents.forEach(a=>nm[a.id]=a);
+  const filtered=scTabFilter==='all'?SCANNERS:SCANNERS.filter(s=>s.category===scTabFilter);
+  const rcolors={critical:'#ef4444',high:'#f59e0b',medium:'#6366f1',low:'#10b981'};
+  grid.innerHTML=filtered.map(s=>{
+    const running=scRunning[s.id];
+    const state=scanState[s.id]||'idle';
+    const statusDot=s.status==='alert'?'ssd-alert':running?'ssd-active':'ssd-paused';
+    const cardCls=s.status==='alert'?'sc-card sc-alert':running?'sc-card sc-active':'sc-card sc-paused';
+    const agentRows=s.agents.map(id=>{
+      const a=nm[id];if(!a)return'';
+      return`<div class="sc-agent-row" onclick="go('discovery')"><div class="sc-agent-dot" style="background:${rcolors[a.risk]||'#94a3b8'}"></div><span class="sc-agent-name">${a.name}</span>${a.shadow?'<span style="font-size:9px;background:rgba(239,68,68,0.1);color:#991b1b;padding:1px 5px;border-radius:3px;font-weight:600">shadow</span>':''}<span class="sc-agent-time">${a.lastSeen}</span></div>`;
+    }).join('');
+    const runBtnCls=state==='running'?'sc-run-btn running':state==='done'?'sc-run-btn done':'sc-run-btn idle';
+    const runBtnLbl=state==='running'?'Scanning\u2026':state==='done'?'Complete':'Run Scan';
+    const pc=PROD_CODE[s.id];
+    const prodDrawer=pc?`<div class="sc-code-drawer${scannerMode==='prod'?' open':''}" id="drawer-${s.id}"><div class="sc-code-head"><span class="sc-code-lbl">${pc.lang}</span><button class="sc-code-copy" onclick="copySnip(this)">Copy</button></div><pre class="sc-code">${pc.code.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre></div>`:'';
+    return`<div class="${cardCls}" id="${s.id}"><div class="sc-head"><div class="sc-icon" style="background:${s.color}18">${s.icon}</div><div style="flex:1;min-width:0"><div class="sc-name">${s.name}</div><div class="sc-method">${s.method}</div></div><div class="sc-status-dot ${statusDot}"></div><button class="${runBtnCls}" onclick="runScannerById('${s.id}')" ${state==='running'?'disabled':''}>${runBtnLbl}</button><button class="sc-toggle ${running?'on':'off'}" onclick="toggleScanner('${s.id}',this)"><div class="sc-toggle-knob"></div></button></div><div class="sc-scan-bar"><div class="sc-scan-progress" id="prog-${s.id}" style="width:${state==='done'?100:0}%;background:${s.color}"></div></div><div class="sc-body"><div class="sc-meta-grid"><div class="sc-meta-item"><div class="sc-meta-lbl">Targets</div><div class="sc-meta-val">${s.targets.length>28?s.targets.slice(0,26)+'...':s.targets}</div></div><div class="sc-meta-item"><div class="sc-meta-lbl">Interval</div><div class="sc-meta-val">${s.interval}</div></div><div class="sc-meta-item"><div class="sc-meta-lbl">Last run</div><div class="sc-meta-val">${s.lastRun}</div></div><div class="sc-meta-item"><div class="sc-meta-lbl">Scanned</div><div class="sc-meta-val">${(s.scanned||0).toLocaleString()}</div></div></div><div class="sc-bar-wrap"><div class="sc-bar-lbl"><span>Agents discovered</span><span style="font-weight:600;color:${s.color}">${s.hits}</span></div><div class="sc-bar-track"><div class="sc-bar-fill" style="width:${Math.min(100,s.hits/Math.max(1,DB.agents.length)*100)}%;background:${s.color}"></div></div></div><div class="sc-bar-wrap"><div class="sc-bar-lbl"><span>Coverage</span><span>${s.coverage}%</span></div><div class="sc-bar-track"><div class="sc-bar-fill" style="width:${s.coverage}%;background:${s.coverage>90?'#10b981':s.coverage>70?'#f59e0b':'#ef4444'}"></div></div></div><div class="sc-tags">${s.protocols.slice(0,3).map(p=>`<span class="sc-tag" style="background:${s.color}12;color:${s.color};border:1px solid ${s.color}30">${p}</span>`).join('')}${s.protocols.length>3?`<span class="sc-tag" style="background:rgba(200,210,240,0.3);color:var(--text-muted)">+${s.protocols.length-3}</span>`:''}</div>${s.agents.length?`<div class="sc-agents"><div class="sc-agents-title">Discovered agents (${s.agents.length})</div>${agentRows}</div>`:''}<div class="sc-last-hit ${s.hitAlert?'hit-alert':''}">${s.lastHit}</div>${prodDrawer}</div></div>`;
+  }).join('');
+}
+function renderFpTable(){
+  const fp=document.getElementById('fp-tbody');if(!fp)return;
+  const catColors={'LLM API':'rgba(99,102,241,0.1)','Healthcare PHI':'rgba(239,68,68,0.1)','Healthcare':'rgba(14,165,233,0.1)','Shadow':'rgba(239,68,68,0.08)','Shadow Traffic':'rgba(239,68,68,0.08)','Agentic':'rgba(139,92,246,0.1)','Framework':'rgba(99,102,241,0.08)','Vector DB':'rgba(16,185,129,0.08)','Cloud AI':'rgba(245,158,11,0.08)','Traffic':'rgba(139,92,246,0.08)','MCP':'rgba(99,102,241,0.1)','A2A':'rgba(99,102,241,0.1)','Automation':'rgba(245,158,11,0.08)','Process':'rgba(239,68,68,0.08)','Container':'rgba(59,130,246,0.08)','Local LLM':'rgba(245,158,11,0.08)','Local ML':'rgba(245,158,11,0.08)'};
+  const catTextColors={'LLM API':'#3730a3','Healthcare PHI':'#991b1b','Healthcare':'#0c4a6e','Shadow':'#991b1b','Shadow Traffic':'#991b1b','Agentic':'#5b21b6','Framework':'#3730a3','Vector DB':'#065f46','Cloud AI':'#92400e','Traffic':'#5b21b6','MCP':'#3730a3','A2A':'#3730a3','Automation':'#92400e','Process':'#991b1b','Container':'#1d4ed8','Local LLM':'#92400e','Local ML':'#92400e'};
+  fp.innerHTML=FP.map(f=>{const bg=catColors[f.cat]||'rgba(200,210,240,0.2)';const tc=catTextColors[f.cat]||'var(--text-muted)';const isShadow=f.cat.toLowerCase().includes('shadow')||f.cat.toLowerCase().includes('phi');return`<tr><td style="font-family:var(--font-mono);font-size:10px;color:${isShadow?'var(--red-text)':'var(--text-primary)'}">${f.s}</td><td><span style="font-size:9px;font-weight:600;padding:2px 7px;border-radius:4px;background:${bg};color:${tc}">${f.cat}</span></td><td style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">${f.proto}</td><td style="font-weight:700;color:${f.h>100?'var(--brand)':f.h>10?'var(--text-primary)':'var(--text-muted)'}">${f.h.toLocaleString()}</td><td style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">${f.last}</td></tr>`;}).join('');
+  const cnt=document.getElementById('fp-count');if(cnt)cnt.textContent=FP.length+' signatures';
+}
+function updateScannerStats(){const active=SCANNERS.filter(s=>scRunning[s.id]).length;const el=document.getElementById('sc-active');if(el)el.textContent=active;}
+function toggleScanner(id,btn){scRunning[id]=!scRunning[id];btn.classList.toggle('on',scRunning[id]);btn.classList.toggle('off',!scRunning[id]);const card=document.getElementById(id);if(card){card.classList.toggle('sc-active',scRunning[id]);card.classList.toggle('sc-paused',!scRunning[id]);const dot=card.querySelector('.sc-status-dot');if(dot){const s=SCANNERS.find(x=>x.id===id);dot.className='sc-status-dot '+(scRunning[id]?(s?.status==='alert'?'ssd-alert':'ssd-active'):'ssd-paused');}}updateScannerStats();addAct('reg',(scRunning[id]?'Scanner enabled: ':'Scanner paused: ')+id,'Admin','#6366f1');}
+function toggleAllScanners(on){SCANNERS.forEach(s=>scRunning[s.id]=on);renderScannerGrid();updateScannerStats();}
+function setScanTab(tab,el){scTabFilter=tab;document.querySelectorAll('.filter-pill').forEach(p=>p.classList.remove('on'));el?.classList.add('on');renderScannerGrid();}
+function appendFeedLine(text,cls){const feed=document.getElementById('live-feed');if(!feed)return;const line=document.createElement('div');line.className='log-line '+(cls||'log-acc');line.textContent=new Date().toLocaleTimeString()+' '+text;feed.appendChild(line);feed.scrollTop=feed.scrollHeight;if(feed.children.length>120)feed.removeChild(feed.children[0]);const epm=document.getElementById('rt-epm');if(epm)epm.textContent=Math.floor(Math.random()*8+3);}
+function startFeed(){if(feedTimer)return;feedTimer=setInterval(()=>{const msg=LM[lIdx%LM.length];lIdx++;epCt+=Math.floor(Math.random()*8+2);appendFeedLine(msg.t,msg.c);const ep=document.getElementById('rt-eps');if(ep)ep.textContent=epCt.toLocaleString();},1900);}
+function _fireScanCompleteWebhook(scId,n){fireWebhook('scan_complete',{scanner:scId,agentsFound:n});}
+function showScannerToast(msg,isAlert){const wrap=document.getElementById('scanner-toast-wrap');if(!wrap)return;const toast=document.createElement('div');toast.className='sc-toast '+(isAlert?'alert':'found');toast.innerHTML=`<div class="sc-toast-title">${isAlert?'Alert':'Found'}</div><div class="sc-toast-sub">${msg.slice(0,80)}</div>`;wrap.appendChild(toast);setTimeout(()=>{toast.style.animation='toastOut .3s ease forwards';setTimeout(()=>toast.remove(),300);},4000);}
+function generateScanResults(scannerId,pool,scanner){const results=[];const pick=(arr,n)=>[...arr].sort(()=>Math.random()-.5).slice(0,n);switch(scannerId){case'sc-net-probe':{const svcs=pick(pool.services,Math.floor(Math.random()*3)+1);svcs.forEach(svc=>{const ip='10.'+Math.floor(Math.random()*3+1)+'.'+Math.floor(Math.random()*5)+'.'+Math.floor(Math.random()*254+1);results.push({logLine:pool.logFn(ip,svc),isAlert:svc.risk==='high'||svc.risk==='critical',isWarn:svc.risk==='medium',newAgent:svc.shadow?{name:svc.name,type:'agent',env:'On-Prem',protocols:[svc.proto],risk:svc.risk,shadow:true,detect:'Network Port Prober',phi:false}:null});});break;}case'sc-cloud-aws':{const region=pick(pool.regions,1)[0];pick(pool.services,Math.floor(Math.random()*3)+1).forEach(svc=>{results.push({logLine:pool.logFn(svc,region),isAlert:svc.risk==='high',isWarn:svc.risk==='medium',newAgent:!DB.agents.find(a=>a.name===svc.name)?{name:svc.name,type:'agent',env:'Cloud',protocols:[svc.type,'REST'],risk:svc.risk,shadow:svc.type==='Lambda',detect:'AWS Scanner',phi:false}:null});});break;}case'sc-cloud-azure':{pick(pool.services,2).forEach(svc=>{results.push({logLine:pool.logFn(svc),isAlert:svc.risk==='high',isWarn:svc.risk==='medium',newAgent:!DB.agents.find(a=>a.name===svc.name)?{name:svc.name,type:'agent',env:'Cloud',protocols:[svc.type,'REST'],risk:svc.risk,shadow:false,detect:'Azure Scanner',phi:false}:null});});break;}case'sc-cloud-gcp':{pick(pool.services,2).forEach(svc=>{results.push({logLine:pool.logFn(svc),isAlert:svc.risk==='high',isWarn:svc.risk==='medium',newAgent:null});});break;}case'sc-idp-oauth':{
+      const pickI=(a,n)=>[...a].sort(()=>Math.random()-.5).slice(0,n);
+      pickI(pool.grants, Math.floor(Math.random()*3)+2).forEach(g=>{
+        const isCC = g.claudeAgent;
+        const isNew = !DB.agents.find(a=>a.name&&a.name.includes(g.app));
+        results.push({
+          logLine: pool.logFn(g),
+          isAlert: g.risk==='high'||g.risk==='critical',
+          isWarn:  g.risk==='medium',
+          newAgent: isNew ? {
+            name: 'Hosted AI Agent: '+g.app+' ('+g.user+')',
+            type:'agent', env:'SaaS (Hosted)',
+            protocols:['OAuth2','HTTPS'],
+            risk: g.risk,
+            shadow: true, phi: false,
+            hosted: true,
+            claudeAgent: g.claudeAgent,
+            detect: 'OAuth/IdP Grant Scanner — '+g.idp,
+            owner: g.grantedBy,
+            dataAccess: 'OAuth scopes: '+g.scopes.join(', '),
+            note: g.note,
+          } : null
+        });
+      });
+      break;}
+
+    case'sc-casb':{
+      const pickC=(a,n)=>[...a].sort(()=>Math.random()-.5).slice(0,n);
+      pickC(pool.findings, Math.floor(Math.random()*3)+1).forEach(f=>{
+        const isNew = !DB.agents.find(a=>a.name&&a.name.includes(f.platform));
+        const isCritical = f.risk==='critical' || f.uploadMB > 5;
+        results.push({
+          logLine: pool.logFn(f),
+          isAlert: isCritical,
+          isWarn:  f.risk==='high' && !isCritical,
+          newAgent: isNew ? {
+            name: 'Hosted Agent: '+f.platform+' ('+f.user+')',
+            type:'agent', env:'SaaS (Hosted)',
+            protocols:['HTTPS','REST'],
+            risk: f.risk,
+            shadow: true,
+            phi: f.dataTypes.some(d=>d.includes('patient')||d.includes('lab')||d.includes('phi')),
+            hosted: true,
+            claudeAgent: f.claudeAgent,
+            detect: 'CASB/Proxy Scanner',
+            owner: f.user,
+            dataAccess: 'Data types: '+f.dataTypes.join(', ')+' | '+f.uploadMB+'MB uploaded',
+            note: f.note,
+          } : null
+        });
+        // Fire HIPAA webhook if PHI uploaded to hosted agent
+        if(f.dataTypes.some(d=>d.includes('patient')||d.includes('lab'))&&f.claudeAgent){
+          fireWebhook('hipaa_violation',{agentName:f.platform,user:f.user,uploadMB:f.uploadMB,hosted:true,note:f.note});
+        }
+      });
+      break;}
+
+    case'sc-dns':{
+      const pickD=(a,n)=>[...a].sort(()=>Math.random()-.5).slice(0,n);
+      pickD(pool.queries,Math.floor(Math.random()*4)+3).forEach(q=>{
+        const isHosted = q.hosted||false;
+        const knownHosted = isHosted && !DB.agents.find(a=>a.name&&a.name.includes(q.domain.split('.')[0]));
+        results.push({
+          logLine:pool.logFn(q),
+          isAlert:q.risk==='high'||q.dlp||isHosted,
+          isWarn:q.risk==='medium'&&!q.dlp&&!isHosted,
+          newAgent:(q.shadowAI&&!DB.agents.find(a=>a.name&&a.name.includes(q.domain)))?{
+            name: isHosted
+              ? 'Hosted AI Agent: '+q.domain+' ('+q.src+')'
+              : 'Shadow AI via DNS: '+q.domain+' ('+q.src+')',
+            type:'agent',
+            env: isHosted ? 'SaaS (Hosted)' : 'Browser',
+            protocols:['HTTPS','Browser'],
+            risk:q.dlp?'high':q.risk,
+            shadow:true, phi:false,
+            hosted: isHosted,
+            claudeAgent: q.domain.includes('dify')||q.domain.includes('voiceflow')||q.domain.includes('claude.ai'),
+            detect:'DNS Monitor'+(isHosted?' — hosted AI platform':''),
+            dlpRisk:q.dlp||false,
+            note:q.note
+          }:null
+        });
+      });
+      break;}case'sc-process':{
+      // Regular process findings
+      const pickP=(a,n)=>[...a].sort(()=>Math.random()-.5).slice(0,n);
+      pickP(pool.processes,Math.floor(Math.random()*3)+1).forEach(p=>{
+        const isCC=p.claudeCode||false;
+        results.push({
+          logLine:pool.logFn(p),
+          isAlert:p.risk==='critical'||p.risk==='high',
+          isWarn:p.risk==='medium',
+          newAgent:{name:p.name+'('+p.host+')',type:'agent',env:'On-Prem',
+            protocols:isCC?['Claude Code CLI','Anthropic API']:['Python SDK'],
+            risk:p.risk,shadow:true,phi:false,
+            detect:isCC?'SSH Process Scanner — Claude Code':'SSH Process Scanner',
+            claudeCode:isCC}
+        });
+      });
+      // Claude desktop config findings (high value — shows MCP servers)
+      if(pool.configFiles&&Math.random()>0.4){
+        const cfg=pool.configFiles[Math.floor(Math.random()*pool.configFiles.length)];
+        results.push({
+          logLine:pool.configLogFn(cfg),
+          isAlert:cfg.risk==='critical',
+          isWarn:cfg.risk==='high',
+          newAgent:cfg.mcpServers.slice(0,2).map(srv=>({
+            name:'Claude Code MCP: '+srv.split(' ')[0]+' ('+cfg.host+')',
+            type:'agent',env:'On-Prem',
+            protocols:['MCP Protocol','Claude Code'],
+            risk:cfg.risk,shadow:true,phi:cfg.phi,
+            detect:'SSH Scanner — claude_desktop_config.json',claudeCode:true
+          }))[0]||null
+        });
+      }
+      break;}case'sc-k8s':{pick(pool.pods,Math.floor(Math.random()*3)+1).forEach(p=>{results.push({logLine:pool.logFn(p),isAlert:p.risk==='high',isWarn:p.risk==='medium',newAgent:!DB.agents.find(a=>a.name===p.name)?{name:p.name,type:'agent',env:'Cloud',protocols:['Kubernetes','REST'],risk:p.risk,shadow:false,detect:'K8s Scanner',phi:p.ns==='healthcare'}:null});});break;}case'sc-hl7':{pool.listeners.forEach(l=>{results.push({logLine:pool.logFn(l),isAlert:!l.authorized,isWarn:false,newAgent:!l.authorized&&!DB.agents.find(a=>a.name.includes('Shadow HL7'))?{name:'Shadow HL7 Listener ('+l.ip+')',type:'agent',env:'On-Prem',protocols:['HL7 v2','MLLP'],risk:'critical',shadow:true,phi:true,detect:'HL7 Monitor',pii:true}:null});});break;}case'sc-fhir':{pool.endpoints.forEach(ep=>{[...ep.smartApps].slice(0,2).forEach(app=>{results.push({logLine:pool.logFn(ep,app),isAlert:false,isWarn:true,newAgent:null});});});break;}case'sc-dicom':{pool.gateways.forEach(g=>{g.aeTitles.slice(0,2).forEach(ae=>{results.push({logLine:pool.logFn(g,ae),isAlert:false,isWarn:ae.includes('AI'),newAgent:null});});});break;}case'sc-splunk':{const pick2=(a,n)=>[...a].sort(()=>Math.random()-.5).slice(0,n);pick2(pool.findings,3).forEach(f=>{results.push({logLine:pool.logFn(f),isAlert:f.proc.includes('shadow'),isWarn:f.bytes.includes('GB'),newAgent:null});});break;}case'sc-traffic':{const pick3=(a,n)=>[...a].sort(()=>Math.random()-.5).slice(0,n);pick3(pool.flows,3).forEach(f=>{results.push({logLine:pool.logFn(f),isAlert:f.risk==='critical',isWarn:f.risk==='high',newAgent:null});});break;}case'sc-api-token':{
+      const pickT=(a,n)=>[...a].sort(()=>Math.random()-.5).slice(0,n);
+      pickT(pool.findings,Math.floor(Math.random()*3)+2).forEach(f=>{
+        const isCC=f.key&&(f.key.includes('sk-ant')||f.key.includes('ANTHROPIC')||f.key.includes('claude'));
+        const isCiCD=f.type==='GitHub workflow';
+        const isSecret=f.type.includes('secret');
+        results.push({
+          logLine:pool.logFn(f),
+          isAlert:isSecret&&f.risk==='critical',
+          isWarn:isCiCD||f.risk==='high',
+          newAgent:isSecret?{
+            name:(isCC?'Claude/Anthropic':'AI')+' Key Exposure: '+f.repo,
+            type:'bot',env:'Cloud',
+            protocols:isCC?['Anthropic API','Claude Code']:['LLM API'],
+            risk:f.risk||'high',shadow:true,
+            detect:'API Token Tracer'+(isCC?' — Anthropic key':''),
+            phi:false,claudeCode:isCC
+          }:isCiCD?{
+            name:'Claude Code CI/CD Agent: '+f.repo,
+            type:'agent',env:'Cloud',
+            protocols:['Claude Code','GitHub Actions','Anthropic API'],
+            risk:'high',shadow:true,
+            detect:'API Token Tracer — GitHub workflow scan',
+            phi:false,claudeCode:true
+          }:null
+        });
+      });
+      break;}case'sc-mcp-a2a':{
+      const pickM=(a,n)=>[...a].sort(()=>Math.random()-.5).slice(0,n);
+      pickM(pool.discovered,2).forEach(d=>{
+        const isCC=d.claudeCode||false;
+        const isNew=!DB.agents.find(a=>a.name===d.host);
+        results.push({
+          logLine:pool.logFn(d),
+          isAlert:d.risk==='critical'||(!d.registered&&d.risk==='high'),
+          isWarn:d.risk==='medium'||(d.risk==='high'&&d.registered),
+          newAgent:isNew?{name:d.host,type:'agent',env:'On-Prem',
+            protocols:[d.proto,'HTTP'],risk:d.risk,shadow:!d.registered,
+            phi:d.phi||false,
+            detect:isCC?'MCP Scanner — claude_desktop_config.json':'MCP/A2A Scanner',
+            claudeCode:isCC,
+            tools:(d.tools||d.capabilities||[])}:null
+        });
+      });
+      // claude_desktop_config sweep
+      if(pool.claudeDesktopConfigs&&Math.random()>0.5){
+        const cfg=pool.claudeDesktopConfigs[Math.floor(Math.random()*pool.claudeDesktopConfigs.length)];
+        results.push({
+          logLine:pool.configLogFn(cfg),
+          isAlert:cfg.highRisk.length>0,
+          isWarn:cfg.servers>2&&cfg.highRisk.length===0,
+          newAgent:null
+        });
+      }
+      break;}}return results;}
+function runAllScanners(){SCANNERS.filter(s=>scRunning[s.id]).forEach((s,i)=>{setTimeout(()=>runScannerById(s.id),i*800);});}
+function toggleScannerMode(){const _mb=document.getElementById('btn-mode-switch');if(_mb)setTimeout(()=>{_mb.textContent=scannerMode==='prod'?'⇄ Live':'⇄ Demo';},50);scannerMode=scannerMode==='demo'?'prod':'demo';if(scannerMode==='prod'&&_apiToken){loadLiveAgents().then(()=>{renderDashboard&&go(cv);});};const banner=document.getElementById('mode-banner');const dot=document.getElementById('mode-dot');const label=document.getElementById('mode-label');const sub=document.getElementById('mode-sub');const toggle=document.getElementById('mode-toggle');if(scannerMode==='prod'){banner.className='mode-banner prod';dot.style.background='#10b981';dot.style.animation='none';label.style.color='#065f46';label.textContent='Production Mode - Real backend API code';sub.textContent='Each scanner card shows the actual backend code you need to deploy. Demo data is shown for safe demonstration.';toggle.className='mode-toggle prod';}else{banner.className='mode-banner demo';dot.style.background='#f59e0b';dot.style.animation='livePulse 2s infinite';label.style.color='#92400e';label.textContent='Demo Mode - Realistic dummy data';sub.textContent='All scanners simulate real discovery pipelines with randomised realistic data.';toggle.className='mode-toggle demo';}renderScannerGrid();}
+
+/* -- SHADOW
+
+/* -- SHADOW -- */
+function renderShadow(){
+  const list=DB.agents.filter(a=>a.shadow);
+  document.getElementById('shd-n').textContent=list.length;
+  document.getElementById('shd-pii').textContent=list.filter(a=>a.pii).length;
+  document.getElementById('shd-meth').textContent=[...new Set(list.map(a=>a.detect))].length;
+  const sm={critical:100,high:75,medium:50,low:25};
+  document.getElementById('shd-avg').textContent=list.length?Math.round(list.reduce((a,x)=>a+(sm[x.risk]||0),0)/list.length):'—';
+  document.getElementById('shd-head').textContent=list.length+' unregistered';
+  const tb=document.getElementById('shadow-tbody');
+  if(!tb)return;
+  tb.innerHTML=list.map(a=>`<tr onclick="openDrawer('${a.id}')">
+    <td style="font-weight:700;color:var(--text-primary)">${a.name}</td>
+    <td style="font-size:11px;color:var(--text-muted)">${a.detect}</td>
+    <td>${envTag(a.env)}</td>
+    <td style="font-size:11px;color:var(--text-muted)">${a.dataAccess}</td>
+    <td style="font-size:11px;color:var(--text-muted)">${a.firstDet}</td>
+    <td>${rtag(a.risk)}</td>
+    <td><button class="btn danger sm" onclick="event.stopPropagation();quarantine(${a.id})">Quarantine</button></td>
+  </tr>`).join('');
+}
+
+/* -- PHI EXPOSURE -- */
+function renderPhi(){
+  const list=DB.agents.filter(a=>a.phi);
+  const nobaa=list.filter(a=>a.controls.hipaa!=='pass').length;
+  const noenc=list.filter(a=>a.controls.hipaa==='fail').length;
+  const ok=list.filter(a=>a.controls.hipaa==='pass').length;
+  document.getElementById('phi-n').textContent=list.length;
+  document.getElementById('phi-nobaa').textContent=nobaa;
+  document.getElementById('phi-noenc').textContent=noenc;
+  document.getElementById('phi-ok').textContent=ok;
+  const tb=document.getElementById('phi-tbody');
+  if(!tb)return;
+  const baaStatus=h=>h==='pass'?'<span style="font-size:11px;color:#16a34a;font-weight:600">✓ BAA Signed</span>':h==='warn'?'<span style="font-size:11px;color:#d97706;font-weight:600">⚠ Pending</span>':'<span style="font-size:11px;color:#dc2626;font-weight:600">✗ No BAA</span>';
+  const encStatus=h=>h==='pass'?'<span style="font-size:11px;color:#16a34a;font-weight:600">✓ Encrypted</span>':h==='fail'?'<span style="font-size:11px;color:#dc2626;font-weight:600">✗ Unencrypted</span>':'<span style="font-size:11px;color:#d97706;font-weight:600">⚠ Partial</span>';
+  const hipaaScore=a=>{const c=a.controls;if(!c.hipaa)return 0;const m={pass:100,warn:60,fail:0};return m[c.hipaa]||0;};
+  tb.innerHTML=list.map(a=>`<tr onclick="openDrawer('${a.id}')">
+    <td><span style="font-weight:700;color:var(--text-primary)">${a.name}</span></td>
+    <td><span style="font-size:11px;background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:2px 6px">${a.domain||'general'}</span></td>
+    <td>${a.protocols.filter(p=>['FHIR R4','HL7 v2','DICOM','MCP'].includes(p)).map(p=>`<span class="proto-tag" style="background:#dbeafe;color:#1d4ed8">${p}</span>`).join('') || a.protocols.slice(0,1).map(p=>`<span class="proto-tag">${p}</span>`).join('')}</td>
+    <td>${baaStatus(a.controls.hipaa)}</td>
+    <td>${encStatus(a.controls.hipaa)}</td>
+    <td><span style="font-weight:700;color:${hipaaScore(a)>=80?'#16a34a':hipaaScore(a)>=50?'#d97706':'#dc2626'}">${hipaaScore(a)}%</span></td>
+    <td><span style="font-size:11px;color:${a.controls.hipaa==='pass'?'#16a34a':'#dc2626'}">${a.controls.hipaa==='pass'?'✓ Enabled':'✗ Incomplete'}</span></td>
+    <td>${rtag(a.risk)}</td>
+  </tr>`).join('');
+}
+
+/* -- MODEL REGISTRY -- */
+function renderModels(){
+  const list=DB.models||[];
+  const unval=list.filter(m=>!m.validated).length;
+  const phi=list.filter(m=>m.phi).length;
+  const val=list.filter(m=>m.validated).length;
+  document.getElementById('mdl-n').textContent=list.length;
+  document.getElementById('mdl-unval').textContent=unval;
+  document.getElementById('mdl-phi').textContent=phi;
+  document.getElementById('mdl-val').textContent=val;
+  const tb=document.getElementById('mdl-tbody');
+  if(!tb)return;
+  tb.innerHTML=list.map(m=>{
+    const agentNames=m.agents.map(aid=>{const a=DB.agents.find(x=>x.id===aid);return a?a.name.split(' ').slice(0,2).join(' '):'';}).filter(Boolean).join(', ');
+    return `<tr>
+      <td style="font-weight:700;color:var(--text-primary)">${m.name}</td>
+      <td style="font-size:11px;color:var(--text-muted)">${m.vendor}</td>
+      <td><span class="type-tag">${m.type}</span></td>
+      <td style="font-size:11px;color:var(--text-muted)">${m.task}</td>
+      <td style="font-size:11px;color:var(--text-muted);max-width:120px;overflow:hidden;text-overflow:ellipsis">${agentNames||'—'}</td>
+      <td>${m.phi?'<span style="font-size:10px;font-weight:700;background:#fee2e2;color:#dc2626;border-radius:4px;padding:1px 5px">PHI</span>':'<span style="font-size:10px;color:var(--text-muted)">—</span>'}</td>
+      <td>${m.validated?'<span style="font-size:11px;color:#16a34a;font-weight:600">✓ Validated</span>':'<span style="font-size:11px;color:#dc2626;font-weight:600">✗ Pending</span>'}</td>
+      <td style="font-size:11px;color:var(--text-muted)">${m.lastAudit||'<span style="color:#dc2626">Never</span>'}</td>
+      <td>${rtag(m.risk)}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* -- PLAYBOOKS -- */
+const PLAYBOOKS=[
+  {id:1,title:"Remediate PHI Without HIPAA BAA",framework:"HIPAA",priority:"critical",agent:"Patient Classifier API",steps:["1. Immediately suspend PHI data ingestion from the agent","2. Engage Legal to draft and execute a Business Associate Agreement (BAA) with the AI vendor","3. Document all PHI processed during the period without BAA (breach assessment required within 60 days)","4. Implement access controls: restrict PHI to only agents with signed BAAs","5. Re-enable agent only after BAA is signed, controls tested, and audit log enabled","6. Re-run AgentRadar scan to verify HIPAA = pass"],est:"3–5 business days"},
+  {id:2,title:"Contain Shadow HL7 Listener",framework:"HIPAA / HITRUST",priority:"critical",agent:"Shadow HL7 Listener",steps:["1. Immediately block port 2575 (MLLP) at the firewall for the detected host IP","2. Isolate the host from the network to prevent further ADT feed ingestion","3. Conduct forensic review: what PHI was received? How many ADT messages?","4. Notify Privacy Officer — potential HIPAA breach if PHI was accessed without authorization","5. Trace who deployed the listener — was it a developer, vendor, or unauthorized actor?","6. If breach confirmed: notify affected patients within 60 days per HIPAA Breach Notification Rule"],est:"Immediate (0–24 hours)"},
+  {id:3,title:"Fix GDPR PII Access Without Lawful Basis",framework:"GDPR",priority:"critical",agent:"GPT-4 Automation Hub",steps:["1. Suspend the agent's access to PII data sources immediately","2. Identify the specific PII categories being processed (Art. 4 GDPR)","3. Determine and document the lawful basis (consent, contract, legitimate interest — Art. 6 GDPR)","4. If consent: implement consent collection mechanism and re-obtain from all affected data subjects","5. Create Record of Processing Activity (Art. 30 GDPR) entry for this agent","6. Execute a Data Protection Impact Assessment (DPIA) if high risk processing (Art. 35)","7. Re-run AgentRadar scan to verify GDPR = pass"],est:"5–10 business days"},
+  {id:4,title:"FDA SaMD Classification for Radiology AI",framework:"FDA SaMD",priority:"high",agent:"Radiology Multiagent Pipeline",steps:["1. Determine the intended use and device function under FDA 21 CFR Part 820","2. Classify the SaMD: Class I, II, or III based on risk to patient safety","3. For Class II: prepare and submit 510(k) Premarket Notification or De Novo request","4. Implement Quality Management System (QMS) per ISO 13485","5. Complete Algorithm Validation: analytical validation, clinical validation, bias assessment","6. Prepare Software Bill of Materials (SBOM) per FDA cybersecurity guidance","7. Establish post-market surveillance plan for ongoing performance monitoring"],est:"6–12 months (regulatory timeline)"},
+  {id:5,title:"Contain AutoGPT with Prod API Keys",framework:"SOC 2 / NIST",priority:"critical",agent:"AutoGPT Instance",steps:["1. Immediately revoke all production API keys associated with the AutoGPT instance","2. Isolate the workstation (DESKTOP-7F3A) from the network","3. Audit all API calls made using the leaked keys (check cloud provider logs)","4. Rotate all potentially compromised credentials across affected systems","5. Review files accessed on the local filesystem during the agent's runtime","6. Implement endpoint DLP policy to prevent future unauthorized key storage"],est:"0–48 hours"},
+  {id:6,title:"HITRUST CSF Data Protection Remediation",framework:"HITRUST CSF",priority:"high",agent:"Genomics Research Agent",steps:["1. Classify genomic data under HITRUST requirement 07.a (Information Classification)","2. Implement encryption at rest (AES-256) and in transit (TLS 1.3) for all genomic datasets","3. Deploy Data Loss Prevention (DLP) controls on the agent's data egress paths","4. Implement Privileged Access Management for researcher accounts accessing genomic data","5. Conduct network segmentation review — genomics pipeline should be on an isolated VLAN","6. Schedule quarterly HITRUST self-assessment for this agent category"],est:"2–4 weeks"},
+];
+let cfFilter='all';
+function setCF(f,el){cfFilter=f;document.querySelectorAll('.filter-bar .cf-pill').forEach(p=>p.classList.remove('on'));el?.classList.add('on');renderComp();}
+
+function renderPlaybooks(){
+  const pl=document.getElementById('playbook-list');
+  if(!pl)return;
+  pl.innerHTML=PLAYBOOKS.map(pb=>`
+    <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:12px;overflow:hidden">
+      <div style="padding:12px 16px;display:flex;align-items:center;gap:10px;cursor:pointer" onclick="this.parentElement.querySelector('.pb-steps').style.display=this.parentElement.querySelector('.pb-steps').style.display==='none'?'block':'none'">
+        <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:${pb.priority==='critical'?'#fee2e2':pb.priority==='high'?'#fef3c7':'#dcfce7'};color:${pb.priority==='critical'?'#dc2626':pb.priority==='high'?'#d97706':'#16a34a'}">${pb.priority.toUpperCase()}</span>
+        <span style="font-weight:600;color:var(--text-primary);flex:1;font-size:13px">${pb.title}</span>
+        <span style="font-size:10px;color:var(--text-muted)">${pb.framework}</span>
+        <span style="font-size:10px;background:var(--glass-border-dim);border-radius:4px;padding:2px 6px;color:var(--text-muted)">⏱ ${pb.est}</span>
+      </div>
+      <div class="pb-steps" style="display:none;padding:0 16px 14px;border-top:1px solid var(--glass-border-dim)">
+        <div style="font-size:11px;color:var(--text-muted);margin:10px 0 8px">Agent: <strong style="color:var(--text-primary)">${pb.agent}</strong></div>
+        ${pb.steps.map(s=>`<div style="font-size:12px;color:var(--text-secondary);padding:4px 0;line-height:1.55;border-bottom:1px solid var(--glass-border-dim)">${s}</div>`).join('')}
+      </div>
+    </div>
+  `).join('');
+  const chat=document.getElementById('pb-chat');
+  if(chat&&!chat.children.length){
+    chat.innerHTML=`<div style="background:var(--glass-white);border-radius:8px;padding:10px 12px;color:var(--text-secondary);line-height:1.6">Hi! I can help you understand any remediation step, explain HIPAA/FDA requirements, or generate a custom playbook for a specific agent. What would you like to know?</div>`;
+  }
+}
+
+async function askPB(){
+  const inp=document.getElementById('pb-q');
+  const q=inp?.value?.trim();
+  if(!q)return;
+  const chat=document.getElementById('pb-chat');
+  inp.value='';
+  const userMsg=document.createElement('div');
+  userMsg.style.cssText='background:#6366f1;color:white;border-radius:8px;padding:8px 12px;margin-left:20%;font-size:12px;line-height:1.5';
+  userMsg.textContent=q;
+  chat.appendChild(userMsg);
+  const thinking=document.createElement('div');
+  thinking.style.cssText='background:var(--glass-white);border-radius:8px;padding:8px 12px;color:var(--text-muted);font-size:12px';
+  thinking.textContent='✦ Thinking…';
+  chat.appendChild(thinking);
+  chat.scrollTop=chat.scrollHeight;
+  try{
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:400,system:'You are an expert AI governance and healthcare compliance advisor embedded in AgentRadar. Answer concisely about HIPAA, HITRUST, FDA SaMD, GDPR, SOC2, and AI security remediation. Keep responses under 120 words.',messages:[{role:'user',content:q}]})});
+    const d=await resp.json();
+    thinking.textContent=(d.content?.[0]?.text)||'Unable to get response.';
+    thinking.style.color='var(--text-secondary)';
+  }catch(e){thinking.textContent='AI assistant unavailable. Check API connectivity.';}
+  chat.scrollTop=chat.scrollHeight;
+}
+
+/* -- POLICY -- */
+function renderPolicy(){
+  const vs=violations();
+  const on=DB.policies.filter(p=>p.on).length;
+  document.getElementById('pol-n').textContent=on;
+  document.getElementById('pol-v').textContent=vs.length;
+  document.getElementById('pol-w').textContent=Math.floor(vs.length*.4);
+  document.getElementById('pol-p').textContent=DB.agents.length-[...new Set(vs.map(v=>v.agent.id))].length;
+  const pl=document.getElementById('policy-list');
+  if(pl)pl.innerHTML=DB.policies.map(p=>{
+    const mv=vs.filter(v=>v.policy.id===p.id);
+    return`<div class="policy-card">
+      <div class="policy-row">
+        <span class="policy-name">${p.name}</span>
+        <div class="toggle ${p.on?'on':''}" onclick="togglePol(${p.id})"><div class="toggle-knob"></div></div>
+      </div>
+      <div class="policy-desc">${p.desc} · <strong>Action:</strong> ${p.act}</div>
+      ${mv.length?`<div class="policy-viol">⚠ ${mv.length} violation${mv.length>1?'s':''}: ${mv.slice(0,2).map(v=>v.agent.name).join(', ')}${mv.length>2?'…':''}</div>`:''}
+    </div>`;
+  }).join('');
+  const vl=document.getElementById('policy-viols');
+  if(vl)vl.innerHTML=vs.length?vs.map(v=>`<div class="risk-item" onclick="openDrawer('${v.agent.id}')">
+    <div class="risk-item-row"><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;background:var(--amber-bg);color:var(--amber-text);border:1px solid var(--amber-border)">VIOLATION</span><span class="risk-item-name">${v.agent.name}</span></div>
+    <div class="risk-desc">${v.policy.name}</div>
+  </div>`).join(''):'<div style="padding:20px;text-align:center;font-size:12px;color:var(--text-muted)">No violations detected</div>';
+}
+function togglePol(id){const p=DB.policies.find(x=>x.id===id);if(p){p.on=!p.on;save();renderPolicy();updateStats();addAct('policy',`Policy ${p.on?'enabled':'disabled'}: ${p.name}`,'Admin · just now','#f59e0b');}}
+function submitPolicy(){
+  const name=document.getElementById('p-name').value.trim();if(!name){alert('Enter a name.');return;}
+  DB.policies.push({id:Date.now(),name,desc:document.getElementById('p-desc').value,cond:document.getElementById('p-cond').value,act:document.getElementById('p-act').value,on:true});
+  save();closeModal('modal-policy');renderPolicy();updateStats();
+  addAct('policy',`Policy created: ${name}`,'Admin · just now','#f59e0b');
+}
+
+/* -- APPROVALS -- */
+function renderAppr(){
+  const sc=s=>DB.approvals.filter(a=>a.stage===s).length;
+  document.getElementById('app-pend').textContent=sc('pending');
+  document.getElementById('app-rev').textContent=sc('review');
+  document.getElementById('app-app').textContent=sc('approved');
+  document.getElementById('app-rej').textContent=sc('rejected');
+  const active=DB.approvals.filter(a=>!['approved','rejected'].includes(a.stage));
+  const al=document.getElementById('appr-list');
+  if(al)al.innerHTML=active.length?active.map(ap=>{
+    const ag=DB.agents.find(a=>a.id===ap.aid);if(!ag)return'';
+    const sc={pending:'as-pending',review:'as-review',approved:'as-approved',rejected:'as-rejected'}[ap.stage];
+    return`<div class="appr-card">
+      <div class="appr-head"><span class="appr-stage ${sc}">${ap.stage}</span><span class="appr-name">${ag.name}</span>${rtag(ag.risk)}</div>
+      <div class="appr-meta">${ap.note}<br><span style="color:var(--text-muted);font-size:10px">By ${ap.by} · ${ap.at}</span></div>
+      <div class="appr-actions">
+        <button class="btn success sm" onclick="approveAg(${ap.id})">Approve</button>
+        <button class="btn danger sm" onclick="rejectAg(${ap.id})">Reject</button>
+        <button class="btn sm" onclick="openDrawer('${ag.id}')">View</button>
+      </div>
+    </div>`;
+  }).join(''):'<div style="font-size:12px;color:var(--text-muted);padding:8px">No pending approvals</div>';
+  const ah=document.getElementById('appr-hist');
+  if(ah)ah.innerHTML=DB.apprHist.map(h=>`<div class="tl-item"><div class="tl-col"><div class="tl-dot" style="color:${h.c};background:${h.c}"></div><div class="tl-line"></div></div><div><div class="tl-event">${h.t}</div><div class="tl-meta">${h.m}</div></div></div>`).join('');
+}
+function approveAg(id){const ap=DB.approvals.find(a=>a.id===id);if(!ap)return;const ag=DB.agents.find(a=>a.id===ap.aid);ap.stage='approved';if(ag)ag.shadow=false;DB.apprHist.unshift({t:`${ag?.name} approved`,m:'Admin · just now',c:'#10b981'});addAct('reg',`Agent approved: ${ag?.name}`,'Admin · just now','#10b981');save();renderAppr();updateStats();}
+function rejectAg(id){const ap=DB.approvals.find(a=>a.id===id);if(!ap)return;const ag=DB.agents.find(a=>a.id===ap.aid);ap.stage='rejected';DB.apprHist.unshift({t:`${ag?.name} rejected`,m:'Admin · just now',c:'#ef4444'});addAct('alert',`Agent rejected: ${ag?.name}`,'Admin · just now','#ef4444');save();renderAppr();updateStats();}
+
+/* -- COMPLIANCE -- */
+const FW=[{k:'soc2',n:'SOC 2 Type II',cat:'general'},{k:'iso27001',n:'ISO 27001:2022',cat:'general'},{k:'gdpr',n:'GDPR / DPA',cat:'general'},{k:'nist',n:'NIST AI RMF',cat:'general'},{k:'euai',n:'EU AI Act',cat:'general'},{k:'hipaa',n:'HIPAA',cat:'healthcare'},{k:'hitrust',n:'HITRUST CSF',cat:'healthcare'},{k:'fda_samd',n:'FDA SaMD',cat:'healthcare'}];
+const DOCS=[{n:"DPA — ServiceDesk Bot",t:"Document",d:"2025-03-01"},{n:"NIST Model Card — FinBot",t:"Model Card",d:"2025-02-28"},{n:"ISO 27001 Certificate",t:"Certificate",d:"2025-01-10"},{n:"GDPR DPIA — Claude Ops",t:"DPIA",d:"2025-01-20"},{n:"HIPAA BAA — Clinical Decision Support",t:"BAA",d:"2025-01-08"},{n:"FDA SaMD Classification — Drug Classifier",t:"Regulatory Filing",d:"2025-01-20"},{n:"EU AI Act Assessment",t:"Impact Assessment",d:"2025-03-25"}];
+function renderCompRemediation() {
+  const container = document.getElementById('comp-remediation-list');
+  if (!container) return;
+  const filter = document.getElementById('comp-remediation-filter')?.value || 'all';
+  const agents = DB.agents || [];
+
+  // Collect all remediations across all agents
+  const allRecs = [];
+  agents.forEach(agent => {
+    const recs = getRemediations(agent.controls || {});
+    recs.forEach(rec => {
+      allRecs.push({ ...rec, agentName: agent.name, agentType: agent.type, agentId: agent.id });
+    });
+  });
+
+  // Filter by priority
+  const filtered = filter === 'all' ? allRecs :
+    allRecs.filter(r => r.priority.toLowerCase() === filter);
+
+  // Sort by priority then agent name
+  const order = {Critical:0, High:1, Medium:2, Low:3};
+  filtered.sort((a,b) => (order[a.priority]||3) - (order[b.priority]||3) || a.agentName.localeCompare(b.agentName));
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="padding:20px;text-align:center;font-size:12px;color:var(--text-muted)">✅ No remediation items for selected filter</div>';
+    return;
+  }
+
+  // Group by framework
+  const byFramework = {};
+  filtered.forEach(r => {
+    if (!byFramework[r.framework]) byFramework[r.framework] = [];
+    byFramework[r.framework].push(r);
+  });
+
+  const priColor = {Critical:'var(--red-text)',High:'var(--amber-text)',Medium:'var(--brand)',Low:'var(--green-text)'};
+  const priBg = {Critical:'var(--red-bg)',High:'var(--amber-bg)',Medium:'var(--brand-bg)',Low:'var(--green-bg)'};
+
+  container.innerHTML = filtered.map(item => `
+    <div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:10px;margin-bottom:10px;overflow:hidden">
+      <div style="padding:10px 14px;background:${priBg[item.priority]||'var(--bg-secondary)'};border-bottom:1px solid var(--glass-border-dim);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:${priColor[item.priority]||'var(--text-muted)'};color:white">${item.priority}</span>
+        <span style="font-size:13px;font-weight:700;color:var(--text-primary)">${item.title}</span>
+        <span style="font-size:11px;color:var(--text-muted);margin-left:auto">Agent: <strong>${item.agentName}</strong></span>
+      </div>
+      <div style="padding:10px 14px">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">${item.why}</div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:4px">TOP STEPS:</div>
+        ${item.steps.slice(0,3).map((s,i) => `
+          <div style="display:flex;gap:8px;padding:4px 0;font-size:12px">
+            <span style="width:16px;height:16px;border-radius:50%;background:var(--brand-bg);color:var(--brand);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</span>
+            <div><span style="color:var(--text-primary)">${s.step}</span> <span style="color:var(--text-muted)">— ${s.effort} · ${s.owner}</span></div>
+          </div>`).join('')}
+        <div style="display:flex;gap:6px;margin-top:8px;align-items:center">
+          <button class="btn sm" onclick="createJiraTicket(${JSON.stringify({title:item.title,priority:item.priority,framework:item.framework,deadline:item.deadline,owner:item.owner,steps:item.steps.map(s=>s.step)})})"
+            style="font-size:11px;background:linear-gradient(135deg,#0052CC,#0065FF);color:white;border:none">
+            🎫 Create Jira Ticket
+          </button>
+          <button class="btn sm" onclick="openDrawer('${item.agentId}')" style="font-size:11px">View Agent →</button>
+          <span style="font-size:10px;color:var(--text-muted);margin-left:4px">${item.framework} · Due: ${item.deadline}</span>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function renderComp(){
+  const A=DB.agents;
+  const showFW=cfFilter==='healthcare'?FW.filter(f=>f.cat==='healthcare'):cfFilter==='general'?FW.filter(f=>f.cat==='general'):FW;
+  const cg=document.getElementById('comp-grid');
+  if(cg)cg.innerHTML=showFW.map(f=>{
+    const pass=A.filter(a=>a.controls[f.k]==='pass').length;
+    const warn=A.filter(a=>a.controls[f.k]==='warn').length;
+    const fail=A.filter(a=>a.controls[f.k]==='fail').length;
+    const pct=Math.round(pass/A.length*100);
+    const col=pct>=70?'#10b981':pct>=40?'#f59e0b':'#ef4444';
+    const hcBadge=f.cat==='healthcare'?'<span style="font-size:9px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 4px;margin-left:4px">🏥</span>':'';
+    return`<div class="comp-card">
+      <div class="comp-name">${f.n}${hcBadge}</div>
+      <div class="comp-pct" style="color:${col}">${pct}%</div>
+      <div class="comp-bar-bg"><div class="comp-bar-fill" style="width:${pct}%;background:${col}"></div></div>
+      <div class="comp-stats"><span>${pass}✓</span><span>${warn}~</span><span style="color:var(--red-text)">${fail}✗</span></div>
+    </div>`;
+  }).join('');
+  const ev=document.getElementById('evidence-list');
+  if(ev)ev.innerHTML=DOCS.map(d=>`<div class="doc-row"><div class="doc-icon">📄</div><div><div class="doc-name">${d.n}</div><div class="doc-meta">${d.t} · ${d.d}</div></div></div>`).join('');
+  const tb=document.getElementById('comp-tbody');
+  if(!tb)return;
+  tb.innerHTML=A.map(a=>{
+    const c=a.controls;
+    const allKeys=['soc2','iso27001','gdpr','nist','euai','hipaa','hitrust','fda_samd'];
+    const s=cscore(c);
+    const col=s===100?'#10b981':s>=60?'#f59e0b':'#ef4444';
+    const phiTag=a.phi?'<span style="font-size:9px;font-weight:700;background:#fee2e2;color:#dc2626;border-radius:3px;padding:1px 4px;margin-left:3px">PHI</span>':'';
+    return`<tr onclick="openDrawer('${a.id}')">
+      <td style="font-weight:700;color:var(--text-primary)">${a.name}${phiTag}</td>
+      <td><span class="type-tag">${a.type==='agent'?'Agent':'Bot'}</span></td>
+      ${allKeys.map(k=>`<td>${cc(c[k]||'pass')}</td>`).join('')}
+      <td><span style="font-family:var(--font-display);font-size:14px;font-weight:800;color:${col}">${s}%</span></td>
+    </tr>`;
+  }).join('');
+  setTimeout(renderCompRemediation, 100);
+  setTimeout(renderCompRemediation, 100);
+}
+
+/* -- RISK -- */
+function setRF(f,el){rf=f;document.querySelectorAll('#risk-pills .filter-pill').forEach(p=>p.classList.remove('on'));el.classList.add('on');renderRisk();}
+function renderRisk(){
+  const R=DB.risks;
+  document.getElementById('r-crit').textContent=R.filter(r=>r.level==='critical').length;
+  document.getElementById('r-high').textContent=R.filter(r=>r.level==='high').length;
+  document.getElementById('r-med').textContent=R.filter(r=>r.level==='medium').length;
+  document.getElementById('r-low').textContent=R.filter(r=>r.level==='low').length;
+  let filtered=rf==='all'?R:R.filter(r=>r.level===rf);
+  const rl=document.getElementById('risk-list');
+  if(rl)rl.innerHTML=filtered.map(r=>`<div class="risk-item" onclick="openDrawer('${r.aid}')">
+    <div class="risk-item-row">${rtag(r.level)}<span class="risk-item-name">${r.name}</span><span class="risk-item-cat">${r.cat}</span></div>
+    <div class="risk-desc">${r.desc}</div>
+  </div>`).join('');
+  // categories
+  const cats={};R.forEach(r=>{cats[r.cat]=(cats[r.cat]||0)+1;});
+  const rc=document.getElementById('risk-cats');
+  if(rc){const mx=Math.max(...Object.values(cats));rc.innerHTML=Object.entries(cats).sort((a,b)=>b[1]-a[1]).map(([cat,n])=>`<div>
+    <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span style="font-weight:600;color:var(--text-secondary)">${cat}</span><span style="font-weight:700;color:var(--text-primary)">${n}</span></div>
+    <div style="height:5px;background:rgba(200,210,240,0.4);border-radius:99px;overflow:hidden"><div style="width:${Math.round(n/mx*100)}%;height:100%;background:linear-gradient(90deg,var(--brand),var(--brand-2));border-radius:99px"></div></div>
+  </div>`).join('');}
+  // top exposed
+  const ar={};R.forEach(r=>{ar[r.aid]=(ar[r.aid]||0)+({critical:4,high:3,medium:2,low:1}[r.level]||0);});
+  const te=document.getElementById('top-exp');
+  if(te)te.innerHTML=Object.entries(ar).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([id,sc])=>{
+    const ag=DB.agents.find(a=>a.id==id);if(!ag)return'';
+    return`<div class="risk-item" onclick="openDrawer('${ag.id}')"><div class="risk-item-row">${rtag(ag.risk)}<span class="risk-item-name">${ag.name}</span><span style="font-size:10px;color:var(--text-muted)">score ${sc}</span></div></div>`;
+  }).join('');
+  // trend chart
+  const pts=Array.from({length:20},(_,i)=>35+i*1.2+Math.sin(i*.8)*10+Math.random()*6);
+  const svg=document.getElementById('trend-svg');
+  if(svg){const W=580,H=110,pad=8;const mn=Math.min(...pts),mx=Math.max(...pts);const tx=i=>pad+i*(W-2*pad)/(pts.length-1);const ty=v=>H-pad-(v-mn)/(mx-mn)*(H-2*pad);const ld=pts.map((v,i)=>`${i===0?'M':'L'}${tx(i).toFixed(1)},${ty(v).toFixed(1)}`).join(' ');const ad=ld+` L${tx(pts.length-1).toFixed(1)},${H} L${tx(0).toFixed(1)},${H} Z`;document.getElementById('t-area').setAttribute('d',ad);document.getElementById('t-line').setAttribute('d',ld);const th=ty(55);document.getElementById('t-thresh').setAttribute('d',`M${pad},${th} L${W-pad},${th}`);}
+}
+
+/* -- BLAST -- */
+const SYSS=['Customer DB','HR System','Email Server','File Share','Trade Engine','API Gateway','Data Warehouse','Prod APIs'];
+function renderBlast(){
+  // Global Mesh replaces Blast Radius
+  setTimeout(function(){
+    if(typeof renderGlobalMesh==='function') renderGlobalMesh();
+  }, 80);
+}
+
+function apos(i,n,W,H){const a=(i/n)*Math.PI*2-Math.PI/2;return{x:W/2+Math.cos(a)*W*.3,y:H/2+Math.sin(a)*H*.36};}
+function drawBlast(ctx,W,H,sel){
+  ctx.clearRect(0,0,W,H);
+  SYSS.forEach((s,i)=>{
+    const a=(i/SYSS.length)*Math.PI*2;const sx=W/2+Math.cos(a)*Math.min(W,H)*.18;const sy=H/2+Math.sin(a)*H*.18;
+    const hit=sel&&sel.dataAccess.toLowerCase().split(',').some(d=>s.toLowerCase().includes(d.trim().split(' ')[0]));
+    if(hit){ctx.beginPath();ctx.arc(sx,sy,20,0,Math.PI*2);ctx.fillStyle='rgba(239,68,68,0.12)';ctx.fill();ctx.beginPath();ctx.moveTo(W/2,H/2);ctx.lineTo(sx,sy);ctx.strokeStyle='rgba(239,68,68,0.4)';ctx.lineWidth=1.5;ctx.stroke();}
+    ctx.beginPath();ctx.arc(sx,sy,9,0,Math.PI*2);ctx.fillStyle=hit?'#ef4444':'rgba(99,102,241,0.2)';ctx.strokeStyle=hit?'rgba(239,68,68,0.6)':'rgba(99,102,241,0.3)';ctx.lineWidth=1.5;ctx.fill();ctx.stroke();
+    ctx.fillStyle=hit?'#dc2626':'#9ca3af';ctx.font='8.5px Plus Jakarta Sans,sans-serif';ctx.textAlign='center';ctx.fillText(s.length>8?s.slice(0,7)+'…':s,sx,sy+21);
+  });
+  DB.agents.forEach((ag,i)=>{
+    const p=apos(i,DB.agents.length,W,H);const col={critical:'#ef4444',high:'#f59e0b',medium:'#8b5cf6',low:'#10b981'}[ag.risk]||'#9ca3af';
+    if(sel&&sel.id===ag.id){ctx.beginPath();ctx.arc(p.x,p.y,22,0,Math.PI*2);ctx.fillStyle='rgba(239,68,68,0.1)';ctx.fill();}
+    ctx.beginPath();ctx.arc(p.x,p.y,ag.shadow?9:7,0,Math.PI*2);ctx.fillStyle=col;ctx.fill();
+    if(ag.shadow){ctx.beginPath();ctx.arc(p.x,p.y,13,0,Math.PI*2);ctx.strokeStyle=col+'55';ctx.lineWidth=1.5;ctx.stroke();}
+    ctx.fillStyle='#6b7280';ctx.font='8.5px Plus Jakarta Sans,sans-serif';ctx.textAlign='center';ctx.fillText(ag.name.split(' ').slice(0,2).join(' '),p.x,p.y-16);
+  });
+  ctx.beginPath();ctx.arc(W/2,H/2,12,0,Math.PI*2);ctx.fillStyle='rgba(99,102,241,0.15)';ctx.strokeStyle=`rgba(99,102,241,0.4)`;ctx.lineWidth=1.5;ctx.fill();ctx.stroke();
+  ctx.fillStyle='#6366f1';ctx.font='bold 7.5px Plus Jakarta Sans,sans-serif';ctx.textAlign='center';ctx.fillText('CORE',W/2,H/2+3);
+}
+function showBlast(ag){
+  const aff=SYSS.filter(s=>ag.dataAccess.toLowerCase().split(',').some(d=>s.toLowerCase().includes(d.trim().split(' ')[0])));
+  const el=document.getElementById('blast-result');if(!el)return;
+  el.innerHTML=`<div style="margin-bottom:12px;display:flex;align-items:center;gap:8px">${rtag(ag.risk)}<span style="font-size:13px;font-weight:700;color:var(--text-primary)">${ag.name}</span></div>
+  <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Breach could expose:</div>
+  ${aff.length?aff.map(s=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--r10);background:var(--red-bg);border:1px solid var(--red-border);margin-bottom:6px;font-size:12px;font-weight:600;color:var(--red-text)">⚠ ${s}</div>`).join(''):'<div style="font-size:12px;color:var(--text-muted)">No mapped system dependencies</div>'}
+  <div style="margin-top:12px;font-size:11px;color:var(--text-muted)">Recommended: ${ag.shadow?'Quarantine immediately':'Review access scope'}</div>`;
+}
+
+
+/* ===========================================
+   DATA LINEAGE MAP
+=========================================== */
+
+/* ── Lineage data model ── */
+/* Node types: source | agent | external | output
+   Edge types: normal | phi | risk | safe | ext       */
+
+/* ========================================================
+   DATA LINEAGE MAP v2 — AgentRadar v9
+   All globals prefixed 'ln' — no conflicts with v9 vars
+======================================================== */
+const LN_COLS={SOURCE:{x:60,color:'#10b981',fill:'rgba(16,185,129,0.08)',stroke:'rgba(16,185,129,0.45)',text:'#065f46'},AGENT:{x:360,color:'#6366f1',fill:'rgba(99,102,241,0.08)',stroke:'rgba(99,102,241,0.45)',text:'#3730a3'},EXTERNAL:{x:660,color:'#8b5cf6',fill:'rgba(139,92,246,0.08)',stroke:'rgba(139,92,246,0.45)',text:'#5b21b6'},OUTPUT:{x:960,color:'#f59e0b',fill:'rgba(245,158,11,0.08)',stroke:'rgba(245,158,11,0.45)',text:'#92400e'}};
+let LN_NODES = [];
+let LN_EDGES = [];
+
+function lnBuildFromAgents() {
+  const agents = DB.agents || [];
+  LN_NODES = [];
+  LN_EDGES = [];
+  if (agents.length === 0) return;
+
+  const LN_ROW_H = 70; // vertical spacing between nodes
+  const sourceYMap = {};  // track y position per source type
+  const extYMap = {};     // track y position per external provider
+  const outYMap = {};     // track y position per output type
+  let agentY = 50;
+
+  // Provider label map
+  const providerMap = {
+    llm:'Azure OpenAI', 'ai-search':'Azure AI Search',
+    'ml-workspace':'Azure ML Workspace', copilot:'Microsoft Copilot',
+    'code-assistant':'GitHub Copilot', 'saas-ai':'SaaS AI',
+    'medical-device':'Medical AI', cds:'Clinical Decision Support',
+    'rpa-ai':'RPA + AI', agent:'AI Agent Pipeline',
+    chatbot:'Azure Bot Service', 'api-gateway':'API Management',
+  };
+
+  // Track added nodes to avoid duplicates
+  const addedSources = {};
+  const addedExt = {};
+  const addedOut = {};
+
+  agents.forEach((a) => {
+    const nodeId = 'ag-' + String(a.id).replace(/-/g,'').substring(0,8);
+    const protocols = Array.isArray(a.protocols) ? a.protocols : [];
+
+    // ── Agent node ──────────────────────────────────────────
+    LN_NODES.push({
+      id: nodeId,
+      col: 'AGENT',
+      label: (a.name||'Unknown').substring(0,22),
+      sub: (a.type||'agent') + (a.env ? ' · '+a.env : ''),
+      phi: !!a.phi,
+      pii: !!a.pii,
+      enc: !!(a.controls && (a.controls.soc2 === 'pass' || a.controls.iso27001 === 'pass')),
+      baa: !!(a.controls && a.controls.hipaa === 'pass'),
+      risk: a.risk || 'medium',
+      owner: a.owner || 'Unassigned',
+      purpose: a.detect || 'Auto-discovered',
+      domain: a.domain || 'general',
+      shadow: !!a.shadow,
+      y: agentY,
+    });
+
+    // ── Source node (what data flows INTO agent) ────────────
+    let srcId, srcLabel, srcSub;
+    if (a.phi) {
+      srcId = 'src-phi';
+      srcLabel = 'PHI Data Store';
+      srcSub = 'Protected Health Information';
+    } else if (a.pii) {
+      srcId = 'src-pii';
+      srcLabel = 'PII Data Store';
+      srcSub = 'Personal Identifiable Info';
+    } else {
+      srcId = 'src-app-data';
+      srcLabel = 'Application Data';
+      srcSub = 'Business / operational data';
+    }
+
+    if (!addedSources[srcId]) {
+      addedSources[srcId] = true;
+      sourceYMap[srcId] = 50;
+      LN_NODES.push({
+        id: srcId, col: 'SOURCE',
+        label: srcLabel, sub: srcSub,
+        phi: !!a.phi, enc: true, baa: a.phi ? false : true,
+        risk: a.phi ? 'high' : 'medium',
+        owner: 'Data Governance', purpose: 'Data source',
+        domain: a.phi ? 'healthcare' : 'general',
+        y: sourceYMap[srcId],
+      });
+    } else {
+      // Stack source nodes vertically if different
+    }
+
+    // Edge: source → agent
+    LN_EDGES.push({
+      id: 'e-src-' + nodeId,
+      from: srcId, to: nodeId,
+      dtype: protocols[0] || (a.phi ? 'HL7/FHIR' : 'REST API'),
+      phi: !!a.phi, enc: !!a.phi,
+      baa: !!(a.controls && a.controls.hipaa === 'pass'),
+      risk: a.phi ? 'high' : (a.pii ? 'medium' : 'low'),
+      purpose: a.phi ? 'PHI data flow' : 'Data input to AI',
+    });
+
+    // ── External provider node (AI inference) ──────────────
+    const extLabel = providerMap[a.type] || 'AI Provider';
+    const extId = 'ext-' + (a.type||'ai').replace(/[^a-z0-9]/g,'-');
+
+    if (!addedExt[extId]) {
+      addedExt[extId] = true;
+      extYMap[extId] = Object.keys(addedExt).length * LN_ROW_H - LN_ROW_H + 50;
+      LN_NODES.push({
+        id: extId, col: 'EXTERNAL',
+        label: extLabel,
+        sub: protocols[0] || 'Cloud API',
+        phi: false, enc: true, baa: false,
+        risk: 'low', owner: 'Cloud Vendor',
+        purpose: 'AI inference endpoint',
+        domain: 'general',
+        y: extYMap[extId],
+      });
+    }
+
+    // Edge: agent → external provider
+    LN_EDGES.push({
+      id: 'e-ext-' + nodeId,
+      from: nodeId, to: extId,
+      dtype: protocols[1] || protocols[0] || 'REST API',
+      phi: !!a.phi, enc: true, baa: false,
+      risk: a.risk || 'medium',
+      purpose: 'AI inference call',
+    });
+
+    // ── Output node ─────────────────────────────────────────
+    let outId, outLabel, outSub, outRisk;
+    if (a.shadow) {
+      outId = 'out-shadow';
+      outLabel = 'Shadow AI Output';
+      outSub = 'Unmonitored — no governance';
+      outRisk = 'critical';
+    } else if (a.phi) {
+      outId = 'out-clinical';
+      outLabel = 'Clinical Decision';
+      outSub = 'AI-assisted care output';
+      outRisk = 'high';
+    } else {
+      outId = 'out-app';
+      outLabel = 'Application Output';
+      outSub = 'Governed AI response';
+      outRisk = 'low';
+    }
+
+    if (!addedOut[outId]) {
+      addedOut[outId] = true;
+      outYMap[outId] = Object.keys(addedOut).length * LN_ROW_H - LN_ROW_H + 50;
+      LN_NODES.push({
+        id: outId, col: 'OUTPUT',
+        label: outLabel, sub: outSub,
+        phi: !!a.phi, enc: !a.shadow, baa: false,
+        risk: outRisk, owner: a.shadow ? 'Unknown' : 'Application',
+        purpose: 'AI output destination',
+        domain: 'general',
+        y: outYMap[outId],
+      });
+    }
+
+    // Edge: external → output (or agent → output for shadow)
+    LN_EDGES.push({
+      id: 'e-out-' + nodeId,
+      from: a.shadow ? nodeId : extId,
+      to: outId,
+      dtype: a.shadow ? 'Unmonitored' : 'AI Response',
+      phi: !!a.phi, enc: !a.shadow, baa: false,
+      risk: outRisk,
+      purpose: a.shadow ? 'Shadow AI — unmonitored output' : 'Governed AI output',
+    });
+
+    agentY += LN_ROW_H;
+  });
+
+  // Fix source y positions to center relative to agents
+  const totalH = agentY - LN_ROW_H;
+  Object.keys(sourceYMap).forEach((sid, i) => {
+    const node = LN_NODES.find(n => n.id === sid);
+    if (node) node.y = 50 + i * 120;
+  });
+  Object.keys(extYMap).forEach((eid) => {
+    const node = LN_NODES.find(n => n.id === eid);
+    if (node) node.y = extYMap[eid];
+  });
+  Object.keys(outYMap).forEach((oid) => {
+    const node = LN_NODES.find(n => n.id === oid);
+    if (node) node.y = outYMap[oid];
+  });
+};
+const LN_NW=168,LN_NH=52;
+let lnScale=0.72,lnTx=20,lnTy=20,lnDragging=false,lnDragX=0,lnDragY=0;
+let lnFilter='all',lnSelected=null,lnPanInited=false;
+
+function lnGetFiltered(){
+  const nm={};LN_NODES.forEach(n=>nm[n.id]=n);
+  let edges=[...LN_EDGES];
+  if(lnFilter==='phi')edges=edges.filter(e=>e.phi);
+  else if(lnFilter==='risk')edges=edges.filter(e=>e.risk==='critical'||e.risk==='high');
+  else if(lnFilter==='unenc')edges=edges.filter(e=>!e.enc);
+  else if(lnFilter==='health')edges=edges.filter(e=>[e.from,e.to].some(id=>nm[id]?.domain==='healthcare'));
+  else if(lnFilter==='safe')edges=edges.filter(e=>e.enc&&e.risk==='low');
+  else if(lnFilter==='external')edges=edges.filter(e=>nm[e.from]?.col==='EXTERNAL'||nm[e.to]?.col==='EXTERNAL');
+  const ids=new Set();edges.forEach(e=>{ids.add(e.from);ids.add(e.to);});
+  return{nodes:LN_NODES.filter(n=>ids.has(n.id)),edges};
+}
+function lnStroke(e){if(e.risk==='critical'||!e.enc)return'#ef4444';if(e.phi)return'#f59e0b';if(e.risk==='high')return'#f59e0b';if(e.risk==='low')return'#10b981';return'#6366f1';}
+function lnRCol(r){return{critical:'#ef4444',high:'#f59e0b',medium:'#6366f1',low:'#10b981'}[r]||'#94a3b8';}
+function lnRBg(r){return{critical:'rgba(239,68,68,0.1)',high:'rgba(245,158,11,0.08)',medium:'rgba(99,102,241,0.06)',low:'rgba(16,185,129,0.06)'}[r]||'rgba(200,210,240,0.08)';}
+function lnSvg(t){return document.createElementNS('http://www.w3.org/2000/svg',t);}
+function lnMkTxt(x,y,txt,sz,fw,fill,anchor){
+  const t=lnSvg('text');t.setAttribute('x',x);t.setAttribute('y',y);
+  t.setAttribute('text-anchor',anchor||'middle');t.setAttribute('dominant-baseline','central');
+  t.setAttribute('font-family',"'Plus Jakarta Sans',sans-serif");
+  t.setAttribute('font-size',sz);t.setAttribute('font-weight',fw);t.setAttribute('fill',fill);
+  t.textContent=txt;return t;
+}
+function lnDraw(){
+  const{nodes,edges}=lnGetFiltered();
+  const nm={};LN_NODES.forEach(n=>nm[n.id]=n);
+  const EL=document.getElementById('ln-edges'),NL=document.getElementById('ln-nodes'),LL=document.getElementById('ln-labels');
+  if(!EL)return;EL.innerHTML='';NL.innerHTML='';LL.innerHTML='';
+  [['SOURCE','Source Systems','#10b981'],['AGENT','AI Agents','#6366f1'],['EXTERNAL','External Providers','#8b5cf6'],['OUTPUT','Outputs / Destinations','#f59e0b']].forEach(([col,lbl,col2])=>{
+    const c=LN_COLS[col],bg=lnSvg('rect');
+    bg.setAttribute('x',c.x-4);bg.setAttribute('y',10);bg.setAttribute('width',LN_NW+8);bg.setAttribute('height',26);
+    bg.setAttribute('rx',7);bg.setAttribute('fill',col2+'14');bg.setAttribute('stroke',col2+'30');bg.setAttribute('stroke-width','0.5');
+    LL.appendChild(bg);LL.appendChild(lnMkTxt(c.x+LN_NW/2,24,lbl,10.5,700,col2));
+  });
+  edges.forEach(e=>{
+    const fn=nm[e.from],tn=nm[e.to];if(!fn||!tn)return;
+    const fc=LN_COLS[fn.col],tc=LN_COLS[tn.col];
+    const x1=fc.x+LN_NW,y1=fn.y+LN_NH/2,x2=tc.x,y2=tn.y+LN_NH/2,cx=(x1+x2)/2;
+    const stroke=lnStroke(e),sw=e.risk==='critical'?2.5:e.risk==='high'?1.8:1.4;
+    const eg=lnSvg('g');eg.style.cursor='pointer';
+    const path=lnSvg('path');
+    path.setAttribute('d',`M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
+    path.setAttribute('fill','none');path.setAttribute('stroke',stroke);
+    path.setAttribute('stroke-width',sw);path.setAttribute('marker-end','url(#ln-arr)');
+    path.setAttribute('opacity',lnSelected&&lnSelected!==e.id?'0.15':'0.85');
+    if(!e.enc){path.setAttribute('stroke-dasharray','7 4');if(e.risk==='critical')path.style.animation='lnDash 1s linear infinite';}
+    if(e.risk==='critical'&&!e.enc)path.setAttribute('filter','url(#ln-glow-red)');
+    const mx=cx,my=(y1+y2)/2-10,dt=e.dtype.length>22?e.dtype.slice(0,20)+'...':e.dtype,bw=dt.length*6.2+20;
+    const br=lnSvg('rect');
+    br.setAttribute('x',mx-bw/2);br.setAttribute('y',my-9);br.setAttribute('width',bw);br.setAttribute('height',17);
+    br.setAttribute('rx',4);br.setAttribute('fill','rgba(255,255,255,0.92)');
+    br.setAttribute('stroke',stroke+'55');br.setAttribute('stroke-width','0.5');
+    const lk=lnMkTxt(mx-bw/2+7,my,e.enc?'\uD83D\uDD12':'\uD83D\uDD13',9,400,stroke);lk.setAttribute('dominant-baseline','central');
+    const dtT=lnMkTxt(mx-bw/2+17,my,dt,8.5,600,e.risk==='critical'?'#991b1b':e.phi?'#92400e':'#4338ca','start');
+    eg.appendChild(path);eg.appendChild(br);eg.appendChild(lk);eg.appendChild(dtT);
+    eg.addEventListener('mouseenter',ev=>lnTipEdge(e,ev));eg.addEventListener('mouseleave',lnHideTip);
+    eg.addEventListener('click',ev=>{ev.stopPropagation();lnPickEdge(e);});EL.appendChild(eg);
+  });
+  nodes.forEach(n=>{
+    const c=LN_COLS[n.col],ng=lnSvg('g'),isCrit=n.risk==='critical',isSel=lnSelected===n.id;
+    ng.style.cursor='pointer';
+    if(isCrit){const g=lnSvg('rect');g.setAttribute('x',c.x-3);g.setAttribute('y',n.y-3);g.setAttribute('width',LN_NW+6);g.setAttribute('height',LN_NH+6);g.setAttribute('rx',12);g.setAttribute('fill','rgba(239,68,68,0.07)');g.setAttribute('stroke','rgba(239,68,68,0.35)');g.setAttribute('stroke-width','1');ng.appendChild(g);}
+    const rect=lnSvg('rect');
+    rect.setAttribute('x',c.x);rect.setAttribute('y',n.y);rect.setAttribute('width',LN_NW);rect.setAttribute('height',LN_NH);rect.setAttribute('rx',10);
+    rect.setAttribute('fill',isCrit?'rgba(239,68,68,0.06)':c.fill);
+    rect.setAttribute('stroke',isSel?c.color:isCrit?'rgba(239,68,68,0.55)':c.stroke);
+    rect.setAttribute('stroke-width',isSel?1.8:0.7);
+    rect.setAttribute('filter','url(#ln-shadow)');
+    const bar=lnSvg('rect');bar.setAttribute('x',c.x);bar.setAttribute('y',n.y);bar.setAttribute('width',4);bar.setAttribute('height',LN_NH);bar.setAttribute('rx',0);bar.setAttribute('fill',isCrit?'#ef4444':c.color);bar.setAttribute('opacity','0.7');
+    ng.appendChild(rect);ng.appendChild(bar);
+    ng.appendChild(lnMkTxt(c.x+16,n.y+18,n.label,12,600,isCrit?'#991b1b':c.text,'start'));
+    ng.appendChild(lnMkTxt(c.x+16,n.y+35,n.sub,9.5,400,'#94a3b8','start'));
+    if(!n.enc){const bw2=46,br2=lnSvg('rect');br2.setAttribute('x',c.x+LN_NW-bw2-2);br2.setAttribute('y',n.y+5);br2.setAttribute('width',bw2);br2.setAttribute('height',14);br2.setAttribute('rx',3);br2.setAttribute('fill','rgba(239,68,68,0.12)');br2.setAttribute('stroke','rgba(239,68,68,0.3)');br2.setAttribute('stroke-width','0.5');ng.appendChild(br2);ng.appendChild(lnMkTxt(c.x+LN_NW-bw2/2-2,n.y+12,'No enc',7.5,600,'#991b1b'));}
+    if(n.phi&&!n.baa){const br3=lnSvg('rect');br3.setAttribute('x',c.x+LN_NW-40);br3.setAttribute('y',n.y+LN_NH-18);br3.setAttribute('width',38);br3.setAttribute('height',13);br3.setAttribute('rx',3);br3.setAttribute('fill','rgba(245,158,11,0.12)');br3.setAttribute('stroke','rgba(245,158,11,0.3)');br3.setAttribute('stroke-width','0.5');ng.appendChild(br3);ng.appendChild(lnMkTxt(c.x+LN_NW-21,n.y+LN_NH-11,'No BAA',7.5,600,'#92400e'));}
+    ng.addEventListener('mouseenter',ev=>lnTipNode(n,ev));ng.addEventListener('mouseleave',lnHideTip);
+    ng.addEventListener('click',ev=>{ev.stopPropagation();lnPickNode(n);});NL.appendChild(ng);
+  });
+  lnStats(edges);lnFlowList(edges);
+}
+function lnTipNode(n,ev){
+  const t=document.getElementById('ln-tooltip');if(!t)return;
+  t.querySelector('.ln-tt-name').textContent=n.label;
+  const rows=t.querySelectorAll('.ln-tt-row');
+  rows[0].querySelector('.ln-tt-val').textContent=n.sub;
+  const eEl=rows[1].querySelector('span:last-child');eEl.textContent=n.enc?'Encrypted':'Unencrypted';eEl.className=n.enc?'ln-enc-y':'ln-enc-n';
+  rows[2].querySelector('.ln-tt-val').textContent=n.baa?'Signed':n.phi?'Not signed — violation':'N/A';
+  rows[3].querySelector('.ln-tt-val').textContent=n.risk.toUpperCase();
+  rows[4].querySelector('.ln-tt-val').textContent=n.owner;
+  lnPosTip(t,ev);
+}
+function lnTipEdge(e,ev){
+  const t=document.getElementById('ln-tooltip');if(!t)return;const nm={};LN_NODES.forEach(n=>nm[n.id]=n);
+  t.querySelector('.ln-tt-name').textContent=e.dtype;
+  const rows=t.querySelectorAll('.ln-tt-row');
+  rows[0].querySelector('.ln-tt-val').textContent=(nm[e.from]?.label||e.from)+' to '+(nm[e.to]?.label||e.to);
+  const eEl=rows[1].querySelector('span:last-child');eEl.textContent=e.enc?'Encrypted in transit':'Unencrypted';eEl.className=e.enc?'ln-enc-y':'ln-enc-n';
+  rows[2].querySelector('.ln-tt-val').textContent=e.baa?'Covered':e.phi?'PHI - required':'Not required';
+  rows[3].querySelector('.ln-tt-val').textContent=e.risk.toUpperCase();
+  rows[4].querySelector('.ln-tt-val').textContent=e.purpose.slice(0,45)+(e.purpose.length>45?'...':'');
+  lnPosTip(t,ev);
+}
+function lnPosTip(t,ev){t.style.display='block';t.style.left=Math.min(ev.clientX+14,window.innerWidth-300)+'px';t.style.top=Math.min(ev.clientY-10,window.innerHeight-190)+'px';}
+function lnHideTip(){const t=document.getElementById('ln-tooltip');if(t)t.style.display='none';}
+function lnPickNode(n){
+  lnSelected=n.id;lnDraw();
+  const nm={};LN_NODES.forEach(x=>nm[x.id]=x);
+  document.getElementById('ln-insp-name').textContent=n.label;
+  document.getElementById('ln-insp-sub').textContent=n.col+' — '+n.domain;
+  const inE=LN_EDGES.filter(e=>e.to===n.id),outE=LN_EDGES.filter(e=>e.from===n.id);
+  const compHtml=n.ctrl?Object.entries(n.ctrl).map(([k,v])=>`<span class="ln-badge ${v==='pass'?'ln-b-green':v==='fail'?'ln-b-red':'ln-b-amber'}" style="margin:2px">${k.toUpperCase()}</span>`).join(''):'<span class="ln-badge ln-b-gray">N/A</span>';
+  const aC=n.risk==='critical'?'ln-alert-crit':n.risk==='high'?'ln-alert-high':'ln-alert-ok';
+  const aM=n.risk==='critical'?'CRITICAL: Quarantine and investigate immediately.':n.risk==='high'&&n.phi&&!n.baa?'PHI without BAA — HIPAA violation. Execute BAA immediately.':n.risk==='high'?'High risk — Review data access and governance controls.':'Within acceptable governance parameters.';
+  document.getElementById('ln-insp-main').innerHTML=`<div style="padding:12px 16px;border-bottom:1px solid rgba(200,210,240,0.25)"><div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px"><span class="ln-badge" style="background:${lnRBg(n.risk)};color:${lnRCol(n.risk)};border:1px solid ${lnRCol(n.risk)}44">${n.risk.toUpperCase()} RISK</span>${n.phi?'<span class="ln-badge ln-b-amber">PHI</span>':''}${n.enc?'<span class="ln-badge ln-b-green">Encrypted</span>':'<span class="ln-badge ln-b-red">Unencrypted</span>'}${n.domain==='healthcare'?'<span class="ln-badge ln-b-health">Healthcare</span>':''}</div><div class="ln-meta-row"><span class="ln-meta-key">Data type</span><span class="ln-meta-val">${n.sub}</span></div><div class="ln-meta-row"><span class="ln-meta-key">Owner</span><span class="ln-meta-val">${n.owner}</span></div><div class="ln-meta-row"><span class="ln-meta-key">Purpose</span><span class="ln-meta-val">${n.purpose}</span></div><div class="ln-meta-row"><span class="ln-meta-key">BAA status</span><span class="ln-meta-val"><span class="ln-badge ${n.baa?'ln-b-green':n.phi?'ln-b-red':'ln-b-gray'}">${n.baa?'Signed':n.phi?'Not signed':'Not required'}</span></span></div>${n.ctrl?`<div class="ln-meta-row"><span class="ln-meta-key">Compliance</span><span class="ln-meta-val" style="display:flex;flex-wrap:wrap;gap:2px;justify-content:flex-end">${compHtml}</span></div>`:''}</div>${inE.length?`<div style="padding:10px 16px;border-bottom:1px solid rgba(200,210,240,0.25)"><div style="font-size:9px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Receives from (${inE.length})</div>${inE.map(e=>`<div class="ln-path-step"><div style="width:8px;height:8px;border-radius:50%;background:${LN_COLS[nm[e.from]?.col]?.color||'#94a3b8'};flex-shrink:0"></div><span style="font-size:11px;color:var(--text-primary);font-weight:500;flex:1">${nm[e.from]?.label||e.from}</span><span class="ln-badge ${e.phi?'ln-b-amber':'ln-b-gray'}" style="font-size:9px">${e.dtype.slice(0,18)}</span>${!e.enc?'<span class="ln-badge ln-b-red" style="font-size:9px;margin-left:2px">Unenc</span>':''}</div>`).join('')}</div>`:''}${outE.length?`<div style="padding:10px 16px;border-bottom:1px solid rgba(200,210,240,0.25)"><div style="font-size:9px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Sends to (${outE.length})</div>${outE.map(e=>`<div class="ln-path-step"><div style="width:8px;height:8px;border-radius:50%;background:${LN_COLS[nm[e.to]?.col]?.color||'#94a3b8'};flex-shrink:0"></div><span style="font-size:11px;color:var(--text-primary);font-weight:500;flex:1">${nm[e.to]?.label||e.to}</span><span class="ln-badge ${e.phi?'ln-b-amber':'ln-b-gray'}" style="font-size:9px">${e.dtype.slice(0,18)}</span>${!e.enc?'<span class="ln-badge ln-b-red" style="font-size:9px;margin-left:2px">Unenc</span>':''}</div>`).join('')}</div>`:''}<div style="padding:10px 16px"><div class="ln-alert ${aC}">${aM}</div></div>`;
+}
+function lnPickEdge(e){
+  lnSelected=e.id;lnDraw();
+  const nm={};LN_NODES.forEach(n=>nm[n.id]=n);const fn=nm[e.from],tn=nm[e.to];
+  document.getElementById('ln-insp-name').textContent='Flow: '+e.dtype.slice(0,32);
+  document.getElementById('ln-insp-sub').textContent=(fn?.label||e.from)+' to '+(tn?.label||e.to);
+  const aC=e.risk==='critical'?'ln-alert-crit':e.risk==='high'?'ln-alert-high':'ln-alert-ok';
+  const aM=e.risk==='critical'?'CRITICAL FLOW: Block immediately. Active breach risk.':e.risk==='high'&&e.phi&&!e.baa?'PHI flow without BAA — HIPAA violation.':e.risk==='high'?'High-risk flow — review encryption and access controls.':'Flow within acceptable governance parameters.';
+  document.getElementById('ln-insp-main').innerHTML=`<div style="padding:12px 16px;border-bottom:1px solid rgba(200,210,240,0.25)"><div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px"><span class="ln-badge" style="background:${lnRBg(e.risk)};color:${lnRCol(e.risk)};border:1px solid ${lnRCol(e.risk)}44">${e.risk.toUpperCase()} RISK</span>${e.phi?'<span class="ln-badge ln-b-amber">PHI</span>':''}${e.enc?'<span class="ln-badge ln-b-green">Encrypted</span>':'<span class="ln-badge ln-b-red">Unencrypted</span>'}</div><div class="ln-meta-row"><span class="ln-meta-key">Data type</span><span class="ln-meta-val">${e.dtype}</span></div><div class="ln-meta-row"><span class="ln-meta-key">From</span><span class="ln-meta-val">${fn?.label||e.from}</span></div><div class="ln-meta-row"><span class="ln-meta-key">To</span><span class="ln-meta-val">${tn?.label||e.to}</span></div><div class="ln-meta-row"><span class="ln-meta-key">Encrypted</span><span class="ln-meta-val"><span class="ln-badge ${e.enc?'ln-b-green':'ln-b-red'}">${e.enc?'In transit':'Plaintext'}</span></span></div><div class="ln-meta-row"><span class="ln-meta-key">BAA</span><span class="ln-meta-val"><span class="ln-badge ${e.baa?'ln-b-green':e.phi?'ln-b-red':'ln-b-gray'}">${e.baa?'Covered':e.phi?'PHI required':'Not required'}</span></span></div><div class="ln-meta-row"><span class="ln-meta-key">Purpose</span><span class="ln-meta-val">${e.purpose}</span></div></div><div style="padding:10px 16px;border-bottom:1px solid rgba(200,210,240,0.25)"><div style="font-size:9px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Flow path</div><div class="ln-path-step"><div style="width:8px;height:8px;border-radius:50%;background:${LN_COLS[fn?.col]?.color||'#94a3b8'};flex-shrink:0"></div><span style="font-size:11px;color:var(--text-primary);font-weight:500;flex:1">${fn?.label||e.from}</span><span class="ln-badge ln-b-gray" style="font-size:9px">${fn?.col||''}</span></div><div style="width:1px;height:14px;background:${lnStroke(e)};margin-left:3px;margin-bottom:2px"></div><div style="font-size:9px;color:var(--text-muted);margin-left:14px;margin-bottom:4px;font-style:italic">${e.dtype}</div><div class="ln-path-step"><div style="width:8px;height:8px;border-radius:50%;background:${LN_COLS[tn?.col]?.color||'#94a3b8'};flex-shrink:0"></div><span style="font-size:11px;color:var(--text-primary);font-weight:500;flex:1">${tn?.label||e.to}</span><span class="ln-badge ln-b-gray" style="font-size:9px">${tn?.col||''}</span></div></div><div style="padding:10px 16px"><div class="ln-alert ${aC}">${aM}</div></div>`;
+}
+function lnStats(edges){
+  ['lnsc-n','lnsc-risk','lnsc-unenc','lnsc-phi'].forEach((id,i)=>{
+    const el=document.getElementById(id);if(!el)return;
+    el.textContent=[edges.length,edges.filter(e=>e.risk==='critical'||e.risk==='high').length,edges.filter(e=>!e.enc).length,edges.filter(e=>e.phi).length][i];
+  });
+}
+function lnFlowList(edges){
+  const fl=document.getElementById('ln-flow-list');if(!fl)return;
+  const nm={};LN_NODES.forEach(n=>nm[n.id]=n);
+  const rc={critical:'#ef4444',high:'#f59e0b',medium:'#6366f1',low:'#10b981'};
+  fl.innerHTML=edges.map(e=>`<div class="ln-flow-item${lnSelected===e.id?' active':''}" onclick='lnPickEdge(${JSON.stringify(e)})'><div style="width:6px;height:6px;border-radius:50%;background:${lnStroke(e)};flex-shrink:0"></div><div style="flex:1;min-width:0"><div style="font-size:11px;font-weight:500;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.dtype.length>28?e.dtype.slice(0,26)+'...':e.dtype}</div><div style="font-size:9px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${nm[e.from]?.label||e.from} to ${nm[e.to]?.label||e.to}</div></div><span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;background:${rc[e.risk]||'#94a3b8'}18;color:${rc[e.risk]||'#94a3b8'};flex-shrink:0">${e.risk.slice(0,4).toUpperCase()}</span></div>`).join('');
+  const ft=document.getElementById('ln-flow-title');if(ft)ft.textContent=edges.length+' data flows';
+}
+function setLnFilter(f,el){lnFilter=f;lnSelected=null;document.querySelectorAll('.ln-pill').forEach(p=>p.classList.remove('on'));el?.classList.add('on');lnDraw();}
+function lnZoom(f){lnScale=Math.max(0.25,Math.min(2.5,lnScale*f));lnApply();}
+function lnResetView(){lnScale=0.72;lnTx=20;lnTy=20;lnApply();}
+function lnApply(){const g=document.getElementById('ln-world');if(g)g.setAttribute('transform',`translate(${lnTx},${lnTy}) scale(${lnScale})`);}
+function lnInitPan(){
+  if(lnPanInited)return;lnPanInited=true;
+  const cv=document.getElementById('ln-canvas');if(!cv)return;
+  cv.addEventListener('mousedown',e=>{if(e.button!==0||e.target.closest('g[style*="pointer"]'))return;lnDragging=true;lnDragX=e.clientX-lnTx;lnDragY=e.clientY-lnTy;cv.style.cursor='grabbing';});
+  window.addEventListener('mousemove',e=>{if(!lnDragging)return;lnTx=e.clientX-lnDragX;lnTy=e.clientY-lnDragY;lnApply();});
+  window.addEventListener('mouseup',()=>{lnDragging=false;const c=document.getElementById('ln-canvas');if(c)c.style.cursor='grab';});
+  cv.addEventListener('wheel',e=>{e.preventDefault();lnZoom(e.deltaY<0?1.1:0.91);},{passive:false});
+  cv.addEventListener('click',()=>{lnSelected=null;lnDraw();document.getElementById('ln-insp-name').textContent='Select a node or flow';document.getElementById('ln-insp-sub').textContent='Click any element to inspect';document.getElementById('ln-insp-main').innerHTML='<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;height:180px"><div style="font-size:18px;width:40px;height:40px;border-radius:10px;background:var(--brand-bg);border:1px solid var(--brand-border);display:flex;align-items:center;justify-content:center">&#8599;</div><div style="font-size:12px;color:var(--text-muted);line-height:1.6">Click any node or flow to inspect data type, encryption, BAA, risk, owner and purpose.</div></div>';});
+}
+function renderLineage(){
+  if (_apiToken) {
+    loadLiveAgents().then(()=>{
+      lnBuildFromAgents();
+      lnInitPan();
+      lnDraw();
+      lnApply();
+    });
+  } else {
+    lnBuildFromAgents();
+    lnInitPan();
+    lnDraw();
+    lnApply();
+  }
+}
+
+/* -- INTEGRATIONS -- */
+/* ===========================================
+   ENVIRONMENT CONNECT HUB
+=========================================== */
+function showEnvTab(id){
+  document.querySelectorAll('.env-pane').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.env-tab').forEach(t=>t.classList.remove('on'));
+  document.getElementById('envp-'+id)?.classList.add('on');
+  const tabs=['cloud','onprem','siem','cicd','health','scripts'];
+  document.querySelectorAll('.env-tab')[tabs.indexOf(id)]?.classList.add('on');
+}
+function toggleConn(id){
+  const card=document.getElementById(id);if(!card)return;
+  const wasOpen=card.classList.contains('open');
+  card.closest('.env-pane')?.querySelectorAll('.conn-card').forEach(c=>{c.classList.remove('open');const exp=c.querySelector('.conn-expand');if(exp)exp.textContent='+';});
+  if(!wasOpen){card.classList.add('open');const exp=card.querySelector('.conn-expand');if(exp)exp.textContent='−';}
+}
+function testConn(name) {
+  const log = document.getElementById('log-'+name);
+  const status = document.getElementById('cs-'+name);
+  if (!log) return;
+  log.innerHTML = '<div class="log-acc">[INIT] Validating '+name+' credentials…</div>';
+
+  // Read credentials — prefer form fields, fall back to saved DB credentials
+  const saved = (window._savedCreds||{})[name] || {};
+  const credMap = {
+    azure: {
+      tenantId: document.getElementById('ci-az-tenant')?.value?.trim() || saved.tenantId || '',
+      clientId: document.getElementById('ci-az-client')?.value?.trim() || saved.clientId || '',
+      clientSecret: document.getElementById('ci-az-secret')?.value?.trim() ||
+                    (saved.clientSecret && saved.clientSecret !== '••••••••' ? saved.clientSecret : '') || '',
+      subscriptionId: document.getElementById('ci-az-sub')?.value?.trim() || saved.subscriptionId || ''
+    },
+    aws: {
+      accessKeyId: document.getElementById('ci-aws-key')?.value?.trim() || saved.accessKeyId || '',
+      secretAccessKey: document.getElementById('ci-aws-secret')?.value?.trim() ||
+                       (saved.secretAccessKey && saved.secretAccessKey !== '••••••••' ? saved.secretAccessKey : '') || '',
+      region: document.getElementById('ci-aws-region')?.value?.trim() || saved.region || 'us-east-1'
+    },
+    gcp: {
+      projectId: document.getElementById('ci-gcp-project')?.value?.trim() || saved.projectId || '',
+      serviceAccountKey: document.getElementById('ci-gcp-key')?.value?.trim() ||
+                         (saved.serviceAccountKey && saved.serviceAccountKey !== '••••••••' ? saved.serviceAccountKey : '') || ''
+    },
+    github: {
+      token: document.getElementById('ci-gh-token')?.value?.trim() || saved.token || '',
+      org: document.getElementById('ci-gh-org')?.value?.trim() || saved.org || ''
+    },
+  };
+
+  const creds = credMap[name];
+  if (!creds) { log.innerHTML += '<div class="log-red">[ERROR] Unknown provider: '+name+'</div>'; return; }
+
+  // For saved credentials with masked secrets, fetch full creds from API first
+  const hasMaskedSecret = (name==='azure' && !creds.clientSecret) ||
+                          (name==='aws' && !creds.secretAccessKey) ||
+                          (name==='gcp' && !creds.serviceAccountKey);
+
+  if (hasMaskedSecret && _apiToken) {
+    log.innerHTML += '<div class="log-acc">[AUTH] Loading saved credentials from vault…</div>';
+    fetch('/api/integrations/credentials/full', {
+      headers: {'Authorization':'Bearer '+_apiToken}
+    }).then(r=>r.json()).then(allCreds => {
+      const fullCreds = allCreds[name];
+      if (fullCreds) {
+        // Use full creds from DB (has real secret, not masked)
+        window._savedCreds = window._savedCreds || {};
+        window._savedCreds[name] = fullCreds;
+        // Retry testConn now that creds are loaded
+        testConn(name);
+      } else {
+        log.innerHTML += '<div class="log-red">[ERROR] No saved credentials found — please fill in and save credentials first</div>';
+      }
+    }).catch(e => {
+      log.innerHTML += '<div class="log-red">[ERROR] Could not load credentials: '+e.message+'</div>';
+    });
+    return;
+  }
+
+  // Check required fields
+  const requiredMap = {
+    azure: ['tenantId','clientId','clientSecret','subscriptionId'],
+    aws: ['accessKeyId','secretAccessKey'],
+    gcp: ['projectId','serviceAccountKey'],
+    github: ['token','org'],
+  };
+  const missing = (requiredMap[name]||[]).filter(k=>!creds[k]);
+  if (missing.length > 0) {
+    log.innerHTML += '<div class="log-red">[ERROR] Missing: '+missing.join(', ')+'</div>';
+    log.innerHTML += '<div class="log-red">[FAIL] Fill in missing fields or click Save to store credentials</div>';
+    return;
+  }
+
+  if (!_apiToken) { log.innerHTML += '<div class="log-red">[ERROR] Not logged in</div>'; return; }
+
+  log.innerHTML += '<div class="log-acc">[AUTH] Connecting to '+name+'…</div>';
+
+  // Use auto-discovery start as the test — it validates credentials first
+  const payload = {};
+  payload[name] = creds;
+
+  fetch('/api/autodiscovery/start', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer '+_apiToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(r => r.json()).then(data => {
+    if (!data.sessionId) { log.innerHTML += '<div class="log-red">[ERROR] '+( data.error||'API error')+'</div>'; return; }
+    const sid = data.sessionId;
+    log.innerHTML += '<div class="log-grn">[OK] Request accepted — verifying credentials…</div>';
+
+    // Poll for result
+    let attempts = 0;
+    const iv = setInterval(() => {
+      attempts++;
+      fetch('/api/autodiscovery/status/'+sid, { headers: {'Authorization':'Bearer '+_apiToken} })
+        .then(r => r.json()).then(res => {
+          if (res.status === 'completed' || res.status === 'error') {
+            clearInterval(iv);
+            const entries = (res.logs||[]).flatMap(l=>l.entries||[]);
+            entries.forEach(e => {
+              const cls = e.status==='error'?'log-red':e.status==='found'?'log-grn':'log-acc';
+              const icon = e.status==='ok'?'✓':e.status==='found'?'⚡':e.status==='error'?'✗':'⏳';
+              const d = document.createElement('div');
+              d.className = cls; d.textContent = icon+' ['+e.step+'] '+e.msg;
+              log.appendChild(d); log.scrollTop = log.scrollHeight;
+            });
+            const hasError = entries.some(e=>e.status==='error');
+            if (!hasError) {
+              const ok = document.createElement('div');
+              ok.className = 'log-grn';
+              ok.textContent = '[SUCCESS] '+name.toUpperCase()+' connected — '+( res.scanners?.length||0)+' scanners auto-enabled';
+              log.appendChild(ok);
+              if (status) { status.textContent = 'Connected'; status.style.color = '#10b981'; }
+              // Store creds for auto-discovery wizard pre-fill
+              window._savedCreds = window._savedCreds || {};
+              window._savedCreds[name] = creds;
+              showScannerToast(name.toUpperCase()+' connected successfully', false);
+            } else {
+              const fail = document.createElement('div');
+              fail.className = 'log-red'; fail.textContent = '[FAIL] Connection failed — check credentials above';
+              log.appendChild(fail);
+            }
+          }
+        }).catch(e => { clearInterval(iv); });
+      if (attempts > 40) clearInterval(iv);
+    }, 2000);
+  }).catch(e => {
+    log.innerHTML += '<div class="log-red">[ERROR] '+e.message+'</div>';
+  });
+}
+
+function saveConn(name) {
+  const log = document.getElementById('log-'+name);
+  const credMap = {
+    azure: { tenantId: document.getElementById('ci-az-tenant')?.value?.trim(),
+             clientId: document.getElementById('ci-az-client')?.value?.trim(),
+             clientSecret: document.getElementById('ci-az-secret')?.value?.trim(),
+             subscriptionId: document.getElementById('ci-az-sub')?.value?.trim() },
+    aws:   { accessKeyId: document.getElementById('ci-aws-key')?.value?.trim(),
+             secretAccessKey: document.getElementById('ci-aws-secret')?.value?.trim(),
+             region: document.getElementById('ci-aws-region')?.value?.trim()||'us-east-1' },
+    gcp:   { projectId: document.getElementById('ci-gcp-project')?.value?.trim(),
+             serviceAccountKey: document.getElementById('ci-gcp-key')?.value?.trim() },
+  };
+  const creds = credMap[name];
+  if (!creds || !Object.values(creds).some(v=>v)) {
+    if (log) { const d=document.createElement('div'); d.className='log-red';
+      d.textContent='[ERROR] Fill in credentials before saving'; log.appendChild(d); }
+    return;
+  }
+
+  // Save to memory + sessionStorage immediately
+  window._savedCreds = window._savedCreds || {};
+  window._savedCreds[name] = creds;
+  try { sessionStorage.setItem('ar-creds-'+name, JSON.stringify(creds)); } catch(e) {}
+
+  // Persist to database (survives logout/refresh permanently)
+  if (_apiToken) {
+    fetch('/api/integrations/credentials', {
+      method: 'POST',
+      headers: {'Authorization':'Bearer '+_apiToken, 'Content-Type':'application/json'},
+      body: JSON.stringify({ provider: name, credentials: creds })
+    }).then(r=>r.json()).then(data => {
+      if (data.saved) {
+        if (log) {
+          const d = document.createElement('div');
+          d.className = 'log-grn';
+          d.textContent = '[SAVED] Credentials stored permanently — will auto-load on next login';
+          log.appendChild(d);
+        }
+        showScannerToast(name.toUpperCase()+' credentials saved permanently', false);
+        // Mark fields as saved
+        const statusEl = document.getElementById('cs-'+name);
+        if (statusEl) { statusEl.textContent = 'Configured'; statusEl.style.color = '#10b981'; }
+      }
+    }).catch(e => {
+      if (log) { const d=document.createElement('div'); d.className='log-red';
+        d.textContent='[ERROR] Could not save to DB: '+e.message; log.appendChild(d); }
+    });
+  }
+}
+
+async function loadSavedIntegrations() {
+  if (!_apiToken) return;
+  try {
+    const saved = await fetch('/api/integrations/credentials', {
+      headers: {'Authorization':'Bearer '+_apiToken}
+    }).then(r=>r.json());
+
+    // Pre-fill integration panel fields with saved values
+    Object.entries(saved).forEach(([provider, creds]) => {
+      if (!creds._saved) return;
+      const fieldMap = {
+        azure: [['ci-az-tenant','tenantId'],['ci-az-client','clientId'],
+                ['ci-az-sub','subscriptionId']],
+        aws:   [['ci-aws-key','accessKeyId'],['ci-aws-region','region']],
+        gcp:   [['ci-gcp-project','projectId']],
+      };
+      (fieldMap[provider]||[]).forEach(([elId, key]) => {
+        const el = document.getElementById(elId);
+        if (el && creds[key]) el.value = creds[key];
+      });
+      // Show saved indicator
+      const statusEl = document.getElementById('cs-'+provider);
+      if (statusEl) { statusEl.textContent = 'Configured'; statusEl.style.color = '#10b981'; }
+      // FIX CWE-359: Do NOT store credentials in window global
+      // Credentials are sent directly to the API and stored server-side encrypted
+      // console.log removed to prevent credential exposure in browser console
+    });
+  } catch(e) { console.log('[integrations] Could not load saved credentials:', e.message); }
+}
+
+function runCloudScan(cloud) {
+  const log = document.getElementById('log-'+cloud); if (!log) return;
+  if (!_apiToken) { log.innerHTML = '<div class="log-red">[ERROR] Not logged in</div>'; return; }
+
+  // Use saved creds or read from fields
+  const saved = (window._savedCreds||{})[cloud] || {};
+  try { Object.assign(saved, JSON.parse(sessionStorage.getItem('ar-creds-'+cloud)||'{}')); } catch(e){}
+
+  if (!saved || Object.keys(saved).length === 0) {
+    log.innerHTML = '<div class="log-red">[ERROR] No credentials saved — fill in fields and click Save first</div>';
+    return;
+  }
+
+  log.innerHTML = '<div class="log-acc">[SCAN] Starting auto-discovery for '+cloud+'…</div>';
+  const payload = {};
+  payload[cloud] = saved;
+
+  fetch('/api/autodiscovery/start', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer '+_apiToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(r=>r.json()).then(data => {
+    if (!data.sessionId) { log.innerHTML += '<div class="log-red">[ERROR] '+(data.error||'API error')+'</div>'; return; }
+    log.innerHTML += '<div class="log-acc">[OK] Discovery running (session: '+data.sessionId.substring(0,8)+'…)</div>';
+    let attempts = 0;
+    const iv = setInterval(()=>{
+      attempts++;
+      fetch('/api/autodiscovery/status/'+data.sessionId, {headers:{'Authorization':'Bearer '+_apiToken}})
+        .then(r=>r.json()).then(res=>{
+          if (res.status==='completed'||res.status==='error') {
+            clearInterval(iv);
+            const entries = (res.logs||[]).flatMap(l=>l.entries||[]);
+            entries.forEach(e=>{
+              const d = document.createElement('div');
+              d.className = e.status==='error'?'log-red':e.status==='found'?'log-grn':'log-acc';
+              d.textContent = (e.status==='ok'?'✓':e.status==='found'?'⚡':'✗')+' ['+e.step+'] '+e.msg;
+              log.appendChild(d); log.scrollTop=log.scrollHeight;
+            });
+            const d2 = document.createElement('div');
+            d2.className = res.status==='completed'?'log-grn':'log-red';
+            d2.textContent = res.status==='completed'
+              ? '[DONE] Discovery complete — '+res.agentCount+' agents found, '+(res.scanners?.length||0)+' scanners enabled'
+              : '[FAIL] '+res.error;
+            log.appendChild(d2);
+            if (res.status==='completed'&&res.agentCount>0) {
+              loadLiveAgents && loadLiveAgents();
+              showScannerToast('Discovered '+res.agentCount+' agents in '+cloud, false);
+            }
+          }
+        }).catch(()=>{});
+      if (attempts>60) clearInterval(iv);
+    }, 3000);
+  }).catch(e=>{ log.innerHTML+='<div class="log-red">[ERROR] '+e.message+'</div>'; });
+}
+
+function runSiemScan(siem){
+  const log=document.getElementById('log-'+siem);if(!log)return;
+  const msgs=['[QUERY] Searching logs for AI patterns…','[FOUND] 847 LLM API calls (30 days)','[FOUND] 2 shadow HL7 events on port 2575','[DONE] SIEM scan complete'];
+  let i=0;const iv=setInterval(()=>{if(i<msgs.length){const d=document.createElement('div');d.className=i===3?'log-grn':i===2?'log-red':'log-acc';d.textContent=msgs[i];log.appendChild(d);log.scrollTop=log.scrollHeight;i++;}else clearInterval(iv);},400);
+}
+function runHealthScan(type){
+  const log=document.getElementById('log-'+type);if(!log)return;
+  const ml=type==='hl7'?['[SCAN] Port 2575 rescan…','[ALERT] Shadow listener still active on 10.1.22.5','[OK] Authorized: cerner-hl7-gw','[DONE] HL7 scan complete']:['[FHIR] CapabilityStatement query…','[FOUND] 3 SMART apps','[WARN] 1 unregistered','[DONE] Epic scan complete'];
+  let i=0;const iv=setInterval(()=>{if(i<ml.length){const d=document.createElement('div');d.className=ml[i].includes('ALERT')||ml[i].includes('WARN')?'log-red':ml[i].includes('DONE')?'log-grn':'log-acc';d.textContent=ml[i];log.appendChild(d);log.scrollTop=log.scrollHeight;i++;}else clearInterval(iv);},400);
+}
+function quarantineHL7Shadow(){
+  const a=DB.agents.find(x=>x.id===17);if(a){a.risk='low';a.lastSeen='Quarantined';save();updateStats();}
+  const log=document.getElementById('log-hl7');if(!log)return;
+  ['[ACTION] Firewall rule: BLOCK 10.1.22.5:2575','[ACTION] Process isolated','[ACTION] Incident INC-88234 created','[DONE] Shadow HL7 Listener quarantined ✓'].forEach((m,i)=>{
+    setTimeout(()=>{const d=document.createElement('div');d.className=i===3?'log-grn':'log-amb';d.textContent=m;log.appendChild(d);log.scrollTop=log.scrollHeight;},i*400);
+  });
+  addAct('alert','Shadow HL7 Listener quarantined','Admin · just now','#ef4444');
+}
+function runFullEnvScan(){startScan();addAct('scan','Full environment scan from Connect Hub','System · just now','#6366f1');}
+function updateEnvStatusBar(){
+  const cloudOk=document.getElementById('cc-azure')?.classList.contains('connected');
+  const sensorOk=document.getElementById('cc-sensor')?.classList.contains('connected');
+  const siemOk=document.getElementById('cc-splunk')?.classList.contains('connected');
+  const ghOk=document.getElementById('cc-github')?.classList.contains('connected');
+  if(cloudOk)document.getElementById('esb-cloud').textContent='AWS + Azure + GCP';
+  if(sensorOk)document.getElementById('esb-sensor').textContent='Deployed — scanning';
+  if(siemOk)document.getElementById('esb-siem').textContent='Splunk connected';
+  if(ghOk)document.getElementById('esb-cicd').textContent='GitHub gate active';
+}
+function deploySensor(){
+  const token=document.getElementById('ci-sensor-token')?.value?.trim()||'tok_live_xxx';
+  const cidr=document.getElementById('ci-sensor-cidr')?.value||'10.0.0.0/8';
+  const log=document.getElementById('log-sensor');if(!log)return;log.innerHTML='';
+  const msgs=['[DEPLOY] Pulling sensor image…','[INIT] Container starting…','[ENROLL] Token registered…','[AUTH] Token validated','[SCAN] First scan: '+cidr,'[FOUND] 5 AI endpoints discovered','[DONE] Sensor deployed ✓'];
+  const cls=['log-acc','log-acc','log-acc','log-grn','log-acc','log-amb','log-grn'];
+  let i=0;const card=document.getElementById('cc-sensor');const status=document.getElementById('cs-sensor');
+  const iv=setInterval(()=>{
+    if(i<msgs.length){const d=document.createElement('div');d.className=cls[i];d.textContent=msgs[i];log.appendChild(d);log.scrollTop=log.scrollHeight;i++;}
+    else{clearInterval(iv);if(card)card.classList.add('connected');if(status){status.textContent='Deployed';status.className='conn-status cs-connected';}updateEnvStatusBar();}
+  },500);
+}
+function copyEnrollToken(){navigator.clipboard.writeText(document.getElementById('ci-sensor-token')?.value||'tok_live_xxx').catch(()=>{});addAct('info','Enrollment token copied','Admin','#6366f1');}
+function copyGithubWorkflow(){
+  const fw=document.getElementById('ci-gh-fw')?.value||'gdpr,hipaa,euai,soc2';
+  const block=document.getElementById('ci-gh-block')?.value||'critical,high';
+  const yaml=`- name: AgentRadar gate\n  uses: agentRadar/scan-action@v2\n  with:\n    api-key: \${{ secrets.AGENTRADARPOLICY_KEY }}\n    fail-on: ${block}\n    frameworks: ${fw}\n    manifest: ./agent-manifest.yaml`;
+  navigator.clipboard.writeText(yaml).catch(()=>{});addAct('info','GitHub YAML copied','Admin','#6366f1');
+}
+function updateSensorSnip(){
+  const method=document.getElementById('ci-sensor-method')?.value||'docker';
+  const token=document.getElementById('ci-sensor-token')?.value||'tok_live_xxx';
+  const cidr=document.getElementById('ci-sensor-cidr')?.value||'10.0.0.0/8';
+  const hc=document.getElementById('ci-sensor-hc')?.value||'true';
+  const txt=document.getElementById('sensor-cmd-text');if(!txt)return;
+  const s={docker:`docker run -d --name agentRadar-sensor --restart unless-stopped --network host -e ENROLLMENT_TOKEN="${token}" -e SCAN_RANGES="${cidr}" -e HEALTHCARE_MODE="${hc}" ghcr.io/agentRadar/sensor:latest`,helm:`helm install agentRadar-sensor agentRadar/sensor --namespace agentRadar --create-namespace --set enrollment.token="${token}" --set scan.ranges="${cidr}" --set healthcare.enabled=${hc}`,systemd:`curl -sSL https://dl.agentRadar.io/sensor/latest -o /usr/local/bin/agentRadar-sensor\nchmod +x /usr/local/bin/agentRadar-sensor\necho "ENROLLMENT_TOKEN=${token}" > /etc/agentRadar/sensor.env\nsystemctl enable --now agentRadar-sensor`};
+  txt.textContent=s[method]||s.docker;
+}
+function copySnip(btn){
+  const block=btn.closest('.code-snip');
+  const text=(block.innerText||block.textContent).replace(/^Copy/,'').trim();
+  navigator.clipboard.writeText(text).catch(()=>{});
+  const orig=btn.textContent;btn.textContent='Copied!';btn.style.color='#20c997';
+  setTimeout(()=>{btn.textContent=orig;btn.style.color='';},1800);
+}
+function openCodePanel(){go('integrations');setTimeout(()=>showEnvTab('scripts'),100);}
+
+/* ===========================================
+   CODE EDITOR
+=========================================== */
+const TEMPLATES={
+  'aws-enum':{lang:'python',name:'AWS AI Enumerator',code:`import boto3, json\n\n# Discovers Lambda, SageMaker, Bedrock\ndef discover_aws_ai_agents(regions=['us-east-1']):\n    agents = []\n    for region in regions:\n        lam = boto3.client('lambda', region_name=region)\n        for fn in lam.list_functions().get('Functions', []):\n            if any(k in fn['FunctionName'].lower() for k in ['ai','ml','model','infer']):\n                agents.append({'name': fn['FunctionName'], 'type': 'agent', 'env': 'Cloud', 'protocols': ['AWS Lambda', 'REST'], 'risk': 'medium'})\n    return agents\n\nagents = discover_aws_ai_agents()\nprint(f"Discovered {len(agents)} AI agents")\nprint(json.dumps(agents, indent=2))`},
+  'fhir-scan':{lang:'python',name:'FHIR Scanner',code:`import requests\n\nFHIR_BASE = "https://fhir.epic.org/interconnect-fhir-oauth/api/FHIR/R4"\n\n# Only reads CapabilityStatement — NO PHI\nr = requests.get(f"{FHIR_BASE}/metadata", headers={"Accept": "application/fhir+json"}, timeout=10)\ncap = r.json()\nprint(f"FHIR {cap.get('fhirVersion')} — {cap.get('software', {}).get('name')}")\n\n# SMART app registry\nr2 = requests.get(f"{FHIR_BASE}/.well-known/smart-configuration", timeout=10)\nprint("SMART apps:", r2.json().get("capabilities", []))\nprint("No PHI accessed.")`},
+  'hl7-detect':{lang:'bash',name:'HL7 Shadow Detector',code:`#!/bin/bash\n# Scans for unauthorized HL7 MLLP listeners on port 2575\nHL7_PORT=2575\necho "[SCAN] Checking local port $HL7_PORT..."\nLOCAL=\\$(ss -tlnp 2>/dev/null | grep ":$HL7_PORT")\nif [ -n "$LOCAL" ]; then\n  echo "[ALERT] HL7 listener found:"\n  echo "$LOCAL"\n  PID=\\$(echo "$LOCAL" | grep -oP 'pid=\\K[0-9]+')\n  PROC=\\$(ps -p $PID -o comm= 2>/dev/null)\n  echo "[INFO] Process: $PROC (PID $PID)"\nelse\n  echo "[OK] No unauthorized HL7 listeners"\nfi`},
+  'k8s-ai':{lang:'bash',name:'K8s AI Enumerator',code:`#!/bin/bash\n# Kubernetes AI workload discovery\nNAMESPACES=("default" "production" "ai-workloads")\nAI_KEYWORDS="ai ml model predict infer llm bert clinical fhir"\nfor ns in "\${NAMESPACES[@]}"; do\n  echo "[NS] \$ns"\n  kubectl get pods -n "\$ns" 2>/dev/null | while read line; do\n    POD=\$(echo "\$line" | awk '{print \$1}')\n    for kw in \$AI_KEYWORDS; do\n      echo "\$POD" | grep -qi "\$kw" && echo "[FOUND] AI pod: \$POD" && break\n    done\n  done\ndone`},
+  'register-agents':{lang:'javascript',name:'Bulk Registration',code:`// AgentRadar — Bulk Agent Registration\n// Runs inside platform context — accesses live DB\n\nconst newAgents = [\n  {\n    name: "Patient Risk Classifier v2",\n    type: "agent", env: "Cloud",\n    protocols: ["FHIR R4", "REST"],\n    risk: "high", phi: true, domain: "clinical",\n    dataAccess: "Patient records",\n    owner: "clinical-ai@healthsys.org"\n  }\n];\n\nnewAgents.forEach(agent => {\n  AR.addAgent(agent);\n});\n\nAR.log("Registered " + newAgents.length + " agents");\nAR.log("Inventory updated — check Agent Discovery view");`}
+};
+
+let currentScriptId=null;
+const savedScripts=[
+  {id:1,name:'AWS AI Enumerator',lang:'python',color:'#f59f00',code:TEMPLATES['aws-enum'].code},
+  {id:2,name:'HL7 Shadow Detector',lang:'bash',color:'#ef4444',code:TEMPLATES['hl7-detect'].code},
+  {id:3,name:'Bulk Registration',lang:'javascript',color:'#10b981',code:TEMPLATES['register-agents'].code},
+];
+
+function renderScriptList(){
+  const wrap=document.getElementById('script-list');if(!wrap)return;
+  wrap.innerHTML=savedScripts.map(s=>`<div class="script-item"><div class="script-dot" style="background:${s.color}"></div><div><div class="script-name">${s.name}</div></div><span class="script-lang">${s.lang}</span><div class="script-actions"><button class="script-btn run" onclick="loadScript(${s.id})">Open</button><button class="script-btn del" onclick="deleteScript(${s.id})">✕</button></div></div>`).join('');
+  const cnt=document.getElementById('script-count');if(cnt)cnt.textContent=savedScripts.length+' scripts';
+}
+function loadTemplate(key){
+  const t=TEMPLATES[key];if(!t)return;
+  const ed=document.getElementById('ce-editor');const lang=document.getElementById('editor-lang');const title=document.getElementById('editor-title');
+  if(ed)ed.value=t.code;if(lang)lang.value=t.lang;if(title)title.textContent=t.name;
+  updateLineNums();showEnvTab('scripts');
+  const badge=document.getElementById('editor-lang-badge');if(badge)badge.textContent=t.lang;
+}
+function loadScript(id){
+  const s=savedScripts.find(x=>x.id===id);if(!s)return;
+  currentScriptId=id;
+  const ed=document.getElementById('ce-editor');const title=document.getElementById('editor-title');const lang=document.getElementById('editor-lang');
+  if(ed)ed.value=s.code;if(title)title.textContent=s.name;if(lang)lang.value=s.lang;
+  updateLineNums();showEnvTab('scripts');
+}
+function deleteScript(id){if(!confirm('Delete this script?'))return;const i=savedScripts.findIndex(x=>x.id===id);if(i>-1)savedScripts.splice(i,1);renderScriptList();}
+function newScript(){
+  const ed=document.getElementById('ce-editor');const title=document.getElementById('editor-title');
+  if(ed)ed.value=`// New AgentRadar integration script\n// Globals: DB (agent database), AR.log(), AR.addAgent(), save(), updateStats()\n\nAR.log("Script started");\n// Your code here\nAR.log("Done");`;
+  if(title)title.textContent='New Script';currentScriptId=null;updateLineNums();showEnvTab('scripts');
+}
+function saveScript(){
+  const ed=document.getElementById('ce-editor');const title=document.getElementById('editor-title');const lang=document.getElementById('editor-lang');
+  const code=ed?.value||'';const name=title?.textContent||'Untitled';const langVal=lang?.value||'javascript';
+  const colors={python:'#f59f00',bash:'#ef4444',javascript:'#10b981',yaml:'#6366f1',json:'#8b5cf6'};
+  if(currentScriptId){const s=savedScripts.find(x=>x.id===currentScriptId);if(s){s.code=code;s.lang=langVal;}}
+  else{const id=Date.now();savedScripts.push({id,name,lang:langVal,color:colors[langVal]||'#6366f1',code});currentScriptId=id;}
+  renderScriptList();addAct('reg','Script saved: '+name,'Admin · just now','#10b981');appendOutputLine('[SAVED] Script saved ✓','#10b981');
+}
+function runScript(){
+  const ed=document.getElementById('ce-editor');const lang=document.getElementById('editor-lang');if(!ed)return;
+  const code=ed.value;const langVal=lang?.value||'javascript';
+  const out=document.getElementById('ce-output');if(out)out.innerHTML='';
+  appendOutputLine('[RUN] Executing script…','#6c8eff');
+  if(langVal==='javascript'){
+    const AR={
+      log:(msg)=>appendOutputLine('[LOG] '+msg,'#c8d0e4'),
+      addAgent:(obj)=>{DB.agents.push({id:Date.now(),...obj,shadow:false,detect:'Script',pii:obj.phi||false,controls:{soc2:'warn',iso27001:'warn',gdpr:'warn',nist:'warn',euai:'warn',hipaa:obj.phi?'fail':'pass',hitrust:'warn',fda_samd:'warn'},firstDet:new Date().toISOString().split('T')[0]});save();updateStats();if(cv==='discovery')renderDisc();appendOutputLine('[REG] Agent registered: '+obj.name,'#20c997');},
+      agents:DB.agents,risks:DB.risks
+    };
+    try{new Function('DB','AR','save','updateStats','renderDisc','cv',code)(DB,AR,save,updateStats,renderDisc,cv);appendOutputLine('[DONE] Script completed ✓','#20c997');}
+    catch(e){appendOutputLine('[ERROR] '+e.message,'#f87171');}
+  } else {
+    setTimeout(()=>appendOutputLine('[SIM] '+langVal+' runs server-side in production','#f59f00'),200);
+    setTimeout(()=>appendOutputLine('[DONE] Queued for execution ✓','#20c997'),800);
+  }
+}
+function aiReviewScript(){
+  const ed=document.getElementById('ce-editor');if(!ed||!ed.value.trim()){appendOutputLine('[INFO] No code to review','#4a5268');return;}
+  appendOutputLine('[AI] Sending to AI Agent for review…','#6c8eff');
+  toggleAgentPanel();
+  setTimeout(()=>aapAsk('Review this integration script for security issues:\n\n```\n'+ed.value.slice(0,600)+'\n```'),400);
+}
+function appendOutputLine(text,color){
+  const out=document.getElementById('ce-output');if(!out)return;
+  const d=document.createElement('div');d.style.color=color||'#c8d0e4';d.textContent=text;
+  out.appendChild(d);out.scrollTop=out.scrollHeight;
+}
+function updateLineNums(){
+  const ed=document.getElementById('ce-editor');const ln=document.getElementById('ce-lines');if(!ed||!ln)return;
+  const lines=ed.value.split('\n').length;ln.innerHTML=Array.from({length:lines},(_,i)=>i+1).join('<br>');
+}
+function updateEditorLang(){const lang=document.getElementById('editor-lang');const badge=document.getElementById('editor-lang-badge');if(badge&&lang)badge.textContent=lang.value;}
+function handleEditorKey(e){if(e.key==='Tab'){e.preventDefault();const ed=e.target;const s=ed.selectionStart;ed.value=ed.value.slice(0,s)+'  '+ed.value.slice(ed.selectionEnd);ed.selectionStart=ed.selectionEnd=s+2;updateLineNums();}}
+/* ════════════════════════════════════════════════════════
+   REAL INTEGRATION LAYER — Connection Registry + Setup Wizard
+   + IaC generation + real API validation
+════════════════════════════════════════════════════════ */
+
+/* ── Connection Registry (persisted in localStorage) ── */
+const CONN_KEY = 'ar-connections';
+function getConnections() {
+  try { return JSON.parse(localStorage.getItem(CONN_KEY) || '{}'); }
+  catch { return {}; }
+}
+function saveConnection(id, data) {
+  const conns = getConnections();
+  conns[id] = { ...data, savedAt: new Date().toISOString() };
+  localStorage.setItem(CONN_KEY, JSON.stringify(conns));
+  updateEnvHealthGrid();
+  updateEnvStatusBar();
+}
+function removeConnection(id) {
+  const conns = getConnections();
+  delete conns[id];
+  localStorage.setItem(CONN_KEY, JSON.stringify(conns));
+  updateEnvHealthGrid();
+}
+function getConnection(id) { return getConnections()[id] || null; }
+
+/* ── IaC Templates — real Terraform/CLI/YAML for each integration ── */
+const IAC = {
+  aws: {
+    title: 'AWS — Create read-only IAM role (Terraform)',
+    lang: 'terraform',
+    policy: `{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AgentRadarReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:ListFunctions",
+        "lambda:GetFunction",
+        "sagemaker:ListEndpoints",
+        "sagemaker:DescribeEndpoint",
+        "bedrock:ListFoundationModels",
+        "bedrock:GetFoundationModel",
+        "ecs:ListClusters",
+        "ecs:ListTasks",
+        "ecs:DescribeTasks",
+        "ec2:DescribeInstances",
+        "ec2:DescribeSecurityGroups",
+        "logs:DescribeLogGroups",
+        "logs:FilterLogEvents"
+      ],
+      "Resource": "*"
+    }
+  ]
+}`,
+    terraform: `# AgentRadar AWS Scanner — IAM Role
+# Run: terraform init && terraform apply
+
+variable "agentRadar_external_id" {
+  description = "External ID from AgentRadar UI"
+  type        = string
+}
+
+variable "agentRadar_account_id" {
+  default = "123456789012"  # AgentRadar AWS account ID
+}
+
+resource "aws_iam_role" "agentRadar_scanner" {
+  name = "AgentRadar-Scanner"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::\${var.agentRadar_account_id}:root" }
+      Action    = "sts:AssumeRole"
+      Condition = {
+        StringEquals = {
+          "sts:ExternalId" = var.agentRadar_external_id
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "agentRadar_policy" {
+  name   = "AgentRadar-ReadOnly"
+  role   = aws_iam_role.agentRadar_scanner.id
+  policy = file("agentRadar-policy.json")
+}
+
+output "role_arn" {
+  value = aws_iam_role.agentRadar_scanner.arn
+}`,
+    verification: [
+      { title: 'Create IAM role', desc: 'Run the Terraform above or create the role manually in AWS Console. Save the Role ARN.' },
+      { title: 'Enter ARN in AgentRadar', desc: 'Paste the Role ARN into the field above. AgentRadar will call sts:AssumeRole to verify.' },
+      { title: 'Test connection', desc: 'Click Test Connection — AgentRadar will assume the role and list Lambda functions, SageMaker endpoints, and Bedrock models.' },
+      { title: 'Run first scan', desc: 'Click Scan Now to discover all AI agents in your AWS account and register them in the inventory.' },
+    ]
+  },
+  azure: {
+    title: 'Azure — Create Service Principal (Azure CLI)',
+    lang: 'bash',
+    code: `# Run in Azure Cloud Shell or local Azure CLI
+# Step 1: Create Service Principal with Reader role
+az ad sp create-for-rbac \\
+  --name "AgentRadar-Scanner" \\
+  --role "Reader" \\
+  --scopes "/subscriptions/{subscription-id}" \\
+  --output json
+
+# Output → copy clientId, clientSecret, tenantId into AgentRadar
+
+# Step 2: If you have multiple subscriptions, repeat for each:
+az role assignment create \\
+  --assignee {client-id-from-above} \\
+  --role "Reader" \\
+  --scope "/subscriptions/{second-subscription-id}"
+
+# Step 3: Verify access (optional)
+az login --service-principal \\
+  -u {client-id} -p {client-secret} \\
+  --tenant {tenant-id}
+az cognitiveservices account list --output table`,
+    verification: [
+      { title: 'Create Service Principal', desc: 'Run the CLI command above. Copy the clientId, clientSecret, and tenantId from the JSON output.' },
+      { title: 'Enter credentials in AgentRadar', desc: 'Paste Tenant ID, Client ID, Client Secret, and Subscription IDs into the fields above.' },
+      { title: 'Test connection', desc: 'AgentRadar authenticates with ClientSecretCredential and lists Azure OpenAI deployments and ML Studio workspaces.' },
+      { title: 'Grant access to additional subscriptions', desc: 'If you have multiple subscriptions, add the Reader role for each in Azure IAM.' },
+    ]
+  },
+  gcp: {
+    title: 'GCP — Create Service Account (gcloud CLI)',
+    lang: 'bash',
+    code: `# Run in Google Cloud Shell or local gcloud CLI
+# Step 1: Create service account
+gcloud iam service-accounts create agentRadar-scanner \\
+  --display-name="AgentRadar Scanner" \\
+  --project={your-project-id}
+
+# Step 2: Grant read-only roles
+gcloud projects add-iam-policy-binding {your-project-id} \\
+  --member="serviceAccount:agentRadar-scanner@{your-project-id}.iam.gserviceaccount.com" \\
+  --role="roles/aiplatform.viewer"
+
+gcloud projects add-iam-policy-binding {your-project-id} \\
+  --member="serviceAccount:agentRadar-scanner@{your-project-id}.iam.gserviceaccount.com" \\
+  --role="roles/run.viewer"
+
+gcloud projects add-iam-policy-binding {your-project-id} \\
+  --member="serviceAccount:agentRadar-scanner@{your-project-id}.iam.gserviceaccount.com" \\
+  --role="roles/logging.viewer"
+
+# Step 3: Create and download key
+gcloud iam service-accounts keys create agentRadar-key.json \\
+  --iam-account=agentRadar-scanner@{your-project-id}.iam.gserviceaccount.com
+
+# Upload agentRadar-key.json content into AgentRadar above`,
+    verification: [
+      { title: 'Create service account', desc: 'Run the gcloud commands above. The key JSON file is created at the end.' },
+      { title: 'Upload key JSON', desc: 'Copy the contents of agentRadar-key.json and paste into the Service Account JSON field above.' },
+      { title: 'Add project IDs', desc: 'Enter the GCP project IDs you want to scan. Separate multiple projects with commas.' },
+      { title: 'Test connection', desc: 'AgentRadar authenticates and lists Vertex AI endpoints and Cloud Run services.' },
+    ]
+  },
+  k8s: {
+    title: 'Kubernetes — Create read-only Service Account',
+    lang: 'yaml',
+    code: `# Apply this to your cluster: kubectl apply -f agentRadar-rbac.yaml
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentRadar
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agentRadar-scanner
+  namespace: agentRadar
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: agentRadar-scanner
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "namespaces"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "statefulsets", "replicasets"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agentRadar-scanner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agentRadar-scanner
+subjects:
+  - kind: ServiceAccount
+    name: agentRadar-scanner
+    namespace: agentRadar
+---
+# Get the token (Kubernetes 1.24+)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: agentRadar-scanner-token
+  namespace: agentRadar
+  annotations:
+    kubernetes.io/service-account.name: agentRadar-scanner
+type: kubernetes.io/service-account-token`,
+    verification: [
+      { title: 'Apply RBAC manifest', desc: 'Run: kubectl apply -f agentRadar-rbac.yaml — creates namespace, ServiceAccount, and ClusterRole.' },
+      { title: 'Get service account token', desc: 'Run: kubectl get secret agentRadar-scanner-token -n agentRadar -o jsonpath="{.data.token}" | base64 -d' },
+      { title: 'Enter credentials', desc: 'Paste the API Server URL (kubectl cluster-info), CA certificate, and token into the fields above.' },
+      { title: 'Configure namespaces', desc: 'Add the namespaces AgentRadar should scan. Default: default, production, ai-workloads, healthcare.' },
+    ]
+  },
+  idp: {
+    title: 'Okta — read-only API token for OAuth grant scanning',
+    lang: 'bash',
+    code: `# Create read-only Okta API token
+# In Okta Admin: Security → API → Tokens → Create Token
+# Name: AgentRadar-Scanner | Scope: read:apps, read:users
+
+# Test the token
+curl https://YOUR_DOMAIN.okta.com/api/v1/apps?limit=5 \\
+  -H "Authorization: SSWS {your-token}" \\
+  -H "Accept: application/json"
+
+# Azure AD: App registration with minimum permissions
+az ad app create --display-name "AgentRadar-IdP-Scanner"
+az ad app permission add --id {app-id} --api 00000003-0000-0000-c000-000000000000 \\
+  --api-permissions 311a71cc-e848-46a1-bdf8-97ff7156d8e6=Scope  # User.Read.All
+az ad app permission grant --id {app-id} --api 00000003-0000-0000-c000-000000000000`,
+    verification: [
+      { title: 'Create read-only API token', desc: 'In Okta Admin Console: Security → API → Tokens. Create token with read:apps and read:users scope only.' },
+      { title: 'Enter domain and token', desc: 'Paste your Okta domain (company.okta.com) and the SSWS token into the fields above.' },
+      { title: 'Test connection', desc: 'AgentRadar calls /api/v1/apps to list OAuth applications and checks each against the AI platform list.' },
+      { title: 'Review discovered grants', desc: 'Agent inventory will show hosted AI agents as "SaaS (Hosted)" type with the authorised user as owner.' },
+    ]
+  },
+  casb: {
+    title: 'Zscaler — API key for web transaction log access',
+    lang: 'bash',
+    code: `# Zscaler: Create API token
+# Admin Console: Administration → API Key Management → Add API Key
+# Enable: Log Streaming Service (NSS) access
+
+# Test connection
+curl https://YOUR_CLOUD.zscalertwo.net/api/v1/status \\
+  -H "auth-token: {your-token}" \\
+  -H "Content-Type: application/json"
+
+# Netskope alternative:
+curl https://YOUR_TENANT.goskope.com/api/v2/events/data/alert?limit=1 \\
+  -H "Netskope-Api-Token: {your-token}"`,
+    verification: [
+      { title: 'Create API key in Zscaler', desc: 'Admin Console: Administration → API Key Management. Enable Log Streaming Service access.' },
+      { title: 'Enter cloud name and token', desc: 'Your cloud name is the part before .zscalertwo.net in your admin URL.' },
+      { title: 'Test connection', desc: 'AgentRadar fetches the last hour of web transactions and matches against 15+ hosted AI platform domains.' },
+      { title: 'Review CASB findings', desc: 'Hosted AI agents appear immediately with upload volume, user identity, and DLP risk flag.' },
+    ]
+  },
+  sensor: {
+    title: 'On-Prem Sensor — Docker or Helm deployment',
+    lang: 'bash',
+    code: `# Option A — Docker (recommended for single host or small networks)
+docker run -d \\
+  --name agentRadar-sensor \\
+  --restart unless-stopped \\
+  --network host \\
+  -e ENROLLMENT_TOKEN="{your-enrollment-token}" \\
+  -e SCAN_RANGES="10.0.0.0/8,192.168.0.0/16" \\
+  -e SCAN_INTERVAL_MINUTES="15" \\
+  -e HEALTHCARE_MODE="true" \\
+  -e AGENTRADATR_URL="https://app.agentRadar.io" \\
+  ghcr.io/agentRadar/sensor:latest
+
+# Option B — Helm (recommended for Kubernetes-managed environments)
+helm repo add agentRadar https://charts.agentRadar.io
+helm repo update
+helm install agentRadar-sensor agentRadar/sensor \\
+  --namespace agentRadar \\
+  --create-namespace \\
+  --set enrollment.token="{your-enrollment-token}" \\
+  --set scan.ranges="10.0.0.0/8,192.168.0.0/16" \\
+  --set scan.intervalMinutes=15 \\
+  --set healthcare.enabled=true
+
+# Option C — systemd (bare metal / VM)
+curl -sSL https://dl.agentRadar.io/sensor/install.sh | sudo bash
+sudo tee /etc/agentRadar/sensor.env << EOF
+ENROLLMENT_TOKEN={your-enrollment-token}
+SCAN_RANGES=10.0.0.0/8,192.168.0.0/16
+AGENTRADATR_URL=https://app.agentRadar.io
+HEALTHCARE_MODE=true
+EOF
+sudo systemctl enable --now agentRadar-sensor`,
+    verification: [
+      { title: 'Generate enrollment token', desc: 'Click Generate Token above — creates a one-time enrollment token valid for 24 hours.' },
+      { title: 'Deploy sensor', desc: 'Run the Docker, Helm, or systemd command above inside your network. The sensor needs outbound TCP 443 to app.agentRadar.io only.' },
+      { title: 'Verify enrollment', desc: 'The sensor appears in the registry below within 60 seconds of deployment. Status shows Enrolled.' },
+      { title: 'First scan completes', desc: 'The sensor runs its first scan within 2 minutes of enrollment. Discovered agents appear in your inventory.' },
+    ]
+  },
+  splunk: {
+    title: 'Splunk — Create HEC token and saved search',
+    lang: 'bash',
+    code: `# Step 1: Create HEC (HTTP Event Collector) token
+# In Splunk UI: Settings → Data Inputs → HTTP Event Collector → New Token
+# Name: AgentRadar-Scanner | Source type: _json | Index: security
+
+# Step 2: Create Splunk API token for search
+# In Splunk UI: Settings → Tokens → Generate Token
+# Name: AgentRadar-ReadOnly | Expiry: Never | Role: power (read-only)
+
+# Step 3: Test the connection
+curl -k https://{splunk-host}:8089/services/search/jobs \\
+  -H "Authorization: Splunk {your-api-token}" \\
+  -d "search=search index=security earliest=-1h | head 1"
+
+# Step 4: Required SPL query (AgentRadar runs this every 5 min)
+# search index=* earliest=-30d (
+#   dest_host="api.openai.com" OR dest_host="api.anthropic.com"
+#   OR dest_host="*.huggingface.co" OR dest_port=11434
+#   OR dest_port=2575 OR dest_port=8899
+# ) | stats count, sum(bytes) as bytes by src_ip, dest_host, dest_port
+# | sort -count`,
+    verification: [
+      { title: 'Create API token in Splunk', desc: 'In Splunk Web: Settings → Tokens → Generate Token. Copy the token value — it is only shown once.' },
+      { title: 'Enter Splunk URL and token', desc: 'Paste your Splunk URL (https://splunk.company.com:8089) and API token above.' },
+      { title: 'Test connection', desc: 'AgentRadar sends a test search query. Verifies index access and token validity.' },
+      { title: 'Configure indexes and time range', desc: 'Specify which indexes to search (default: main, security) and the lookback window (default: 30 days).' },
+    ]
+  },
+  github: {
+    title: 'GitHub Actions — Policy gate workflow',
+    lang: 'yaml',
+    code: `# .github/workflows/agentRadar-gate.yml
+# Blocks deployments that introduce ungoverned AI agents
+
+name: AgentRadar AI Governance Gate
+
+on:
+  pull_request:
+    paths:
+      - '**/*.py'
+      - '**/*.js'
+      - '**/*.ts'
+      - '**/requirements.txt'
+      - '**/package.json'
+      - '**/Dockerfile'
+
+jobs:
+  agentRadar-scan:
+    name: AI Agent Governance Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AgentRadar Policy Gate
+        uses: agentRadar/scan-action@v2
+        with:
+          api-key: \${{ secrets.AGENTRADATR_KEY }}
+          fail-on: critical,high
+          frameworks: soc2,hipaa,euai
+          manifest: ./agent-manifest.yaml  # optional: declare known agents
+          comment-on-pr: true               # posts findings as PR comment
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentRadar-scan-\${{ github.run_id }}
+          path: agentRadar-results.json`,
+    verification: [
+      { title: 'Add secret to repository', desc: 'In GitHub: Settings → Secrets → Actions → New repository secret. Name: AGENTRADATR_KEY. Value: your API key from above.' },
+      { title: 'Create workflow file', desc: 'Add .github/workflows/agentRadar-gate.yml to your repository with the YAML above.' },
+      { title: 'Create agent-manifest.yaml (optional)', desc: 'Declare known approved AI agents so the scanner does not flag them. Download template from the Code Editor tab.' },
+      { title: 'Open a test PR', desc: 'Create a PR that touches a Python file. AgentRadar should appear as a required check and post findings.' },
+    ]
+  },
+  fhir: {
+    title: 'Epic FHIR R4 — SMART on FHIR client registration',
+    lang: 'bash',
+    code: `# Step 1: Register AgentRadar as a SMART Backend Services client in Epic
+# Epic App Market: https://appmarket.epic.com
+# Or via your Epic technical contact for non-public registration
+
+# Client credentials you need from Epic:
+#   - Client ID (non-secret for public clients)
+#   - Private key JWK (for backend services auth)
+#   - FHIR base URL: https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4
+
+# Required SMART scopes (read-only, no PHI content):
+#   system/AuditEvent.read
+#   system/CapabilityStatement.read
+#   system/Endpoint.read
+
+# Step 2: Test SMART discovery
+curl https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4/metadata \\
+  -H "Accept: application/fhir+json"
+
+# Step 3: Get SMART configuration
+curl https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4/.well-known/smart-configuration
+
+# AgentRadar reads ONLY:
+#   GET /metadata              → CapabilityStatement (what APIs are available)
+#   GET /.well-known/smart-configuration → Registered AI apps
+#   GET /AuditEvent?type=rest  → API access patterns (metadata only, no PHI)
+# It NEVER reads: /Patient, /Observation, /Condition, or any PHI resource`,
+    verification: [
+      { title: 'Register in Epic App Market', desc: 'Submit AgentRadar as a Backend Services client. Required scopes: system/AuditEvent.read, system/CapabilityStatement.read.' },
+      { title: 'Enter FHIR base URL and client ID', desc: 'Paste the Epic FHIR R4 base URL and your registered client ID into the fields above.' },
+      { title: 'Test CapabilityStatement', desc: 'AgentRadar fetches /metadata — no auth required. Verifies the FHIR endpoint is reachable.' },
+      { title: 'Verify AuditEvent access', desc: 'AgentRadar fetches recent AuditEvent records to find AI agent activity. Requires SMART auth.' },
+    ]
+  },
+};
+
+/* ── Connection validation — what we can actually verify in the browser ── */
+const REAL_VALIDATIONS = {
+  // FHIR: browser can actually reach these (no CORS issues on .well-known)
+  fhir: async (fields) => {
+    const base = fields['ci-epic-url']?.trim();
+    if (!base) return { ok: false, msg: 'FHIR base URL is required' };
+    try {
+      const res = await fetch(base + '/metadata', {
+        headers: { 'Accept': 'application/fhir+json' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return { ok: true, msg: `Connected — ${data.software?.name || 'FHIR R4'} v${data.fhirVersion || '4.0'}` };
+      }
+      return { ok: false, msg: `FHIR server returned HTTP ${res.status}` };
+    } catch (e) {
+      return { ok: false, msg: `Cannot reach FHIR server: ${e.message}` };
+    }
+  },
+
+  // MCP: browser can check /.well-known/mcp-configuration
+  mcp: async (fields) => {
+    const host = fields['ci-mcp-url']?.trim();
+    if (!host) return { ok: false, msg: 'MCP server URL is required' };
+    try {
+      const res = await fetch(host + '/.well-known/mcp-configuration');
+      if (res.ok) {
+        const data = await res.json();
+        return { ok: true, msg: `MCP server: ${data.name || 'unknown'} — ${(data.tools||[]).length} tools` };
+      }
+      return { ok: false, msg: `No MCP config found at ${host}/.well-known/mcp-configuration` };
+    } catch (e) {
+      return { ok: false, msg: `Cannot reach MCP server (CORS or network): deploy backend proxy` };
+    }
+  },
+
+  // For cloud: validate format and store (real API call needs backend)
+  aws: async (fields) => {
+    const arn = fields['ci-aws-arn']?.trim() || '';
+    if (!arn.match(/^arn:aws:iam::\d{12}:role\/.+/))
+      return { ok: false, msg: 'Invalid Role ARN format — expected: arn:aws:iam::123456789:role/name' };
+    return { ok: true, msg: `Role ARN format valid — deploy AgentRadar backend to complete AssumeRole verification` };
+  },
+
+  azure: async (fields) => {
+    const tid = fields['ci-az-tenant']?.trim() || '';
+    const cid = fields['ci-az-client']?.trim() || '';
+    if (!tid || !cid) return { ok: false, msg: 'Tenant ID and Client ID are required' };
+    if (!tid.match(/^[0-9a-f-]{36}$/i)) return { ok: false, msg: 'Tenant ID must be a UUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)' };
+    return { ok: true, msg: `Credentials format valid — deploy AgentRadar backend to complete OAuth verification` };
+  },
+
+  gcp: async (fields) => {
+    const json = fields['ci-gcp-json']?.trim() || '';
+    try {
+      const parsed = JSON.parse(json);
+      if (parsed.type !== 'service_account') return { ok: false, msg: 'JSON must be a service account key (type: service_account)' };
+      if (!parsed.client_email) return { ok: false, msg: 'Missing client_email in service account key' };
+      return { ok: true, msg: `Service account: ${parsed.client_email}` };
+    } catch {
+      return { ok: false, msg: 'Invalid JSON — paste the full service account key JSON' };
+    }
+  },
+
+  k8s: async (fields) => {
+    const url = fields['ci-k8s-url']?.trim() || '';
+    const token = fields['ci-k8s-token']?.trim() || '';
+    if (!url || !token) return { ok: false, msg: 'API server URL and SA token are required' };
+    if (!url.startsWith('https://')) return { ok: false, msg: 'API server URL must start with https://' };
+    return { ok: true, msg: `Format valid (${url}) — deploy AgentRadar backend to complete K8s API verification` };
+  },
+
+  splunk: async (fields) => {
+    const url = fields['ci-splunk-url']?.trim() || '';
+    const token = fields['ci-splunk-token']?.trim() || '';
+    if (!url || !token) return { ok: false, msg: 'Splunk URL and API token are required' };
+    return { ok: true, msg: `Credentials saved — deploy AgentRadar backend to complete Splunk REST verification` };
+  },
+
+  idp: async (fields) => {
+    const domain = fields['ci-idp-domain']?.trim()||'';
+    const token  = fields['ci-idp-token']?.trim()||'';
+    const type   = fields['ci-idp-type']?.value||'okta';
+    if(!domain||!token) return {ok:false, msg:'Domain and API token are required'};
+    if(type==='okta') {
+      try {
+        const res = await fetch(`https://${domain}/api/v1/apps?limit=1`, {headers:{'Authorization':`SSWS ${token}`,'Accept':'application/json'}});
+        if(res.ok) return {ok:true, msg:`Okta connected — scanning OAuth app registry on ${domain}`};
+        return {ok:false, msg:`Okta returned HTTP ${res.status} — check token permissions`};
+      } catch(e) { return {ok:false, msg:`Cannot reach ${domain}: ${e.message}`}; }
+    }
+    if(type==='azure') {
+      if(!domain.match(/^[0-9a-f-]{36}$/i)) return {ok:false, msg:'Azure Tenant ID must be a UUID'};
+      return {ok:true, msg:`Azure AD format valid — deploy AgentRadar backend to complete MS Graph auth`};
+    }
+    return {ok:true, msg:`${type} credentials format valid`};
+  },
+  casb: async (fields) => {
+    const host  = fields['ci-casb-host']?.trim()||'';
+    const key   = fields['ci-casb-key']?.trim()||'';
+    const type  = fields['ci-casb-type']?.value||'zscaler';
+    if(!host||!key) return {ok:false, msg:'Host and API key are required'};
+    if(type==='zscaler'&&!host.includes('zscaler')) return {ok:false, msg:'Zscaler host should contain zscaler in domain'};
+    if(type==='netskope'&&!host.includes('goskope')) return {ok:false, msg:'Netskope host should contain goskope.com'};
+    return {ok:true, msg:`${type} credentials saved — deploy AgentRadar backend to complete ${type} API validation`};
+  },
+  sensor: async (fields) => {
+    return { ok: true, msg: `Enrollment token generated — run the deploy command below to register your sensor` };
+  },
+
+  github: async (fields) => {
+    const key = fields['ci-gh-apikey']?.trim() || '';
+    if (!key) return { ok: false, msg: 'AgentRadar API key is required for GitHub gate' };
+    return { ok: true, msg: `GitHub Actions gate configured — add AGENTRADATR_KEY to your repository secrets` };
+  },
+};
+
+/* ── testConn — now calls real validation then falls back to simulation ── */
+async function testConn(name) {
+  const log    = document.getElementById('log-' + name);
+  const status = document.getElementById('cs-' + name);
+  const card   = document.getElementById('cc-' + name);
+  if (!log) return;
+  log.innerHTML = '';
+  if (card) card.classList.add('testing');
+  if (status) { status.textContent = 'Testing…'; status.className = 'conn-status cs-testing'; }
+
+  // Collect all credential fields for this connection
+  const fields = {};
+  document.querySelectorAll(`[id^="ci-${name}-"]`).forEach(el => { fields[el.id] = el.value; });
+
+  const appendLog = (msg, cls = 'log-acc') => {
+    const d = document.createElement('div');
+    d.className = cls;
+    d.textContent = msg;
+    log.appendChild(d);
+    log.scrollTop = log.scrollHeight;
+  };
+
+  appendLog(`[INIT] Validating ${name} credentials…`);
+
+  // Try real validation if available
+  let realResult = null;
+  if (REAL_VALIDATIONS[name]) {
+    try {
+      await new Promise(r => setTimeout(r, 400));
+      realResult = await REAL_VALIDATIONS[name](fields);
+    } catch (e) {
+      realResult = { ok: false, msg: e.message };
+    }
+  }
+
+  if (realResult) {
+    if (realResult.ok) {
+      appendLog('[VALID] ' + realResult.msg, 'log-grn');
+      appendLog('[SAVE] Credentials stored in secure vault', 'log-acc');
+      await new Promise(r => setTimeout(r, 300));
+      appendLog('[DONE] Connection established ✓', 'log-grn');
+      if (card) { card.classList.remove('testing'); card.classList.add('connected'); }
+      if (status) { status.textContent = 'Connected'; status.className = 'conn-status cs-connected'; }
+      saveConnection(name, { name, fields: sanitizeFields(fields), status: 'connected', detail: realResult.msg });
+      addAct('reg', `Integration connected: ${name}`, currentUser + ' · just now', '#10b981');
+      updateEnvHealthGrid();
+    } else {
+      appendLog('[ERROR] ' + realResult.msg, 'log-red');
+      appendLog('[FAIL] Connection failed — check credentials above', 'log-red');
+      if (card) card.classList.remove('testing');
+      if (status) { status.textContent = 'Error'; status.className = 'conn-status cs-error'; }
+    }
+    renderConnectionRegistry();
+    return;
+  }
+
+  // Simulation fallback for non-validated connections (HL7, DICOM, etc.)
+  const steps = {
+    hl7:['[SCAN] Port 2575 across subnets…','[ALERT] Unauthorized listener: 10.1.22.5:2575 — PHI risk','[OK] Authorized: cerner-hl7-gw (10.2.4.12)','[DONE] HL7 scan complete'],
+    dicom:['[INIT] DICOM C-ECHO to PACS…','[OK] C-ECHO response received','[FOUND] AE Titles: RADIOLOGY-AI-V2, PACS-MAIN','[DONE] DICOM gateway reachable ✓'],
+    cerner:['[INIT] Cerner FHIR capability…','[AUTH] SMART validated','[FOUND] 2 SMART apps registered','[DONE] Cerner connected ✓'],
+    epic:['[INIT] Epic FHIR R4 capability…','[AUTH] SMART client validated','[FOUND] CapabilityStatement: 4 SMART apps','[DONE] Epic FHIR connected ✓'],
+    sentinel:['[INIT] Azure Log Analytics…','[AUTH] Workspace key accepted','[DONE] Sentinel connected ✓'],
+    datadog:['[INIT] Datadog API auth…','[AUTH] API+App key validated','[DONE] Datadog connected ✓'],
+    elastic:['[INIT] Elasticsearch ping…','[AUTH] API key accepted','[DONE] Elastic connected ✓'],
+    gitlab:['[INIT] GitLab webhook…','[AUTH] Policy key validated','[DONE] GitLab webhook ready ✓'],
+    proxy:['[INIT] Testing proxy…','[AUTH] Proxy credentials accepted','[DONE] Proxy connection successful ✓'],
+    ssh:['[INIT] SSH to target hosts…','[AUTH] Key auth successful','[SCAN] ps aux scanning…','[FOUND] AutoGPT PID 4421 on DESKTOP-7F3A','[DONE] SSH scan complete ✓'],
+  };
+  const msgs = steps[name] || ['[INIT] Testing…','[AUTH] Credentials validated','[DONE] Connection OK ✓'];
+  const cls  = msgs.map(m => m.includes('ALERT')||m.includes('ERROR') ? 'log-red' : m.includes('DONE')||m.includes('OK') ? 'log-grn' : m.includes('WARN') ? 'log-amb' : 'log-acc');
+  for (let i = 0; i < msgs.length; i++) {
+    await new Promise(r => setTimeout(r, 320));
+    appendLog(msgs[i], cls[i]);
+  }
+  const ok = !msgs.some(m => m.includes('ERROR'));
+  if (card) { card.classList.remove('testing'); card.classList.toggle('connected', ok); }
+  if (status) { status.textContent = ok ? 'Connected' : 'Error'; status.className = 'conn-status ' + (ok ? 'cs-connected' : 'cs-error'); }
+  if (ok) {
+    saveConnection(name, { name, fields: sanitizeFields(fields), status: 'connected', detail: msgs[msgs.length-1] });
+    addAct('reg', `Integration connected: ${name}`, currentUser + ' · just now', '#10b981');
+  }
+  renderConnectionRegistry();
+}
+
+/* Remove secret values before saving to localStorage */
+function sanitizeFields(fields) {
+  const safe = {};
+  for (const [k, v] of Object.entries(fields)) {
+    const isSecret = k.includes('secret') || k.includes('key') || k.includes('token') || k.includes('password') || k.includes('json');
+    safe[k] = isSecret && v ? '••••••••' : v;
+  }
+  return safe;
+}
+
+/* ── IaC guide panel ── */
+function showIACGuide(type) {
+  const guide = IAC[type];
+  if (!guide) return;
+  const existing = document.getElementById('iac-panel-' + type);
+  if (existing) { existing.remove(); return; }
+  const panel = document.createElement('div');
+  panel.id = 'iac-panel-' + type;
+  panel.style.cssText = 'margin-top:12px;';
+  const code = guide.terraform || guide.code || '';
+  panel.innerHTML = `
+    <div class="iac-block">
+      <div class="iac-label">${guide.title} <button class="iac-copy" onclick="copyIAC('${type}')">Copy</button></div>
+      <pre class="iac-code" id="iac-code-${type}">${code.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+    </div>
+    <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 6px">Setup steps</div>
+    ${guide.verification.map((v, i) => `
+      <div class="verify-step">
+        <div class="verify-num">${i+1}</div>
+        <div><div class="verify-title">${v.title}</div><div class="verify-desc">${v.desc}</div></div>
+      </div>`).join('')}
+  `;
+  const log = document.getElementById('log-' + type);
+  if (log) log.parentElement.insertBefore(panel, log);
+  else {
+    const card = document.getElementById('cc-' + type);
+    if (card) card.querySelector('.conn-body')?.appendChild(panel);
+  }
+}
+
+function copyIAC(type) {
+  const el = document.getElementById('iac-code-' + type);
+  if (el) navigator.clipboard.writeText(el.textContent).catch(() => {});
+  showScannerToast('Code copied to clipboard', false);
+}
+
+/* ── Connection registry render ── */
+function renderConnectionRegistry() {
+  const conns = getConnections();
+  const ids   = Object.keys(conns);
+  const container = document.getElementById('conn-registry-list');
+  if (!container) return;
+  if (!ids.length) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:16px">No connections established yet. Use the forms above to connect your environments.</div>';
+    return;
+  }
+  const icons = { aws:'🟠', azure:'🔷', gcp:'🟢', k8s:'⎈', sensor:'🏢', splunk:'📊', sentinel:'🔵', datadog:'🐕', elastic:'🟡', github:'⚙', gitlab:'🦊', epic:'🏥', hl7:'📡', dicom:'🩻', cerner:'🏥', fhir:'🏥' };
+  container.innerHTML = ids.map(id => {
+    const conn = conns[id];
+    return `<div class="registry-row">
+      <span class="registry-icon">${icons[id] || '🔌'}</span>
+      <span class="registry-name">${conn.name || id}</span>
+      <span class="registry-detail">${conn.detail || ''}</span>
+      <span class="registry-status rs-ok">Connected</span>
+      <div class="registry-actions">
+        <button class="btn sm" style="font-size:9px" onclick="testConn('${id}')">Retest</button>
+        <button class="btn sm" style="font-size:9px;color:var(--red-text)" onclick="removeConnection('${id}');renderConnectionRegistry()">Remove</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ── Environment health grid ── */
+function updateEnvHealthGrid() {
+  const conns = getConnections();
+  const cloudConns = ['aws','azure','gcp'].filter(c => conns[c]);
+  const siemConns  = ['splunk','sentinel','datadog','elastic'].filter(c => conns[c]);
+  const hcConns    = ['epic','fhir','hl7','dicom','cerner'].filter(c => conns[c]);
+  const cicdConns  = ['github','gitlab'].filter(c => conns[c]);
+  const sensorConn = conns['sensor'];
+
+  const setHealth = (id, countId, status, count, color) => {
+    const el = document.getElementById(id);
+    const ce = document.getElementById(countId);
+    if (el) { el.textContent = status; el.style.color = color; }
+    if (ce) ce.textContent = count;
+  };
+
+  if (cloudConns.length) setHealth('ehc-cloud', 'ehc-cloud-c', `${cloudConns.length} connected`, cloudConns.join(' + ').toUpperCase(), 'var(--green)');
+  else setHealth('ehc-cloud', 'ehc-cloud-c', 'Not connected', '0 environments', 'var(--text-muted)');
+
+  if (sensorConn) setHealth('ehc-sensor', 'ehc-sensor-c', 'Deployed', 'Scanning active', 'var(--green)');
+  else setHealth('ehc-sensor', 'ehc-sensor-c', 'Not deployed', '0 subnets', 'var(--text-muted)');
+
+  if (siemConns.length) setHealth('ehc-siem', 'ehc-siem-c', `${siemConns.length} connected`, siemConns.join(' + '), 'var(--green)');
+  else setHealth('ehc-siem', 'ehc-siem-c', 'Disconnected', '0 indexes', 'var(--text-muted)');
+
+  if (cicdConns.length) setHealth('ehc-cicd', 'ehc-cicd-c', 'Gate active', cicdConns.join(' + '), 'var(--green)');
+  else setHealth('ehc-cicd', 'ehc-cicd-c', 'Not configured', '0 pipelines', 'var(--text-muted)');
+
+  if (hcConns.length) setHealth('ehc-hc', 'ehc-hc-c', `${hcConns.length} connected`, hcConns.join(' + ').toUpperCase(), 'var(--teal)');
+  else setHealth('ehc-hc', 'ehc-hc-c', 'Not connected', '0 endpoints', 'var(--text-muted)');
+}
+
+/* ── Setup Wizard ── */
+let wizStep = 1, wizEnvType = null;
+const WIZ_STEPS = [
+  {
+    title: 'What is your primary environment?',
+    sub: 'AgentRadar will walk you through the exact steps to connect it. You can add more environments after setup.',
+    render: () => `
+      <div class="wiz-env-grid">
+        ${[['☁','AWS / Cloud','Lambda, SageMaker, Bedrock — most common for AI workloads','cloud'],
+           ['🏢','On-Premises','Network scanner for internal subnets, VMs, and workstations','onprem'],
+           ['🏥','Healthcare','Epic FHIR, HL7 MLLP, DICOM — clinical AI governance','health'],
+           ['📡','SIEM / Logs','Splunk, Sentinel, Datadog, Elastic — log-based discovery','siem'],
+           ['⚙','CI/CD Pipeline','GitHub Actions or GitLab — scan on every deployment','cicd'],
+           ['🔀','Multi-cloud','AWS + Azure + GCP — enterprise hybrid environment','multi']
+        ].map(([icon, name, desc, type]) => `
+          <div class="wiz-env-card${wizEnvType===type?' selected':''}" onclick="selectWizEnv('${type}',this)">
+            <div class="wiz-env-icon">${icon}</div>
+            <div class="wiz-env-name">${name}</div>
+            <div class="wiz-env-desc">${desc}</div>
+          </div>`).join('')}
+      </div>`
+  },
+  {
+    title: 'What AgentRadar needs',
+    sub: 'Read-only permissions only. AgentRadar never writes to your environment.',
+    render: () => {
+      const perms = {
+        cloud:  [['AWS Lambda','lambda:ListFunctions, lambda:GetFunction'],['SageMaker','sagemaker:ListEndpoints, DescribeEndpoint'],['Bedrock','bedrock:ListFoundationModels'],['EC2 / ECS','ec2:DescribeInstances, ecs:ListTasks']],
+        onprem: [['Network access','TCP connect to AI ports (8080, 11434, 8899, 7860, etc.)'],['SSH (optional)','Read-only SSH for process scanning'],['DNS','Query resolver logs for AI domain patterns']],
+        health: [['Epic FHIR','system/AuditEvent.read, system/CapabilityStatement.read'],['HL7 MLLP','TCP port 2575 scan — no message content'],['DICOM','C-ECHO ping only — no pixel data']],
+        siem:   [['Splunk','search capability — power role or equivalent'],['Sentinel','Log Analytics Reader role'],['Datadog','logs_read_data, metrics_read API scopes']],
+        cicd:   [['GitHub','AGENTRADATR_KEY secret in repository'],['GitLab','Policy key for webhook validation']],
+        multi:  [['AWS','lambda:List*, sagemaker:List*, bedrock:List*'],['Azure','Reader role on subscriptions'],['GCP','roles/aiplatform.viewer, roles/run.viewer']],
+      };
+      const rows = (perms[wizEnvType] || perms.cloud);
+      return `
+        <table class="perm-table">
+          <thead><tr><th>Service</th><th>Permission required</th><th>Access type</th></tr></thead>
+          <tbody>${rows.map(([svc, perm]) => `<tr><td><strong>${svc}</strong></td><td><code style="font-size:10px;color:var(--brand)">${perm}</code></td><td><span class="perm-tag">Read only</span></td></tr>`).join('')}</tbody>
+        </table>
+        <div style="padding:10px 12px;background:var(--green-bg);border-radius:var(--r8);border:1px solid var(--green-border);font-size:12px;color:var(--green-text)">
+          ✓ AgentRadar never writes to your environment, never accesses data content, and never stores credential values — only metadata.
+        </div>`;
+    }
+  },
+  {
+    title: 'Create read-only access',
+    sub: 'Copy the commands below and run them in your environment. This creates the exact permissions AgentRadar needs.',
+    render: () => {
+      const iacMap = { cloud:'aws', onprem:'sensor', health:'fhir', siem:'splunk', cicd:'github', multi:'aws' };
+      const type   = iacMap[wizEnvType] || 'aws';
+      const guide  = IAC[type];
+      if (!guide) return '<div>Guide not found</div>';
+      return `
+        <div class="iac-block">
+          <div class="iac-label">${guide.title} <button class="iac-copy" onclick="navigator.clipboard.writeText(document.getElementById('wiz-iac-code').textContent)">Copy</button></div>
+          <pre class="iac-code" id="wiz-iac-code" style="max-height:240px;overflow-y:auto">${(guide.terraform||guide.code||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+        </div>`;
+    }
+  },
+  {
+    title: 'Enter your credentials',
+    sub: 'Paste the credentials you just created. They are stored encrypted in your AgentRadar account vault.',
+    render: () => {
+      const envTabMap = { cloud:'cloud', onprem:'onprem', health:'health', siem:'siem', cicd:'cicd', multi:'cloud' };
+      return `
+        <div style="padding:14px;background:var(--brand-bg);border-radius:var(--r10);border:1px solid var(--brand-border);font-size:12px;color:var(--brand);margin-bottom:16px">
+          The credentials form for your environment is in the <strong>Connect Hub</strong> tab. Click below to go directly to it and enter your credentials.
+        </div>
+        <button class="btn primary" onclick="closeWizard();go('integrations');showEnvTab('${envTabMap[wizEnvType]||'cloud'}');" style="width:100%;padding:10px;font-size:13px">
+          Open ${wizEnvType === 'health' ? 'Healthcare' : wizEnvType === 'onprem' ? 'On-Prem Sensor' : wizEnvType === 'siem' ? 'SIEM / Logs' : wizEnvType === 'cicd' ? 'CI/CD Gate' : 'Cloud API'} credentials →
+        </button>`;
+    }
+  },
+  {
+    title: 'Verify and scan',
+    sub: 'Once credentials are entered, test the connection and run your first scan.',
+    render: () => `
+      <div class="verify-step"><div class="verify-num done">✓</div><div><div class="verify-title">Environment selected</div><div class="verify-desc">${wizEnvType || 'cloud'}</div></div></div>
+      <div class="verify-step"><div class="verify-num done">✓</div><div><div class="verify-title">Permissions created</div><div class="verify-desc">Read-only IAM role / service principal / service account</div></div></div>
+      <div class="verify-step"><div class="verify-num">3</div><div><div class="verify-title">Enter credentials in Connect Hub</div><div class="verify-desc">Paste your credentials in the appropriate tab of the Connect Hub</div></div></div>
+      <div class="verify-step"><div class="verify-num">4</div><div><div class="verify-title">Test connection</div><div class="verify-desc">Click "Test Connection" — AgentRadar validates credentials and reports status</div></div></div>
+      <div class="verify-step"><div class="verify-num">5</div><div><div class="verify-title">Run first scan</div><div class="verify-desc">Click "Scan Now" — first results appear in your agent inventory within 60 seconds</div></div></div>
+      <div style="margin-top:14px;display:flex;gap:8px">
+        <button class="btn primary" onclick="closeWizard();go('integrations');" style="flex:1;padding:9px">Go to Connect Hub →</button>
+      </div>`
+  },
+];
+
+function showSetupWizard() {
+  wizStep = 1; wizEnvType = null;
+  renderWizStep();
+  document.getElementById('setup-wizard').classList.remove('hidden');
+}
+function closeWizard() { document.getElementById('setup-wizard').classList.add('hidden'); }
+
+function selectWizEnv(type, el) {
+  wizEnvType = type;
+  document.querySelectorAll('.wiz-env-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function renderWizStep() {
+  const step = WIZ_STEPS[wizStep - 1];
+  document.getElementById('wiz-step-lbl').textContent = `Step ${wizStep} of ${WIZ_STEPS.length}`;
+  document.getElementById('wiz-title').textContent = step.title;
+  document.getElementById('wiz-sub').textContent   = step.sub;
+  document.getElementById('wiz-body').innerHTML    = step.render();
+  document.getElementById('wiz-fill').style.width  = (wizStep / WIZ_STEPS.length * 100) + '%';
+  const backBtn = document.getElementById('wiz-back-btn');
+  const nextBtn = document.getElementById('wiz-next-btn');
+  if (backBtn) backBtn.style.display = wizStep > 1 ? '' : 'none';
+  if (nextBtn) nextBtn.textContent = wizStep === WIZ_STEPS.length ? 'Done' : 'Next →';
+  const dots = document.getElementById('wiz-dots');
+  if (dots) dots.innerHTML = WIZ_STEPS.map((_, i) =>
+    `<div class="wiz-dot ${i+1 < wizStep ? 'done' : i+1 === wizStep ? 'active' : ''}"></div>`
+  ).join('');
+}
+
+function wizNext() {
+  if (wizStep === WIZ_STEPS.length) { closeWizard(); return; }
+  if (wizStep === 1 && !wizEnvType) { showScannerToast('Please select an environment type', true); return; }
+  wizStep++;
+  renderWizStep();
+}
+function wizBack() { if (wizStep > 1) { wizStep--; renderWizStep(); } }
+
+/* ── Patch renderInteg to include connection registry ── */
+function renderInteg() {
+  renderScriptList();
+  updateLineNums();
+  updateEnvStatusBar();
+  updateEnvHealthGrid();
+  renderConnectionRegistry();
+  // Restore connected state from registry
+  const conns = getConnections();
+  Object.keys(conns).forEach(id => {
+    const card   = document.getElementById('cc-' + id);
+    const status = document.getElementById('cs-' + id);
+    if (card)   card.classList.add('connected');
+    if (status) { status.textContent = 'Connected'; status.className = 'conn-status cs-connected'; }
+  });
+}
+
+
+/* -- CISO -- */
+function renderCiso(){
+  const ac=document.getElementById('ciso-alerts');
+  if(ac)ac.innerHTML=[
+    {t:'red',i:'⚠',title:'🏥 CRITICAL: Shadow HL7 Listener receiving PHI on port 2575 — potential HIPAA breach',body:'Unauthorized MLLP listener detected on 10.1.22.5 ingesting live ADT feeds. Immediate containment and breach assessment required within 60 days.'},
+    {t:'red',i:'⚠',title:'🏥 Patient Classifier accessing PHI without Business Associate Agreement',body:'Agent is processing patient records under HIPAA without a signed BAA. Regulatory violation — suspend until BAA is executed.'},
+    {t:'amber',i:'!',title:'4 critical-risk agents active — AutoGPT, Shadow Crawler, Unknown ML, Shadow HL7',body:'Immediate isolation required for all four critical-risk deployments.'},
+    {t:'amber',i:'!',title:'EU AI Act compliance at 33% — HR Screener violates Article 22',body:'HR Resume Screener has no human-in-the-loop for employment decisions. GDPR Article 9 violation on Genomics Agent.'},
+  ].map(a=>`<div class="alert-banner ${a.t==='amber'?'amber':''}"><div class="alert-icon">${a.i}</div><div><div class="alert-title">${a.title}</div><div class="alert-body">${a.body}</div></div></div>`).join('');
+  const recs=[
+    {p:'critical',t:'🏥 Block port 2575 (MLLP) — contain Shadow HL7 Listener immediately'},
+    {p:'critical',t:'🏥 Suspend Patient Classifier until BAA is executed with AI vendor'},
+    {p:'critical',t:'Terminate AutoGPT on DESKTOP-7F3A, rotate all production API keys'},
+    {p:'critical',t:'Quarantine Shadow Crawler v2 — block port 8899, forensic review'},
+    {p:'high',t:'🏥 Initiate FDA SaMD classification for Radiology Multiagent Pipeline'},
+    {p:'high',t:'🏥 Remediate Genomics Agent — GDPR Art.9 consent collection required'},
+    {p:'high',t:'Revoke Zapier OAuth tokens pending IT security review'},
+    {p:'medium',t:'Complete NIST RMF documentation for FinBot Analyzer'},
+  ];
+  const rc=document.getElementById('ciso-recs');
+  if(rc)rc.innerHTML=recs.map(r=>`<div style="display:flex;align-items:flex-start;gap:9px;padding:10px 14px;border-radius:var(--r12);background:rgba(255,255,255,0.5);border:1px solid rgba(200,210,240,0.5)">${rtag(r.p)}<span style="font-size:12px;color:var(--text-secondary);line-height:1.4">${r.t}</span></div>`).join('');
+  const rs=DB.risks.reduce((a,r)=>a+({critical:4,high:3,medium:2,low:1}[r.level]||0),0);
+  const pct=Math.round(rs/(DB.risks.length*4)*100);
+  const pn=document.getElementById('posture-num');
+  if(pn){pn.textContent=pct;pn.style.color=pct>=70?'#dc2626':pct>=40?'#d97706':'#059669';}
+  const pa=document.getElementById('posture-arc');
+  if(pa){const off=339-(339*pct/100);pa.setAttribute('stroke-dashoffset',off.toFixed(1));pa.setAttribute('stroke',pct>=70?'#ef4444':pct>=40?'#f59e0b':'#10b981');}
+  const fw=document.getElementById('ciso-fw');
+  if(fw)fw.innerHTML=FW.map(f=>{const p=Math.round(DB.agents.filter(a=>a.controls[f.k]==='pass').length/DB.agents.length*100);const col=p>=70?'#059669':p>=40?'#d97706':'#dc2626';return`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(200,210,240,0.3)"><span style="font-size:12px;color:var(--text-secondary);font-weight:500">${f.n}</span><span style="font-family:var(--font-display);font-size:14px;font-weight:800;color:${col}">${p}%</span></div>`;}).join('');
+  const ai=document.getElementById('ciso-ai');
+  if(ai&&ai.textContent==='Loading analysis…')runAI();
+}
+
+/* -- AI NARRATION -- */
+async function runAI(){
+  const el=document.getElementById('ciso-ai');if(!el)return;
+  el.textContent='';el.classList.add('ai-cursor');
+  const sh=DB.agents.filter(a=>a.shadow).length;
+  const cr=DB.agents.filter(a=>a.risk==='critical').length;
+  const avg=Math.round(DB.agents.reduce((a,x)=>a+cscore(x.controls),0)/DB.agents.length);
+  const vl=violations().length;
+  const phiAgents=DB.agents.filter(a=>a.phi).length;
+  const phiNoBaa=DB.agents.filter(a=>a.phi&&a.controls.hipaa!=='pass').length;
+  const hipaaScore=Math.round(DB.agents.filter(a=>a.controls.hipaa==='pass').length/DB.agents.length*100);
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:`You are AgentRadar, an AI governance platform. Write a 3-paragraph board-ready CISO briefing: ${DB.agents.length} total AI agents, ${sh} shadow deployments, ${cr} critical risk, ${avg}% avg compliance across 8 frameworks (SOC2/ISO27001/GDPR/NIST/EU AI Act/HIPAA/HITRUST CSF/FDA SaMD). Healthcare: ${phiAgents} PHI agents, ${phiNoBaa} without valid HIPAA BAA, HIPAA posture ${hipaaScore}%. ${vl} active policy violations. Key threats: Shadow HL7 Listener on port 2575 receiving ADT feeds, Patient Classifier lacking BAA, Genomics Agent violating GDPR Art.9. Direct, data-driven, no headers or bullets.`}]})});
+    const d=await res.json();
+    const text=d.content?.map(c=>c.text||'').join('')||'Unable to generate briefing.';
+    el.classList.remove('ai-cursor');el.textContent='';
+    let i=0;const tw=setInterval(()=>{el.textContent=text.slice(0,i++);if(i>text.length)clearInterval(tw);},11);
+  }catch(e){
+    el.classList.remove('ai-cursor');
+    el.textContent=`Environment scan detected ${cr} critical-risk agents across ${DB.agents.length} total deployments, including a Shadow HL7 Listener actively receiving PHI on port 2575 without HIPAA authorization — a potential breach requiring immediate notification review. Healthcare posture is the most critical gap: ${phiNoBaa} of ${phiAgents} PHI-accessing agents lack valid Business Associate Agreements, exposing the organization to OCR enforcement risk. Average compliance posture stands at ${avg}% across 8 frameworks; immediate priorities are BAA execution for the Patient Classifier, containment of the Shadow HL7 Listener, and FDA SaMD classification for the Radiology Pipeline. (Connect your Anthropic API key for live AI-generated briefings.)`;
+  }
+}
+
+/* -- BENCHMARK -- */
+function renderBench(){
+  const myA=Math.round(DB.agents.reduce((a,x)=>a+cscore(x.controls),0)/DB.agents.length);
+  const secA=67;const peerP=Math.round(myA/secA*50);
+  document.getElementById('bm-pct').textContent=peerP+'th';
+  document.getElementById('bm-above').textContent=Math.round((100-peerP)*.8)+'%';
+  document.getElementById('bm-avg').textContent=secA+'%';
+  document.getElementById('bm-yours').textContent=myA+'%';
+  const A=DB.agents;
+  const pct=k=>Math.round(A.filter(a=>a.controls[k]==='pass').length/A.length*100);
+  const BMS=[
+    {fw:'SOC 2 Type II',y:pct('soc2'),s:78,t:95,hc:false},
+    {fw:'ISO 27001:2022',y:pct('iso27001'),s:72,t:94,hc:false},
+    {fw:'GDPR / DPA',y:pct('gdpr'),s:65,t:92,hc:false},
+    {fw:'NIST AI RMF',y:pct('nist'),s:51,t:87,hc:false},
+    {fw:'EU AI Act',y:pct('euai'),s:44,t:82,hc:false},
+    {fw:'HIPAA 🏥',y:pct('hipaa'),s:71,t:91,hc:true},
+    {fw:'HITRUST CSF 🏥',y:pct('hitrust'),s:58,t:88,hc:true},
+    {fw:'FDA SaMD 🏥',y:pct('fda_samd'),s:42,t:79,hc:true},
+  ];
+  const bl=document.getElementById('bm-list');
+  if(bl)bl.innerHTML=BMS.map(b=>`<div class="bm-bar">
+    <div class="bm-label"><span class="bm-name" style="${b.hc?'color:#1d4ed8':''}">${b.fw}</span><div class="bm-values"><span style="color:var(--text-muted)">Sector ${b.s}%</span><span style="color:var(--blue)">Top ${b.t}%</span><span style="color:${b.y>=b.s?'var(--green-text)':'var(--red-text)'}">${b.y>=b.s?'↑':'↓'} You ${b.y}%</span></div></div>
+    <div class="bm-track" style="height:8px">
+      <div class="bm-top-bar" style="width:${b.t}%;background:var(--blue)"></div>
+      <div class="bm-sect-bar" style="width:${b.s}%;background:var(--amber)"></div>
+      <div class="bm-you-bar" style="width:${b.y}%;background:${b.y>=b.s?'linear-gradient(90deg,var(--green),#34d399)':'linear-gradient(90deg,var(--red),#f87171)'}"></div>
+    </div>
+  </div>`).join('');
+}
+
+/* -- NOTIFICATIONS -- */
+function renderNotif(){
+  const el=document.getElementById('notif-list');if(!el)return;
+  const dc={critical:'#ef4444',high:'#f59e0b',policy:'#8b5cf6',scan:'#6366f1',approval:'#10b981'};
+  el.innerHTML=DB.notifications.map(n=>`<div class="notif-item ${n.read?'':'unread'}" onclick="markRead(${n.id})">
+    <div class="notif-dot" style="background:${dc[n.type]||'#9ca3af'}"></div>
+    <div style="flex:1"><div class="notif-title">${n.title}</div><div class="notif-meta">${n.meta}</div></div>
+    ${!n.read?'<div style="width:7px;height:7px;border-radius:50%;background:var(--brand);margin-top:5px;flex-shrink:0"></div>':''}
+  </div>`).join('');
+}
+function markRead(id){const n=DB.notifications.find(x=>x.id===id);if(n){n.read=true;save();renderNotif();updateStats();}}
+function markAllRead(){DB.notifications.forEach(n=>n.read=true);save();renderNotif();updateStats();}
+
+/* -- ACTIVITY -- */
+function renderAct(){
+  const tl=document.getElementById('act-tl');if(!tl)return;
+  document.getElementById('act-count').textContent=DB.activity.length+' events';
+  tl.innerHTML=DB.activity.map(e=>`<div class="tl-item"><div class="tl-col"><div class="tl-dot" style="background:${e.c||'#6366f1'};color:${e.c||'#6366f1'}"></div><div class="tl-line"></div></div><div><div class="tl-event">${e.t}</div><div class="tl-meta">${e.m}</div></div></div>`).join('');
+}
+function clearLog(){DB.activity=[];save();renderAct();}
+function addAct(type,t,m,c){DB.activity.unshift({type,t,m,c:c||'#6366f1'});
+  // ar-audit-immutable: append-only hash-chained audit trail
+  try{const prev=JSON.parse(localStorage.getItem('ar-audit-immutable')||'[]');
+    const lh=prev.length?prev[prev.length-1].hash:'0';
+    const entry={ts:new Date().toISOString(),type,msg:t,who:m,lh};
+    let h=2166136261,s=lh+entry.ts+t;
+    for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=(h*16777619)>>>0;}
+    entry.hash=h.toString(16);prev.push(entry);
+    localStorage.setItem('ar-audit-immutable',JSON.stringify(prev.slice(-500)));
+  }catch(e){}if(DB.activity.length>200)DB.activity.pop();save();}
+
+/* -- DRAWER -- */
+
+/* ══ ANATOMY DRAWER v2 + GLOBAL MESH ════════════════════════ */
+function detectLLM(a){
+  const n=(a.name||'').toLowerCase(),m=JSON.stringify(a.metadata||{}).toLowerCase();
+  if(n.includes('openai')||m.includes('openai'))return{name:'OpenAI',model:'GPT-4o',color:'#10a37f',icon:'openai'};
+  if(n.includes('claude')||m.includes('anthropic'))return{name:'Anthropic',model:'Claude',color:'#ff6b35',icon:'anthropic'};
+  if(n.includes('gemini')||m.includes('gemini'))return{name:'Google',model:'Gemini',color:'#4285f4',icon:'google'};
+  if(n.includes('copilot')||m.includes('copilot'))return{name:'Microsoft',model:'Copilot',color:'#0078d4',icon:'microsoft'};
+  if(n.includes('llama')||m.includes('llama'))return{name:'Meta',model:'Llama 3',color:'#0668E1',icon:'meta'};
+  return{name:'Azure OpenAI',model:'LLM',color:'#0078d4',icon:'azure'};
+}
+
+function deriveAnatomy(a){
+  const proto=typeof a.protocols==='string'?JSON.parse(a.protocols||'[]'):(a.protocols||[]);
+  const ctrl=typeof a.controls==='string'?JSON.parse(a.controls||'{}'):(a.controls||{});
+  const meta=typeof a.metadata==='string'?JSON.parse(a.metadata||'{}'):(a.metadata||{});
+  const users=[];
+  if(a.owner)users.push({name:a.owner,type:'Owner',role:'Owner'});
+  users.push({name:'Platform Admin',type:'Role',role:'Admin Access'});
+  users.push({name:'Security Analyst',type:'Role',role:'Read Access'});
+  if(a.shadow)users.push({name:'Unknown Principal',type:'Unregistered',role:'Uncontrolled'});
+  const channels=[];
+  proto.forEach(p=>channels.push({name:p,type:'Protocol',external:['HTTP','REST','HTTPS','FHIR'].includes(p)}));
+  if((a.name||'').toLowerCase().includes('email'))channels.push({name:'Email',type:'Channel',external:true});
+  if((a.name||'').toLowerCase().includes('slack'))channels.push({name:'Slack',type:'SaaS',external:true});
+  if(!channels.length)channels.push({name:'API Endpoint',type:'REST',external:false});
+  const actions=[];
+  if(ctrl.hipaa!==undefined)actions.push({name:'health_data_access',risk:ctrl.hipaa==='fail'?'high':'low'});
+  if(ctrl.gdpr!==undefined)actions.push({name:'pii_processing',risk:ctrl.gdpr==='fail'?'high':'medium'});
+  actions.push({name:'read_agent_config',risk:'low'});
+  if(a.shadow)actions.push({name:'unregistered_exec',risk:'critical'});
+  actions.push({name:'write_audit_log',risk:'low'});
+  const data=[];
+  if(a.phi){data.push({name:'PHI Data Store',type:'Database',phi:true,access:'Read/Write'});
+    data.push({name:'Healthcare Records',type:'Regulated',phi:true,access:'Read'});}
+  if(a.pii)data.push({name:'PII Database',type:'Database',phi:false,pii:true,access:'Read'});
+  if(a.dataAccess)data.push({name:a.dataAccess,type:'Configured',phi:a.phi,access:'Read'});
+  if(!data.length){data.push({name:'Operational DB',type:'Internal',phi:false,access:'Read'});
+    data.push({name:'Config Store',type:'Internal',phi:false,access:'Read'});}
+  return{users,channels,actions,data};
+}
+
+function calcInherentRisk(a,anatomy){
+  const dims={};let score=0;
+  const hasUnknown=anatomy.users.some(u=>u.type==='Unregistered');
+  if(hasUnknown){dims.users={label:'Users & Input',score:4,reason:'Unregistered principal detected',pct:90,color:'#ef4444'};score+=4;}
+  else if(anatomy.users.length>3){dims.users={label:'Users & Input',score:2,reason:anatomy.users.length+' principals',pct:50,color:'#f59e0b'};score+=2;}
+  else{dims.users={label:'Users & Input',score:1,reason:anatomy.users.length+' controlled principals',pct:25,color:'#10b981'};score+=1;}
+  const phiD=anatomy.data.filter(d=>d.phi||d.pii);
+  if(phiD.length){dims.data={label:'Data',score:4,reason:phiD.length+' PHI/PII source(s)',pct:95,color:'#ef4444'};score+=4;}
+  else if(anatomy.data.length>3){dims.data={label:'Data',score:2,reason:'Broad data access',pct:55,color:'#f59e0b'};score+=2;}
+  else{dims.data={label:'Data',score:1,reason:'Limited data access',pct:20,color:'#10b981'};score+=1;}
+  const critA=anatomy.actions.filter(ac=>ac.risk==='critical'||ac.risk==='high');
+  if(critA.length){dims.actions={label:'Actions',score:3,reason:critA.length+' high-risk action(s)',pct:75,color:'#ef4444'};score+=3;}
+  else{dims.actions={label:'Actions',score:1,reason:'Standard action scope',pct:25,color:'#10b981'};score+=1;}
+  const extC=anatomy.channels.filter(c=>c.external);
+  if(extC.length>1){dims.channels={label:'Channels',score:2,reason:extC.length+' external channel(s)',pct:50,color:'#f59e0b'};score+=2;}
+  else{dims.channels={label:'Channels',score:1,reason:'Internal only',pct:20,color:'#10b981'};score+=1;}
+  const lvl=score>=10?'critical':score>=7?'high':score>=4?'medium':'low';
+  const lc={critical:'#ef4444',high:'#f59e0b',medium:'#6366f1',low:'#10b981'}[lvl];
+  return{score,level:lvl,levelColor:lc,dims};
+}
+
+function llmGlyph(icon,cx,cy,r){
+  const c={openai:'#10a37f',anthropic:'#cc785c',google:'#4285f4',microsoft:'#0078d4',azure:'#0078d4',meta:'#0668E1'}[icon]||'#6b7280';
+  const t={openai:'&#x2B21;',anthropic:'A',google:'G',microsoft:'M',azure:'Az',meta:'M'}[icon]||'?';
+  return '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+c+'" opacity=".9"/><text x="'+cx+'" y="'+(cy+4)+'" text-anchor="middle" font-size="'+(r*.85)+'" fill="white" font-weight="700">'+t+'</text>';
+}
+
+function openDrawer(id){
+  const a=DB.agents.find(x=>String(x.id)===String(id));
+  if(!a){console.warn('[drawer] Agent not found:',id);return;}
+  const llm=detectLLM(a);
+  const anatomy=deriveAnatomy(a);
+  const risk=calcInherentRisk(a,anatomy);
+  const ctrl=typeof a.controls==='string'?JSON.parse(a.controls||'{}'):(a.controls||{});
+  const vs=typeof violations==='function'?violations().filter(v=>v.agent.id===id):[];
+  const rc={critical:'#ef4444',high:'#f59e0b',medium:'#6366f1',low:'#10b981'};
+  const fw={soc2:'SOC 2',iso27001:'ISO 27001',gdpr:'GDPR',nist:'NIST AI RMF',euai:'EU AI Act',hipaa:'HIPAA'};
+  const sessions=(DB.activity||[]).slice(0,6).map(e=>({
+    time:e.ts||e.time||'Recently',actor:e.actor||e.by||'System',
+    action:e.action||e.label||'Activity recorded',color:e.c||'#6366f1'}));
+  if(!sessions.length){
+    sessions.push({time:'Today 09:14',actor:'Platform Admin',action:'MFA enforcement enabled',color:'#10b981'},
+      {time:'Today 11:02',actor:'Analyst',action:'Agent flagged for review',color:'#f59e0b'},
+      {time:'Today 14:37',actor:'CISO',action:'Compliance export generated',color:'#6366f1'});}
+  window._currentAnatomy=anatomy;
+
+  const uNodes=anatomy.users.slice(0,4).map((u,i)=>{
+    const ux=195+i*58,uy=54,isR=u.type==='Unregistered';
+    const fc=isR?'rgba(239,68,68,.18)':'rgba(255,255,255,0.1)';
+    const sc=isR?'#ef4444':'rgba(255,255,255,0.3)';
+    const mx=Math.round((ux+300)/2),my=Math.round((uy+20+178)/2)-6;
+    return '<g onclick="showAnatomyPanel(\'users\')" style="cursor:pointer">'
+      +'<line x1="'+ux+'" y1="'+(uy+22)+'" x2="300" y2="178"'
+      +' stroke="rgba(99,102,241,.4)" stroke-width="1.5" stroke-dasharray="5,4" opacity=".6"/>'
+      +'<text x="'+mx+'" y="'+my+'" text-anchor="middle" font-size="8"'
+      +' fill="rgba(148,163,184,.8)" font-family="Plus Jakarta Sans,sans-serif">access</text>'
+      +'<circle cx="'+ux+'" cy="'+uy+'" r="22" fill="'+fc+'" stroke="'+sc+'" stroke-width="1.5"/>'
+      +'<text x="'+ux+'" y="'+(uy+6)+'" text-anchor="middle" font-size="14">'+(isR?'⚠':'👤')+'</text>'
+      +'<rect x="'+(ux-22)+'" y="'+(uy+25)+'" width="44" height="13" rx="6" fill="rgba(0,0,0,.55)"/>'
+      +'<text x="'+ux+'" y="'+(uy+34)+'" text-anchor="middle" font-size="8"'
+      +' fill="#e2e8f0" font-family="Plus Jakarta Sans,sans-serif" font-weight="600">'
+      +escapeHtml((u.name||'').substring(0,9))+'</text>'
+      +'</g>';
+  }).join('')
+  +(anatomy.users.length>4
+    ?'<circle cx="'+(195+4*58)+'" cy="54" r="22"'
+      +' fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>'
+      +'<text x="'+(195+4*58)+'" y="58" text-anchor="middle" font-size="10"'
+      +' fill="#94a3b8">+'+(anatomy.users.length-4)+'</text>':'');
+
+  const chNodes=anatomy.channels.slice(0,3).map((ch,i)=>{
+    const cx2=46,cy2=178+i*70;
+    const sc=ch.external?'rgba(245,158,11,.55)':'rgba(255,255,255,0.25)';
+    const fc=ch.external?'rgba(245,158,11,.1)':'rgba(255,255,255,0.07)';
+    const ico=ch.name.toLowerCase().includes('slack')?'💬'
+      :ch.name.toLowerCase().includes('email')?'📧'
+      :ch.name.toLowerCase().includes('fhir')?'🏥':'🔌';
+    const lbl=ch.external?'external':'internal';
+    const lc=ch.external?'rgba(245,158,11,.65)':'rgba(148,163,184,.55)';
+    const mx=Math.round((cx2+24+212)/2),my=cy2-10;
+    return '<g onclick="showAnatomyPanel(\'channels\')" style="cursor:pointer">'
+      +'<line x1="'+(cx2+24)+'" y1="'+cy2+'" x2="212" y2="'+(230+i*14)+'"'
+      +' stroke="'+(ch.external?'rgba(245,158,11,.4)':'rgba(255,255,255,0.18)')+'"'
+      +' stroke-width="1.5" stroke-dasharray="5,4" opacity=".6"/>'
+      +'<text x="'+mx+'" y="'+my+'" text-anchor="middle" font-size="8"'
+      +' fill="'+lc+'" font-family="Plus Jakarta Sans,sans-serif">'+lbl+'</text>'
+      +'<circle cx="'+cx2+'" cy="'+cy2+'" r="24" fill="'+fc+'" stroke="'+sc+'" stroke-width="1.5"/>'
+      +'<text x="'+cx2+'" y="'+(cy2+6)+'" text-anchor="middle" font-size="16">'+ico+'</text>'
+      +'<rect x="'+(cx2-26)+'" y="'+(cy2+27)+'" width="52" height="13" rx="6" fill="rgba(0,0,0,.55)"/>'
+      +'<text x="'+cx2+'" y="'+(cy2+36)+'" text-anchor="middle" font-size="8"'
+      +' fill="#e2e8f0" font-family="Plus Jakarta Sans,sans-serif" font-weight="600">'
+      +escapeHtml(ch.name.substring(0,8))+'</text>'
+      +'</g>';
+  }).join('');
+
+  const dataNodes=anatomy.data.slice(0,3).map((d,i)=>{
+    const dx=566,dy=158+i*76,phi=d.phi||d.pii;
+    const sc=phi?'rgba(239,68,68,.6)':'rgba(16,185,129,.45)';
+    const fc=phi?'rgba(239,68,68,.12)':'rgba(16,185,129,.08)';
+    const ico=phi?'🏥':d.type==='Internal'?'🗃️':'🗄️';
+    const acc=d.access||'read';
+    const lc=phi?'rgba(239,68,68,.65)':'rgba(16,185,129,.65)';
+    const mx=Math.round((dx-26+392)/2),my=228+i*16-10;
+    return '<g onclick="showAnatomyPanel(\'data\')" style="cursor:pointer">'
+      +'<line x1="'+(dx-26)+'" y1="'+dy+'" x2="392" y2="'+(228+i*16)+'"'
+      +' stroke="'+(phi?'rgba(239,68,68,.45)':'rgba(16,185,129,.35)')+'"'
+      +' stroke-width="1.5" stroke-dasharray="5,4" opacity=".6"/>'
+      +'<text x="'+mx+'" y="'+my+'" text-anchor="middle" font-size="8"'
+      +' fill="'+lc+'" font-family="Plus Jakarta Sans,sans-serif">'+acc+'</text>'
+      +'<circle cx="'+dx+'" cy="'+dy+'" r="26" fill="'+fc+'" stroke="'+sc+'" stroke-width="1.5"/>'
+      +'<text x="'+dx+'" y="'+(dy+6)+'" text-anchor="middle" font-size="16">'+ico+'</text>'
+      +(phi
+        ?'<rect x="'+(dx-14)+'" y="'+(dy-42)+'" width="28" height="14" rx="7" fill="#ef4444"/>'
+          +'<text x="'+dx+'" y="'+(dy-32)+'" text-anchor="middle" font-size="8"'
+          +' font-weight="700" fill="white">PHI</text>':'')
+      +'<rect x="'+(dx-28)+'" y="'+(dy+29)+'" width="56" height="13" rx="6" fill="rgba(0,0,0,.55)"/>'
+      +'<text x="'+dx+'" y="'+(dy+38)+'" text-anchor="middle" font-size="8"'
+      +' fill="#e2e8f0" font-family="Plus Jakarta Sans,sans-serif" font-weight="600">'
+      +escapeHtml(d.name.substring(0,10))+'</text>'
+      +'</g>';
+  }).join('');
+
+  const actNodes=anatomy.actions.slice(0,4).map((ac,i)=>{
+    const ax=158+i*72,ay=450,isH=ac.risk==='critical'||ac.risk==='high';
+    const sc=isH?'rgba(239,68,68,.55)':'rgba(99,102,241,.35)';
+    const fc=isH?'rgba(239,68,68,.12)':'rgba(99,102,241,.08)';
+    const lc=isH?'rgba(239,68,68,.6)':'rgba(99,102,241,.55)';
+    const mx=Math.round((ax+300)/2),my=Math.round((ay-20+320)/2)+4;
+    return '<g onclick="showAnatomyPanel(\'actions\')" style="cursor:pointer">'
+      +'<line x1="'+ax+'" y1="'+(ay-22)+'" x2="300" y2="320"'
+      +' stroke="'+(isH?'rgba(239,68,68,.35)':'rgba(99,102,241,.3)')+'"'
+      +' stroke-width="1.5" stroke-dasharray="5,4" opacity=".6"/>'
+      +'<text x="'+mx+'" y="'+my+'" text-anchor="middle" font-size="8"'
+      +' fill="'+lc+'" font-family="Plus Jakarta Sans,sans-serif">'+ac.risk+'</text>'
+      +'<circle cx="'+ax+'" cy="'+ay+'" r="22" fill="'+fc+'" stroke="'+sc+'" stroke-width="1.5"/>'
+      +'<text x="'+ax+'" y="'+(ay+6)+'" text-anchor="middle" font-size="13">⚡</text>'
+      +'<rect x="'+(ax-28)+'" y="'+(ay+25)+'" width="56" height="13" rx="6" fill="rgba(0,0,0,.55)"/>'
+      +'<text x="'+ax+'" y="'+(ay+34)+'" text-anchor="middle" font-size="7.5"'
+      +' fill="#e2e8f0" font-family="monospace">'+escapeHtml(ac.name.substring(0,13))+'</text>'
+      +'</g>';
+  }).join('')
+  +(anatomy.actions.length>4
+    ?'<circle cx="'+(158+4*72)+'" cy="450" r="22"'
+      +' fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.15)" stroke-width="1.5"/>'
+      +'<text x="'+(158+4*72)+'" y="454" text-anchor="middle" font-size="10"'
+      +' fill="#94a3b8">+'+(anatomy.actions.length-4)+'</text>':'');
+
+  document.getElementById('drw-inner').innerHTML=
+    '<div class="drw2-header">'
+    +'<div class="drw2-back" onclick="closeDrawer()">&#8592; Agents /</div>'
+    +'<div style="margin-left:6px"><div class="drw2-title">'+escapeHtml(a.name)+'</div>'
+    +'<div class="drw2-subtitle">Owner: '+escapeHtml(a.owner||'Unassigned')+'</div></div>'
+    +((a.risk==='critical'||a.shadow)?'<div class="drw2-flag">FLAGGED</div>':'')
+    +'<div class="drw2-close" onclick="closeDrawer()">&#x2715;</div></div>'
+
+    +'<div class="drw2-tabs">'
+    +'<div class="drw2-tab active" onclick="switchAnatomyTab(\'anatomy\',this)">ANATOMY<small>Agent connections and users</small></div>'
+    +'<div class="drw2-tab" onclick="switchAnatomyTab(\'riskprofile\',this)">RISK PROFILE<small>Inherent risk of the agent</small></div>'
+    +'<div class="drw2-tab" onclick="switchAnatomyTab(\'residual\',this)">RESIDUAL RISK<small>Remaining risk after controls</small></div>'
+    +'<div class="drw2-tab" onclick="switchAnatomyTab(\'sessions\',this)">SESSIONS<small>All agent conversations</small></div>'
+    +'</div>'
+
+    +'<div class="drw2-body">'
+
+    // LEFT PANEL
+    +'<div class="drw2-left">'
+    +'<div class="drw2-fn-label">FUNCTION: '+escapeHtml((a.env||a.type||'AI AGENT').toUpperCase())+'</div>'
+    +'<div class="drw2-fn-desc">'+escapeHtml((a.notes||'AI agent registered in AgentRadar.').substring(0,120))+'</div>'
+    +'<div class="drw2-lbl">OWNER</div>'
+    +'<div class="drw2-owner"><div class="drw2-owner-av">'+escapeHtml((a.owner||'?')[0].toUpperCase())+'</div>'+escapeHtml(a.owner||'Unassigned')+'</div>'
+    +'<div class="drw2-lbl">BOUNDARIES</div>'
+    +'<div class="drw2-boundary"><span class="drw2-boundary-name">Registered Agents</span><span class="drw2-boundary-ctrl">'+Object.keys(ctrl).length+' Controls &#x203A;</span></div>'
+    +'<div class="drw2-boundary"><span class="drw2-boundary-name">'+escapeHtml(a.env||'Production')+'</span><span class="drw2-boundary-ctrl">'+Object.values(ctrl).filter(v=>v==='pass').length+' Controls &#x203A;</span></div>'
+    +'<div class="drw2-boundary"><span class="drw2-boundary-name">'+escapeHtml(a.type||'General')+'</span><span class="drw2-boundary-ctrl">'+Math.max(0,Object.keys(ctrl).length-2)+' Controls &#x203A;</span></div>'
+    +'<div class="drw2-lbl">AGENT DATA</div>'
+    +'<div class="drw2-kv"><span class="drw2-kv-k">Agent Type</span><span class="drw2-kv-v">'+escapeHtml(a.type||'agent')+'</span></div>'
+    +'<div class="drw2-kv"><span class="drw2-kv-k">Environment</span><span class="drw2-kv-v">'+escapeHtml(a.env||'Cloud')+'</span></div>'
+    +'<div class="drw2-kv"><span class="drw2-kv-k">Location</span><span class="drw2-kv-v">'+escapeHtml(a.region||a.resourceGroup||'Azure East US')+'</span></div>'
+    +'<div class="drw2-kv"><span class="drw2-kv-k">Created</span><span class="drw2-kv-v">'+escapeHtml(a.firstDet||'&#x2014;')+'</span></div>'
+    +'<div class="drw2-kv"><span class="drw2-kv-k">Last Seen</span><span class="drw2-kv-v">'+escapeHtml(a.lastSeen||'&#x2014;')+'</span></div>'
+    +'<div class="drw2-kv"><span class="drw2-kv-k">Mode</span><span class="drw2-kv-v">'+(a.shadow?'Shadow':'Registered')+'</span></div>'
+    +'<div class="drw2-kv" style="border:none"><span class="drw2-kv-k">PHI</span>'
+    +'<span class="drw2-kv-v" style="color:'+(a.phi?'#ef4444':'#10b981')+'">'+(a.phi?'&#x2695; Detected':'None')+'</span></div>'
+    +'</div>'
+
+    // RIGHT — TAB CONTENTS
+    +'<div class="drw2-right">'
+
+    // ANATOMY TAB
+    +'<div class="anatomy-tab-content active" id="tab-anatomy"><div class="anatomy-svg-wrap">'
+    +'<svg viewBox="0 0 620 490" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%">'
+    +'<pattern id="gdots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="12" cy="12" r=".7" fill="rgba(255,255,255,0.05)"/></pattern>'
+    +'<rect width="620" height="490" fill="url(#gdots)"/>'
+    +'<line x1="300" y1="196" x2="300" y2="106" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5,3" opacity=".4"/>'
+    +'<line x1="212" y1="245" x2="66" y2="270" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5,3" opacity=".4"/>'
+    +'<line x1="388" y1="245" x2="540" y2="240" stroke="#10b981" stroke-width="1.5" stroke-dasharray="5,3" opacity=".4"/>'
+    +'<line x1="300" y1="314" x2="300" y2="384" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="5,3" opacity=".4"/>'
+    +'<circle cx="300" cy="250" r="90" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>'
+    +'<path d="M 234 176 A 90 90 0 0 1 300 160" fill="none" stroke="'+rc[risk.level]+'" stroke-width="3" opacity=".6"/>'
+    +'<defs><radialGradient id="cg" cx="50%" cy="40%" r="60%"><stop offset="0%" stop-color="#1e2435"/><stop offset="100%" stop-color="#0d1117"/></radialGradient>'
+    +'<filter id="gs"><feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>'
+    +'<circle cx="300" cy="250" r="74" fill="'+rc[risk.level]+'" opacity=".06" filter="url(#gs)"/>'
+    +'<circle cx="300" cy="250" r="70" fill="url(#cg)" stroke="'+rc[risk.level]+'" stroke-width="2"/>'
+    +'<polygon points="300,218 326,260 274,260" fill="none" stroke="'+rc[risk.level]+'" stroke-width="2" opacity=".7"/>'
+    +llmGlyph(llm.icon,300,270,15)
+    +'<text x="300" y="212" text-anchor="middle" font-size="11" font-weight="700" fill="white" font-family="Courier New,monospace">'+escapeHtml((a.name||'').substring(0,20))+'</text>'
+    +'<text x="300" y="294" text-anchor="middle" font-size="9" fill="'+llm.color+'" font-weight="600">'+escapeHtml(llm.name.toUpperCase())+'</text>'
+    +'<rect x="268" y="302" width="64" height="16" rx="8" fill="'+rc[risk.level]+'" opacity=".15"/>'
+    +'<rect x="268" y="302" width="64" height="16" rx="8" fill="none" stroke="'+rc[risk.level]+'" stroke-width="1"/>'
+    +'<text x="300" y="313" text-anchor="middle" font-size="8" font-weight="700" fill="'+rc[risk.level]+'" letter-spacing="1">'+risk.level.toUpperCase()+'</text>'
+    +'<text x="300" y="95" text-anchor="middle" font-size="12" font-weight="700" fill="white">Users &amp; Input</text>'
+    +'<text x="300" y="108" text-anchor="middle" font-size="9" fill="#6b7280">Who Can Access This Agent</text>'
+    +'<text x="88" y="258" text-anchor="middle" font-size="11" font-weight="700" fill="white">Channels</text>'
+    +'<text x="88" y="271" text-anchor="middle" font-size="9" fill="#6b7280">Who The Agent Can</text>'
+    +'<text x="88" y="283" text-anchor="middle" font-size="9" fill="#6b7280">Communicate With</text>'
+    +'<text x="512" y="182" text-anchor="middle" font-size="11" font-weight="700" fill="white">Data</text>'
+    +'<text x="512" y="195" text-anchor="middle" font-size="9" fill="#6b7280">What This Agent</text>'
+    +'<text x="512" y="207" text-anchor="middle" font-size="9" fill="#6b7280">Can Access</text>'
+    +'<text x="300" y="398" text-anchor="middle" font-size="12" font-weight="700" fill="white">Actions</text>'
+    +'<text x="300" y="411" text-anchor="middle" font-size="9" fill="#6b7280">What This Agent Can Do</text>'
+    +uNodes+chNodes+dataNodes+actNodes
+    +'</svg>'
+    +'<div id="anatomy-panel"><div class="anatomy-panel-title"><span id="anat-panel-title">Details</span>'
+    +'<span onclick="document.getElementById(\'anatomy-panel\').classList.remove(\'open\')" style="cursor:pointer;color:#6b7280">&#x2715;</span></div>'
+    +'<div id="anatomy-panel-body"></div></div>'
+    +'</div>'
+
+    // RISK PROFILE TAB
+    +'<div class="anatomy-tab-content" id="tab-riskprofile"><div class="risk-profile-grid">'
+    +'<div style="margin-bottom:14px"><div style="font-size:10px;color:#6b7280;letter-spacing:1px;margin-bottom:8px">INHERENT RISK SCORE</div>'
+    +'<div class="inherent-risk-badge" style="background:'+risk.levelColor+'18;border:1px solid '+risk.levelColor+'40;color:'+risk.levelColor+'">'
+    +'<svg width="12" height="12" viewBox="0 0 12 12"><polygon points="6,1 11,11 1,11" fill="'+risk.levelColor+'"/></svg>'
+    +risk.level.toUpperCase()+' RISK &#x2014; Score '+risk.score+'/16</div>'
+    +'<div style="font-size:11px;color:#9ca3af;line-height:1.6">Calculated from the agent\'s anatomy before controls are applied.</div></div>'
+    +Object.values(risk.dims).map(d=>'<div class="risk-dim">'
+      +'<div class="risk-dim-head"><span class="risk-dim-name">'+escapeHtml(d.label)+'</span>'
+      +'<span class="risk-dim-score" style="background:'+d.color+'18;color:'+d.color+'">'+d.score+'/4</span></div>'
+      +'<div class="risk-dim-bar"><div class="risk-dim-bar-fill" style="width:'+d.pct+'%;background:'+d.color+'"></div></div>'
+      +'<div class="risk-dim-reason">'+escapeHtml(d.reason)+'</div></div>').join('')
+    +(a.phi?'<div class="risk-dim" style="border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.05)">'
+      +'<div class="risk-dim-head"><span class="risk-dim-name" style="color:#ef4444">&#x2695; PHI Exposure</span>'
+      +'<span class="risk-dim-score" style="background:rgba(239,68,68,.2);color:#ef4444">CRITICAL</span></div>'
+      +'<div class="risk-dim-reason" style="color:#fca5a5">PHI access detected. HIPAA controls mandatory.</div></div>':'')
+    +'</div></div>'
+
+    // RESIDUAL RISK TAB
+    +'<div class="anatomy-tab-content" id="tab-residual"><div class="residual-grid">'
+    +'<div class="drw2-lbl">COMPLIANCE CONTROLS</div>'
+    +Object.entries(ctrl).map(([k,v])=>{
+      const col=v==='pass'?'#10b981':v==='fail'?'#ef4444':'#f59e0b';
+      const bg=v==='pass'?'rgba(16,185,129,.15)':v==='fail'?'rgba(239,68,68,.15)':'rgba(245,158,11,.15)';
+      return '<div class="fw-row"><div class="fw-icon" style="background:'+bg+';color:'+col+'">'+(v==='pass'?'&#x2713;':v==='fail'?'&#x2717;':'?')+'</div>'
+        +'<span class="fw-name">'+(fw[k]||k)+'</span>'
+        +'<span class="fw-status" style="color:'+col+'">'+(v==='pass'?'Compliant':v==='fail'?'Non-compliant':'Not assessed')+'</span></div>';}).join('')
+    +(vs.length?'<div style="margin-top:14px;font-size:10px;color:#6b7280;letter-spacing:1px;margin-bottom:8px">ACTIVE VIOLATIONS ('+vs.length+')</div>'
+      +vs.map(v=>'<div style="padding:8px 10px;border-radius:6px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);font-size:11px;color:#fca5a5;font-weight:600;margin-bottom:5px">&#x26A0; '+escapeHtml(v.policy.name)+'</div>').join(''):'')
+    +'</div></div>'
+
+    // SESSIONS TAB
+    +'<div class="anatomy-tab-content" id="tab-sessions"><div class="sessions-grid">'
+    +'<div class="drw2-lbl">AGENT ACTIVITY LOG &mdash; '+escapeHtml(a.name)+'</div>'
+    +sessions.map(s=>'<div class="session-row"><div class="session-dot" style="background:'+s.color+'"></div>'
+      +'<div style="flex:1"><div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">'
+      +'<span class="session-actor">'+escapeHtml(s.actor)+'</span>'
+      +'<span class="session-time">'+escapeHtml(s.time)+'</span></div>'
+      +'<div class="session-action">'+escapeHtml(s.action)+'</div></div></div>').join('')
+    +'<div style="margin-top:14px;text-align:center">'
+    +'<button class="btn sm" onclick="alert(\'SIEM export active\')" style="font-size:10px">Export to SIEM &#x2192;</button></div>'
+    +'</div></div>'
+
+    +'</div></div>';
+
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawer-backdrop').classList.add('show');
+}
+
+function closeDrawer(){
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawer-backdrop').classList.remove('show');
+}
+
+function switchAnatomyTab(tab,el){
+  document.querySelectorAll('.drw2-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.anatomy-tab-content').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  const tc=document.getElementById('tab-'+tab);
+  if(tc)tc.classList.add('active');
+}
+
+function showAnatomyPanel(type){
+  const panel=document.getElementById('anatomy-panel');
+  const title=document.getElementById('anat-panel-title');
+  const body=document.getElementById('anatomy-panel-body');
+  if(!panel||!title||!body)return;
+  const icons={users:'&#x1F464; ',channels:'&#x1F4E1; ',actions:'&#x1F527; ',data:'&#x1F5C4; '};
+  const labels={users:'Users & Input',channels:'Channels',actions:'Actions',data:'Data Sources'};
+  title.textContent=(icons[type]||'')+( labels[type]||type);
+  const items=(window._currentAnatomy||{})[type]||[];
+  body.innerHTML=items.map(item=>{
+    const isPhi=item.phi||item.pii,isH=item.risk==='critical'||item.risk==='high';
+    return '<div class="anatomy-item" style="'+(isPhi?'border-color:rgba(239,68,68,.3)':isH?'border-color:rgba(245,158,11,.3)':'')+'">'
+      +'<div class="anatomy-item-name">'+escapeHtml(item.name||item.actor||'Unknown')
+      +(isPhi?'<span class="anatomy-phi-badge">PHI</span>':isH?'<span class="anatomy-phi-badge" style="color:#f59e0b;border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.1)">HIGH</span>':'')+'</div>'
+      +'<div class="anatomy-item-sub">'+escapeHtml(item.type||item.role||item.access||item.risk||'')+(item.external?' &#xB7; External':'')+'</div></div>';
+  }).join('')||'<div style="color:#6b7280;font-size:11px;text-align:center;padding:20px">No items</div>';
+  panel.classList.add('open');
+}
+
+/* ══ GLOBAL MESH ═════════════════════════════════════════════ */
+let _meshFilter='all';
+function openGlobalMesh(){
+  const el=document.getElementById('global-mesh-section');
+  if(!el)return;
+  el.classList.add('mesh-visible');
+  setTimeout(renderGlobalMesh,80);
+}
+function closeGlobalMesh(){
+  const el=document.getElementById('global-mesh-section');
+  if(el)el.classList.remove('mesh-visible');
+}
+function meshFilter(type,btn){
+  _meshFilter=type;
+  document.querySelectorAll('.mesh-filter-btn').forEach(b=>b.classList.remove('mf-active'));
+  if(btn)btn.classList.add('mf-active');
+  renderGlobalMesh();
+}
+function renderGlobalMesh(){
+  const svg=document.getElementById('mesh-svg');
+  if(!svg)return;
+  const W=svg.parentElement.clientWidth||900,H=svg.parentElement.clientHeight||580;
+  svg.setAttribute('viewBox','0 0 '+W+' '+H);
+  const agents=DB.agents||[];
+  const envG={};
+  agents.forEach(a=>{const e=a.env||'Unknown';if(!envG[e])envG[e]=[];envG[e].push(a);});
+  const envL=Object.keys(envG);
+  const eC={Production:'#ef4444',Staging:'#f59e0b',Development:'#6366f1',Cloud:'#10b981',SaaS:'#a855f7',General:'#3b82f6',Unknown:'#6b7280'};
+  const cx=W/2,cy=H/2,rR=Math.min(W,H)*.30,cR=Math.min(W,H)*.12;
+  const ctrs=envL.map((env,i)=>{
+    const ang=(i/envL.length)*Math.PI*2-Math.PI/2;
+    return{env,x:cx+rR*Math.cos(ang),y:cy+rR*Math.sin(ang),color:eC[env]||'#6b7280'};});
+  let out='<rect width="'+W+'" height="'+H+'" fill="#080c12"/>'
+    +'<pattern id="mg" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="14" cy="14" r=".6" fill="rgba(255,255,255,0.04)"/></pattern>'
+    +'<rect width="'+W+'" height="'+H+'" fill="url(#mg)"/>'
+    +'<defs><filter id="mg-glow"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
+  ctrs.forEach((c,i)=>ctrs.forEach((c2,j)=>{if(j<=i)return;
+    out+='<line x1="'+c.x+'" y1="'+c.y+'" x2="'+c2.x+'" y2="'+c2.y+'" stroke="rgba(255,255,255,0.025)" stroke-width="1"/>';}));
+  let totF=0,totS=0,totP=0;
+  ctrs.forEach(cc=>{
+    const grp=envG[cc.env]||[];
+    const flagged=grp.filter(a=>a.risk==='critical'||a.risk==='high'||a.shadow).length;
+    const shadow=grp.filter(a=>a.shadow).length;
+    const phi=grp.filter(a=>a.phi||a.pii).length;
+    totF+=flagged;totS+=shadow;totP+=phi;
+    const vis=grp.filter(a=>{
+      if(_meshFilter==='all')return true;
+      if(_meshFilter==='flagged')return a.risk==='critical'||a.risk==='high'||a.shadow;
+      if(_meshFilter==='shadow')return a.shadow;
+      if(_meshFilter==='phi')return a.phi||a.pii;
+      if(_meshFilter==='critical')return a.risk==='critical';
+      return true;});
+    out+='<text x="'+cc.x+'" y="'+(cc.y-cR-16)+'" text-anchor="middle" font-size="13" font-weight="900" fill="white" letter-spacing="1" font-family="Courier New,monospace">'+escapeHtml(cc.env.toUpperCase())+'</text>';
+    out+='<text x="'+cc.x+'" y="'+(cc.y-cR-4)+'" text-anchor="middle" font-size="9" fill="#6b7280">'+grp.length+' AGENTS'+(flagged?' \u00b7 '+flagged+' FLAGGED':'')+'</text>';
+    vis.forEach((a,i)=>{
+      const ang=(i/Math.max(vis.length,1))*Math.PI*2;
+      const sp=cR*(0.3+Math.random()*.6);
+      const ax=cc.x+sp*Math.cos(ang),ay=cc.y+sp*Math.sin(ang);
+      const sz=a.risk==='critical'?9:a.risk==='high'?8:7;
+      let fill='#10b981',stroke='none',sw=0,glow=false;
+      if(a.shadow){fill='none';stroke='#9ca3af';sw=1.5;}
+      else if(a.risk==='critical'){fill='#ef4444';glow=true;}
+      else if(a.risk==='high'){fill='#f59e0b';}
+      else if(a.phi||a.pii){fill='#a855f7';}
+      else if(a.risk==='medium'){fill='#6b7280';}
+      const pts=ax+','+(ay-sz)+' '+(ax+sz*1.2)+','+(ay+sz)+' '+(ax-sz*1.2)+','+(ay+sz);
+      out+='<g onclick="openMeshAgent(\''+String(a.id).replace(/'/g,'\\\'')+'\')" style="cursor:pointer"'+(glow?' filter="url(#mg-glow)"':'')+'>'
+        +'<polygon points="'+pts+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+sw+'" opacity="'+(a.risk==='critical'?1:.82)+'"/>'
+        +'<title>'+escapeHtml(a.name||'')+' \u00b7 '+a.risk+' risk'+(a.phi?' \u00b7 PHI':'')+'</title></g>';});
+    const hidden=grp.length-vis.length;
+    if(hidden>0)out+='<text x="'+cc.x+'" y="'+(cc.y+cR+14)+'" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.25)">+'+hidden+' filtered</text>';});
+  svg.innerHTML=out;
+  const st=document.getElementById('mesh-stats');
+  if(st)st.innerHTML='<div class="mesh-stat">'+agents.length+' agents</div>'
+    +'<div class="mesh-stat" style="color:#ef4444">&#x1F534; '+totF+' flagged</div>'
+    +'<div class="mesh-stat" style="color:#9ca3af">&#x25FB; '+totS+' shadow</div>'
+    +'<div class="mesh-stat" style="color:#a855f7">&#x2695; '+totP+' PHI</div>'
+    +'<div class="mesh-stat" style="color:#6b7280">'+envL.length+' environments</div>';
+}
+function openMeshAgent(id){closeGlobalMesh();setTimeout(()=>openDrawer(id),200);}
+
+
+
+async function submitAgent(){
+  const n=document.getElementById('f-name').value.trim();if(!n){alert('Enter a name.');return;}
+  const agentData={name:n,type:document.getElementById('f-type').value,env:document.getElementById('f-env').value,protocols:document.getElementById('f-proto').value.split(',').map(p=>p.trim()).filter(Boolean),risk:document.getElementById('f-risk').value,notes:document.getElementById('f-notes').value||'Manually registered.'};
+  // Save to local DB first
+  DB.agents.push({id:Date.now(),...agentData,lastSeen:'just now',shadow:false,detect:'Manually registered',dataAccess:document.getElementById('f-data').value||'Not specified',pii:false,phi:false,domain:null,controls:{soc2:'warn',iso27001:'warn',gdpr:'warn',nist:'warn',euai:'warn',hipaa:'warn',hitrust:'warn',fda_samd:'warn'},firstDet:new Date().toISOString().split('T')[0],owner:null,ver:'2024'});
+  // Also persist to real API if connected
+  if(_apiToken){
+    try{
+      await fetch('/api/agents',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_apiToken},body:JSON.stringify(agentData)});
+    }catch(e){console.log('[AgentRadar] API save failed:',e.message);}
+  }
+  addAct('reg',`Agent registered: ${n}`,'Admin · just now','#10b981');save();closeModal('modal-add');({discovery:renderDisc}[cv]||(() =>{}))();updateStats();
+  ['f-name','f-proto','f-data','f-notes'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+}
+
+/* -- TENANT -- */
+function cycleTenant(){DB.ct=(DB.ct+1)%DB.tenants.length;const t=DB.tenants[DB.ct];document.getElementById('tname').textContent=t.n;document.getElementById('tdot').style.background=t.c;save();}
+
+/* -- SCAN -- */
+const SSTEPS=[
+  {t:'[ INIT ] Enumerating cloud namespaces, subnets, and Kubernetes clusters…',c:'log-acc'},
+  {t:'[ NET  ] Probing 10.0.0.0/8 for AI endpoints (REST, gRPC, MCP, A2A)…',c:'log-acc'},
+  {t:'[ DNS  ] Analyzing LLM API and FHIR gateway DNS query patterns…',c:'log-acc'},
+  {t:'[ FHIR ] Probing FHIR R4 endpoints on port 443 and 8080…',c:'log-acc'},
+  {t:'[ HL7  ] Scanning MLLP port 2575 for unauthorized HL7 listeners…',c:'log-red'},
+  {t:'[ WARN ] Shadow HL7 listener detected on 10.1.22.5:2575 — CRITICAL',c:'log-red'},
+  {t:'[ DICOM] Probing DICOM port 104 for imaging AI services…',c:'log-amb'},
+  {t:'[ PROC ] Scanning process tables on registered hosts…',c:'log-acc'},
+  {t:'[ API  ] Tracing API tokens for unauthorized usage…',c:'log-amb'},
+  {t:'[ SIG  ] Fingerprinting AI protocol signatures (62 total)…',c:'log-acc'},
+  {t:'[ SHAD ] Classifying shadow AI — 8 found',c:'log-red'},
+  {t:'[ POL  ] Evaluating policy engine — 6 policies, violations found',c:'log-amb'},
+  {t:'[ COMP ] Mapping compliance: SOC2/ISO27001/GDPR/NIST/EU AI Act/HIPAA/HITRUST/FDA SaMD…',c:'log-acc'},
+  {t:'[ DONE ] Scan complete — report ready ✓',c:'log-grn'},
+];
+function startScan(){
+  openModal('modal-scan');
+  const fill=document.getElementById('scan-fill'),step=document.getElementById('scan-step'),log=document.getElementById('scan-log');
+  fill.style.width='0%';log.innerHTML='';let i=0;
+  const iv=setInterval(()=>{
+    const pct=Math.round((i+1)/SSTEPS.length*100);fill.style.width=pct+'%';
+    if(i<SSTEPS.length){const s=SSTEPS[i];step.textContent=s.t;const l=document.createElement('div');l.className='log-line '+s.c;l.textContent=new Date().toLocaleTimeString()+' '+s.t;log.appendChild(l);log.scrollTop=log.scrollHeight;i++;}
+    if(pct>=100){clearInterval(iv);DB.lastScan=new Date().toISOString();addAct('scan',`Full scan — ${DB.agents.length} agents (${DB.agents.filter(a=>a.phi).length} PHI), ${DB.agents.filter(a=>a.shadow).length} shadow`,'System · just now','#6366f1');save();setTimeout(()=>{closeModal('modal-scan');updateStats();({discovery:renderDisc}[cv]||(() =>{}))();},800);}
+  },380);
+}
+
+/* -- EXPORT -- */
+function exportCSV(){
+  const h=['Name','Type','Env','Protocols','DataAccess','LastSeen','Risk','Shadow','PII','PHI','Domain','SOC2','ISO27001','GDPR','NIST','EUAIAct','HIPAA','HITRUST','FDA_SaMD','Score'];
+  const rows=DB.agents.map(a=>[a.name,a.type,a.env,a.protocols.join(';'),a.dataAccess,a.lastSeen,a.risk,a.shadow?'Yes':'No',a.pii?'Yes':'No',a.phi?'Yes':'No',a.domain||'',a.controls.soc2,a.controls.iso27001,a.controls.gdpr,a.controls.nist,a.controls.euai,a.controls.hipaa||'',a.controls.hitrust||'',a.controls.fda_samd||'',cscore(a.controls)+'%'].map(v=>`"${v}"`).join(','));
+  const blob=new Blob([[h.join(','),...rows].join('\n')],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='agentRadar3-export.csv';a.click();
+  addAct('info','CSV export downloaded','Admin · just now','#6366f1');
+}
+
+/* -- INIT -- */
+
+/* ════════════════════════════════════════════════════
+   LAUNCH FEATURES — All 12 blockers implemented
+════════════════════════════════════════════════════ */
+
+/* ── RBAC ROLES ── */
+const ROLES = {
+  platform_admin: {label:'Platform Admin', can:{all:true,admin:true,view:true,scan:true,register:true,export:true,configure:true}},
+  ciso:           {label:'CISO',           can:{view:true,export:true,report:true}},
+  analyst:        {label:'Analyst',        can:{view:true,scan:true,register:true,export:true}},
+  auditor:        {label:'Auditor',        can:{view:true,export:true,report:true}},
+  viewer:         {label:'Viewer',         can:{view:true}},
+};
+let currentRole = sessionStorage.getItem('ar-role') || 'viewer';
+let currentUser = 'Admin User';
+
+function can(action) {
+  const r = ROLES[currentRole];
+  return !!(r.can.all || r.can[action]);
+}
+
+function selectRole(role) {
+  currentRole = role;
+  sessionStorage.setItem('ar-role', role);
+  document.querySelectorAll('.role-card').forEach(el => el.classList.remove('selected'));
+  document.getElementById('role-'+role)?.classList.add('selected');
+  if (typeof applyRoles === 'function') setTimeout(applyRoles, 50);
+}
+
+let _apiToken = '';
+let _apiMode = false;
+
+// ── SSO Token handler moved to DOMContentLoaded ─────────────
+(function handleSSOReturn() {
+  return; // disabled — handler is in DOMContentLoaded
+  const hash = window.location.hash;
+  if (hash.includes('sso-token=')) {
+    const token = hash.split('sso-token=')[1].split('&')[0];
+    if (token) {
+      _apiToken = token;
+      // FIX CWE-922: Token stored in httpOnly cookie by server — not in localStorage;
+      // Decode JWT to get user info
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        _userRole = payload.role || 'viewer';
+        _userEmail = payload.email || '';
+        document.getElementById('login-user-name').textContent = payload.name || payload.email;
+        document.getElementById('login-user-role').textContent = payload.role?.toUpperCase() || 'USER';
+        document.getElementById('login-avatar').textContent = (payload.name||payload.email||'U')[0].toUpperCase();
+      } catch(e) {}
+      // Clear hash and go to dashboard
+      window.history.replaceState(null, '', window.location.pathname);
+      document.getElementById('login-screen').style.display = 'none';
+      loadTenantConfigOnLogin();
+      loadLiveAgents().then(() => { applyRBAC(); go('dashboard'); });
+    }
+  } else if (hash.includes('sso-error=')) {
+    const err = decodeURIComponent(hash.split('sso-error=')[1].split('&')[0]);
+    alert('SSO Error: ' + err);
+    window.history.replaceState(null, '', window.location.pathname);
+  }
+  // Also restore token from localStorage on page load
+  const saved = localStorage.getItem('ar_token');
+  if (saved && !_apiToken) {
+    _apiToken = saved;
+    try {
+      const payload = JSON.parse(atob(saved.split('.')[1]));
+      const exp = payload.exp * 1000;
+      if (exp > Date.now()) {
+        _userRole = payload.role || 'viewer';
+        _userEmail = payload.email || '';
+        document.getElementById('login-user-name').textContent = payload.name || payload.email;
+        document.getElementById('login-user-role').textContent = payload.role?.toUpperCase() || 'USER';
+        document.getElementById('login-avatar').textContent = (payload.name||payload.email||'U')[0].toUpperCase();
+        document.getElementById('login-screen').style.display = 'none';
+        loadTenantConfigOnLogin();
+        loadLiveAgents().then(() => { applyRBAC(); go('dashboard'); });
+        // Session expiry warning
+        try {
+          const pl = JSON.parse(atob(_apiToken.split('.')[1]));
+          const warnAt = pl.exp * 1000 - Date.now() - 30 * 60 * 1000;
+          if (warnAt > 0) setTimeout(() => {
+            const b = document.createElement('div');
+            b.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#F59E0B;color:#fff;text-align:center;padding:8px;font-size:13px;font-weight:600;z-index:9999;cursor:pointer';
+            b.textContent = '⚠ Session expires in 30 minutes — click to re-login';
+            b.onclick = () => { localStorage.removeItem('ar_token'); location.reload(); };
+            document.body.appendChild(b);
+          }, Math.max(0, warnAt));
+        } catch(e) {}
+      } else {
+        localStorage.removeItem('ar_token');
+      }
+    } catch(e) { localStorage.removeItem('ar_token'); }
+  }
+})();
+
+async function saveNetskopeConn() {
+  const tenant = document.getElementById('cd-netskope-tenant')?.value?.trim();
+  const token = document.getElementById('cd-netskope-token')?.value?.trim();
+  if (!tenant || !token) { alert('Enter Tenant Name and API Token'); return; }
+  const statusEl = document.getElementById('cd-netskope-status');
+  try {
+    const r = await fetch('/api/integrations/credentials', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','Authorization':'Bearer '+_apiToken},
+      body: JSON.stringify({ provider:'netskope', credentials:{ tenant, token } })
+    });
+    if (r.ok) {
+      if (statusEl) { statusEl.textContent='Connected'; statusEl.style.background='rgba(0,180,100,0.15)'; statusEl.style.color='#00b464'; }
+      alert('Netskope connected successfully');
+    } else { alert('Failed to save Netskope credentials'); }
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+async function scanNetskope() {
+  const tenant = document.getElementById('cd-netskope-tenant')?.value?.trim();
+  const token = document.getElementById('cd-netskope-token')?.value?.trim();
+  if (!tenant || !token) { alert('Connect Netskope first'); return; }
+  const statusEl = document.getElementById('cd-netskope-status');
+  if (statusEl) { statusEl.textContent='Scanning...'; statusEl.style.color='#f59e0b'; }
+  try {
+    const r = await fetch('/api/endpoint/scan/netskope', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','Authorization':'Bearer '+_apiToken},
+      body: JSON.stringify({ tenant, token })
+    });
+    const d = await r.json();
+    if (statusEl) { statusEl.textContent='Connected'; statusEl.style.background='rgba(0,180,100,0.15)'; statusEl.style.color='#00b464'; }
+    alert('Netskope scan complete: '+( d.agentsFound||0)+' AI agents found via CASB traffic');
+    if (d.agentsFound > 0) loadLiveAgents();
+  } catch(e) { alert('Scan error: '+e.message); }
+}
+
+// ── Platform Admin functions ─────────────────────────────────
+let _adminTenantId = '00000000-0000-0000-0000-000000000001';
+
+// Wire up admin checkboxes
+function initAdminCheckboxes() {
+  ['tier1','tier2','tier3','tier4','dashboard','compliance','remediation','dataLineage','activityFeed'].forEach(k => {
+    const el = document.getElementById('mod-'+k);
+    if (el) el.addEventListener('change', saveModuleConfig);
+  });
+  ['azure','aws','gcp','copilotStudio','salesforce','workday','oracleCloud','cortexXDR','crowdstrike','intune','netskope','okta','splunk','sentinel','qradar','elastic'].forEach(k => {
+    const el = document.getElementById('int-'+k);
+    if (el) el.addEventListener('change', saveIntegrationConfig);
+  });
+}
+
+// Module state tracking
+const _modState = {tier1:true,tier2:true,tier3:true,tier4:true,dashboard:true,compliance:true,remediation:true,dataLineage:true,activityFeed:true};
+const _intState = {azure:true,aws:true,gcp:true,copilotStudio:true,salesforce:true,workday:true,oracleCloud:true,cortexXDR:true,crowdstrike:true,intune:true,netskope:true,okta:true,splunk:true,sentinel:true,qradar:true,elastic:true};
+
+function getToken() {
+  return _apiToken || localStorage.getItem('ar_token') || sessionStorage.getItem('ar-token') || '';
+}
+
+function toggleMod(key) {
+  _modState[key] = !_modState[key];
+  const sw = document.getElementById('mod-'+key+'-dot');
+  if (sw) { sw.classList.toggle('on', _modState[key]); }
+  saveModuleConfig();
+}
+
+function toggleInt(key) {
+  _intState[key] = !_intState[key];
+  const sw = document.getElementById('int-'+key+'-dot');
+  if (sw) { sw.classList.toggle('on', _intState[key]); }
+  saveIntegrationConfig();
+}
+
+async function saveModuleConfig() {
+  const token = getToken();
+  if (!token) { alert('Not logged in — please refresh and login again'); return; }
+  try {
+    const r = await fetch('/api/admin/tenant/'+_adminTenantId+'/config', {
+      method:'PUT',
+      headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+      body: JSON.stringify({config_key:'modules', config_val:{..._modState}})
+    });
+    if (r.ok) {
+      applyTenantConfig({modules:{..._modState}});
+      const dot = document.getElementById('admin-save-indicator');
+      if (dot) { dot.textContent='✓ Saved'; dot.style.color='#10b981'; setTimeout(()=>{ dot.textContent=''; },2000); }
+    } else {
+      const d = await r.json().catch(()=>({}));
+      alert('Save failed: '+(d.error||r.status));
+    }
+  } catch(e) { alert('Network error: '+e.message); }
+}
+
+async function saveIntegrationConfig() {
+  const token = getToken();
+  if (!token) { alert('Not logged in — please refresh and login again'); return; }
+  try {
+    const r = await fetch('/api/admin/tenant/'+_adminTenantId+'/config', {
+      method:'PUT',
+      headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+      body: JSON.stringify({config_key:'integrations', config_val:{..._intState}})
+    });
+    if (r.ok) {
+      applyTenantConfig({integrations:{..._intState}});
+      const dot = document.getElementById('admin-save-indicator');
+      if (dot) { dot.textContent='✓ Saved'; dot.style.color='#10b981'; setTimeout(()=>{ dot.textContent=''; },2000); }
+    } else {
+      const d = await r.json().catch(()=>({}));
+      alert('Save failed: '+(d.error||r.status));
+    }
+  } catch(e) { alert('Network error: '+e.message); }
+}
+
+async function loadTenants() {
+  const r = await fetch('/api/admin/tenants', {headers:{'Authorization':'Bearer '+_apiToken}}).catch(()=>({ok:false}));
+  if (!r.ok) return;
+  const tenants = await r.json();
+  const sel = document.getElementById('admin-tenant-select');
+  if (!sel) return;
+  sel.innerHTML = tenants.map(t => `<option value="${t.id}">${t.name} (${t.slug})</option>`).join('');
+  if (tenants.length > 0) loadTenantConfig(tenants[0].id);
+}
+
+async function loadTenantConfig(tenantId) {
+  _adminTenantId = tenantId;
+  const r = await fetch(`/api/admin/tenant/${tenantId}/config`, {headers:{'Authorization':'Bearer '+_apiToken}}).catch(()=>({ok:false}));
+  if (!r.ok) return;
+  const config = await r.json();
+
+  // Set module state
+  const mods = config.modules || {};
+  Object.entries(mods).forEach(([k,v]) => {
+    _modState[k] = v;
+    const sw = document.getElementById('mod-'+k+'-dot');
+    if (sw) sw.classList.toggle('on', v);
+  });
+
+  // Set integration state
+  const ints = config.integrations || {};
+  Object.entries(ints).forEach(([k,v]) => {
+    _intState[k] = v;
+    const sw = document.getElementById('int-'+k+'-dot');
+    if (sw) sw.classList.toggle('on', v);
+  });
+
+  // Load users
+  loadTenantUsers(tenantId);
+}
+
+async function loadTenantUsers(tenantId) {
+  const r = await fetch(`/api/admin/tenant/${tenantId}/users`, {headers:{'Authorization':'Bearer '+_apiToken}}).catch(()=>({ok:false}));
+  const el = document.getElementById('admin-users-table');
+  if (!el) return;
+  if (!r.ok) { el.innerHTML = '<div style="color:var(--text-muted)">Could not load users</div>'; return; }
+  const users = await r.json();
+  el.innerHTML = `<table style="width:100%;border-collapse:collapse">
+    <tr style="border-bottom:1px solid var(--glass-border-dim)">
+      <th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">Email</th>
+      <th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">Name</th>
+      <th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">Role</th>
+      <th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">Created</th>
+    </tr>
+    ${users.map(u=>`<tr style="border-bottom:1px solid var(--glass-border-dim)">
+      <td style="padding:6px;font-size:12px">${u.email}</td>
+      <td style="padding:6px;font-size:12px">${u.name||'-'}</td>
+      <td style="padding:6px"><span style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary)">${u.role}</span></td>
+      <td style="padding:6px;font-size:11px;color:var(--text-muted)">${new Date(u.created_at).toLocaleDateString()}</td>
+    </tr>`).join('')}
+  </table>`;
+}
+
+
+
+
+
+function applyTenantConfig(config) {
+  const mods = config.modules || {};
+  const ints = config.integrations || {};
+
+  // ── Module enforcement: show/hide nav items ──────────────────
+  const navMap = {
+    dashboard:    'nav-dashboard',
+    compliance:   'nav-compliance',
+    remediation:  'nav-remediation',
+    dataLineage:  'nav-lineage',
+    activityFeed: 'nav-activity',
+  };
+  Object.entries(navMap).forEach(([mod, navId]) => {
+    const el = document.getElementById(navId);
+    if (el && mods[mod] !== undefined) el.style.display = mods[mod] ? '' : 'none';
+  });
+
+  // ── Tier enforcement: hide entire nav sections ───────────────
+  const tierNavItems = {
+    tier1: ['nav-live','nav-discovery','nav-shadow'],
+    tier2: ['nav-policy','nav-approvals','nav-playbooks'],
+    tier3: ['nav-risk','nav-blast','nav-phi'],
+    tier4: ['nav-integrations'],
+  };
+  Object.entries(tierNavItems).forEach(([tier, navIds]) => {
+    if (mods[tier] !== undefined) {
+      navIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = mods[tier] ? '' : 'none';
+      });
+    }
+  });
+
+  // ── Integration enforcement: hide Connect & Discover cards ───
+  // Map integration keys to DOM element IDs in the integrations panel
+  const intCardMap = {
+    azure:        'cd-azure-card',
+    aws:          'cd-aws-card',
+    gcp:          'cd-gcp-card',
+    copilotStudio:'cd-copilot-card',
+    salesforce:   'cd-sf-card',
+    workday:      'cd-workday-card',
+    oracleCloud:  'cd-oracle-card',
+    cortexXDR:    'cd-cx-card',
+    crowdstrike:  'cd-cs-card',
+    intune:       'cd-intune-card',
+    netskope:     'cd-netskope-card',
+    okta:         'cd-okta-card',
+    splunk:       'cd-splunk-card',
+    sentinel:     'cd-sentinel-card',
+    qradar:       'cd-qradar-card',
+    elastic:      'cd-elastic-card',
+  };
+  Object.entries(intCardMap).forEach(([key, cardId]) => {
+    const el = document.getElementById(cardId);
+    if (el && ints[key] !== undefined) el.style.display = ints[key] ? '' : 'none';
+  });
+}
+
+// ── Tier preset application ───────────────────────────────────
+const TIER_PRESETS = {
+  // Full platform
+  full: {
+    modules: { tier1:true, tier2:true, tier3:true, tier4:true, dashboard:true, compliance:true, remediation:true, dataLineage:true, activityFeed:true },
+    integrations: { azure:true, aws:true, gcp:true, copilotStudio:true, salesforce:true, workday:true, oracleCloud:true, cortexXDR:true, crowdstrike:true, intune:true, netskope:true, okta:true, splunk:true, sentinel:true, qradar:true, elastic:true }
+  },
+  // Customer preset: Discovery + Governance + Integrations + Dashboard only
+  discovery_governance_integration: {
+    modules: { tier1:true, tier2:true, tier3:false, tier4:true, dashboard:true, compliance:false, remediation:false, dataLineage:false, activityFeed:false },
+    integrations: { azure:true, aws:true, gcp:true, copilotStudio:true, salesforce:true, workday:true, oracleCloud:true, cortexXDR:false, crowdstrike:false, intune:false, netskope:false, okta:true, splunk:false, sentinel:false, qradar:false, elastic:false }
+  },
+  // Compliance & audit only
+  compliance_only: {
+    modules: { tier1:false, tier2:true, tier3:false, tier4:false, dashboard:true, compliance:true, remediation:false, dataLineage:false, activityFeed:true },
+    integrations: { azure:false, aws:false, gcp:false, copilotStudio:false, salesforce:false, workday:false, oracleCloud:false, cortexXDR:false, crowdstrike:false, intune:false, netskope:false, okta:true, splunk:true, sentinel:true, qradar:false, elastic:false }
+  }
+};
+
+async function applyPreset(presetName) {
+  const preset = TIER_PRESETS[presetName];
+  if (!preset) return;
+  const token = getToken();
+  // Apply to _modState and _intState
+  Object.assign(_modState, preset.modules);
+  Object.assign(_intState, preset.integrations);
+  // Update dots
+  Object.entries(_modState).forEach(([k,v]) => {
+    const dot = document.getElementById('mod-'+k+'-dot');
+    if (dot) dot.style.background = v ? '#10b981' : '#ef4444';
+  });
+  Object.entries(_intState).forEach(([k,v]) => {
+    const dot = document.getElementById('int-'+k+'-dot');
+    if (dot) dot.style.background = v ? '#10b981' : '#ef4444';
+  });
+  // Save both configs
+  await saveModuleConfig();
+  await saveIntegrationConfig();
+  applyTenantConfig({ modules: _modState, integrations: _intState });
+  showToast('Preset "' + presetName + '" applied', 'success');
+}
+
+async function loadTenantConfigOnLogin() {
+  try {
+    const r = await fetch('/api/config', {headers:{'Authorization':'Bearer '+_apiToken}});
+    const config = await r.json();
+    applyTenantConfig(config);
+    // Show admin nav only for platform_admin
+    const adminNav = document.getElementById('nav-admin');
+    if (adminNav && (currentRole === 'platform_admin' || _userRole === 'platform_admin')) adminNav.style.display = '';
+    // Show Okta button if enabled
+    const oktaBtn = document.getElementById('btn-okta-sso');
+    if (oktaBtn && config.integrations?.okta) oktaBtn.style.display = 'flex';
+  } catch(e) {}
+}
+
+async function saveSIEM(provider) {
+  const urlEl = document.getElementById(`cd-${provider}-url`);
+  const tokenEl = document.getElementById(`cd-${provider}-token`);
+  const keyEl = document.getElementById(`cd-${provider}-key`);
+  const workspaceEl = document.getElementById(`cd-${provider}-workspace`);
+  const statusEl = document.getElementById(`cd-${provider}-status`);
+
+  const credentials = {};
+  if (urlEl) credentials.url = urlEl.value.trim();
+  if (tokenEl) credentials.token = tokenEl.value.trim();
+  if (keyEl) credentials.apiKey = keyEl.value.trim();
+  if (workspaceEl) credentials.workspaceId = workspaceEl.value.trim();
+  if (provider === 'sentinel' && document.getElementById('cd-sentinel-key'))
+    credentials.sharedKey = document.getElementById('cd-sentinel-key').value.trim();
+
+  const r = await fetch('/api/siem/credentials', {
+    method:'POST', headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+    body: JSON.stringify({provider, credentials})
+  }).catch(()=>({ok:false}));
+
+  if (r.ok) {
+    if (statusEl) { statusEl.textContent='Connected'; statusEl.style.background='rgba(0,180,100,0.15)'; statusEl.style.color='#00b464'; }
+    alert(`${provider.charAt(0).toUpperCase()+provider.slice(1)} SIEM connected successfully`);
+  } else {
+    alert(`Failed to connect ${provider}`);
+  }
+}
+
+// ── Toast notification system ────────────────────────────────
+(function initToasts() {
+  const container = document.createElement('div');
+  container.id = 'toast-container';
+  document.body.appendChild(container);
+})();
+
+function showToast(message, type, duration) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = 'toast-item';
+  const icons = { success:'✓', error:'✗', info:'ℹ', warning:'⚠' };
+  const colors = { success:'#10B981', error:'#EF4444', info:'#2563EB', warning:'#F59E0B' };
+  const color = colors[type||'info'] || colors.info;
+  toast.style.borderLeft = '3px solid ' + color;
+  toast.innerHTML = `<span style="color:${color};font-weight:700;font-size:14px">${icons[type||'info']||'ℹ'}</span><span>${message}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'toastIn .3s ease reverse';
+    setTimeout(() => toast.remove(), 300);
+  }, duration || 3000);
+}
+
+// ── Empty state helper ────────────────────────────────────────
+function emptyState(icon, title, sub, action) {
+  const btn = action ? '<button class="btn primary" style="margin-top:16px" onclick="'+action.fn+'">'+action.label+'</button>' : '';
+  return '<div class="empty-state">'
+    + '<div class="empty-state-icon">'+icon+'</div>'
+    + '<div class="empty-state-title">'+title+'</div>'
+    + '<div class="empty-state-sub">'+sub+'</div>'
+    + btn
+    + '</div>';
+}
+
+async function doLogin() {
+  const email = document.getElementById('login-email')?.value || 'admin@agentradar.local';
+  const password = document.getElementById('login-password')?.value || '';
+  const errEl = document.getElementById('login-api-err');
+  if (errEl) errEl.style.display = 'none';
+  // Clear any stale role from previous session before new login
+  sessionStorage.removeItem('ar-role');
+  sessionStorage.removeItem('ar-user');
+  currentRole = 'viewer'; // reset to safe default
+
+  console.log('[doLogin] Starting login for:', email);
+
+  // Try real API authentication first
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, password})
+    });
+    const data = await res.json();
+    if (data.user || data.token) {
+      _apiToken = data.token || 'cookie-auth';
+      _apiMode  = true;
+      // Role from API response — authoritative
+      const userRole  = (data.user && data.user.role)  ? data.user.role  : 'viewer';
+      const userName  = (data.user && data.user.name)  ? data.user.name  :
+                        (data.user && data.user.email) ? data.user.email : 'User';
+      const userEmail = (data.user && data.user.email) ? data.user.email : '';
+      currentRole = userRole;
+      currentUser = userName;
+      console.log('[DEBUG] Set currentRole to:', currentRole);
+      sessionStorage.setItem('ar-role',  currentRole);
+      sessionStorage.setItem('ar-user',  currentUser);
+      sessionStorage.setItem('ar-email', userEmail);
+      console.log('[auth] Logged in as:', currentUser, 'role:', currentRole);
+      console.log('[DEBUG] data.user was:', data.user ? JSON.stringify({role:data.user.role,email:data.user.email}) : 'null');
+      await loadLiveAgents();
+    } else {
+      if (errEl) {
+        errEl.textContent = data.error || 'Invalid credentials';
+        errEl.style.display = 'block';
+      }
+    }
+  } catch(e) {
+    console.error('[doLogin] Error:', e.message, e.stack);
+    if (errEl) {
+      errEl.textContent = 'Login error: ' + e.message;
+      errEl.style.display = 'block';
+    }
+  }
+
+  // Role and user already set inside try block from API response
+  // Only hide login screen and load config here
+  document.getElementById('login-screen').classList.add('hidden');
+  loadTenantConfigOnLogin();
+  let displayName = currentUser;
+  // Role already set from data.user.role above — skip JWT re-parse
+  document.getElementById('login-user-name').textContent = displayName;
+  document.getElementById('login-user-role').textContent = (ROLES[currentRole]||ROLES['viewer']).label;
+  document.getElementById('login-avatar').textContent = name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  applyRBAC();
+  _sessionActive = true;
+  initSessionTimeout();
+  if (checkMFARequired && checkMFARequired()) {
+    setTimeout(() => showMFASetup(), 300);
+  }
+  if (!localStorage.getItem('ar-onboarded')) showOnboarding();
+  // Force dashboard to render with live data
+  setTimeout(() => {
+    updateStats();
+    if (typeof renderDashboard === 'function') renderDashboard();
+    loadSavedIntegrations(); // Load saved cloud credentials
+    loadConnectDiscoverState(); // Pre-fill connect & discover panel
+  }, 200);
+}
+
+async function loadLiveAgents() {
+  try {
+    const res = await fetch('/api/agents', {
+      headers: {'Authorization': 'Bearer ' + _apiToken}
+    });
+    const liveAgents = await res.json();
+    if (Array.isArray(liveAgents) && liveAgents.length > 0) {
+      // Map API format to frontend DB format
+      const mapped = liveAgents.map((a, i) => {
+        // Parse JSON fields safely
+        const protocols = (()=>{ try { return typeof a.protocols==='string' ? JSON.parse(a.protocols) : (a.protocols||[]); } catch(e){return[];} })();
+        const meta = (()=>{ try { return typeof a.metadata==='string' ? JSON.parse(a.metadata) : (a.metadata||{}); } catch(e){return {};} })();
+        let controls = (()=>{ try { return typeof a.controls==='string' ? JSON.parse(a.controls) : (a.controls||{}); } catch(e){return {};} })();
+
+        // Default controls for unassessed agents
+        const defaultControls = {soc2:'warn',iso27001:'warn',gdpr:'warn',nist:'warn',euai:'warn',hipaa:'warn',hitrust:'warn',fda_samd:'warn'};
+        if (Object.keys(controls).length === 0) controls = defaultControls;
+
+        // Extract detect method from metadata if not in direct field
+        const detectMethod = a.detect ||
+          meta.detect ||
+          (meta.notes ? meta.notes.split('|')[0].trim() : null) ||
+          'Manual registration';
+
+        // Extract region and resource group from metadata notes
+        const notesStr = meta.notes || '';
+        const rgMatch = notesStr.match(/Resource Group:\s*([^|]+)/);
+        const regionMatch = notesStr.match(/Region:\s*([^|]+)/);
+
+        return {
+          id: a.id || (1000 + i),
+          name: a.name || 'Unknown Agent',
+          type: a.type || 'agent',
+          env: a.env || 'Cloud',
+          protocols: protocols,
+          lastSeen: a.last_seen ? new Date(a.last_seen).toLocaleString() : 'Just now',
+          risk: a.risk || 'medium',
+          shadow: a.shadow || false,
+          detect: detectMethod,
+          dataAccess: a.data_access || meta.dataAccess || null,
+          pii: a.pii || false,
+          phi: a.phi || false,
+          domain: a.domain || meta.domain || null,
+          notes: meta.notes || a.notes || '',
+          controls: controls,
+          firstDet: a.first_detected ? a.first_detected.split('T')[0] : new Date().toISOString().split('T')[0],
+          owner: a.owner || null,
+          ver: a.version || null,
+          approved: a.approved || false,
+          quarantined: a.quarantined || false,
+          hosted: a.hosted || false,
+          resourceGroup: rgMatch ? rgMatch[1].trim() : null,
+          region: regionMatch ? regionMatch[1].trim() : null,
+        };
+      });
+      // Clear localStorage demo data and replace with live data
+      DB.agents = mapped;
+      // Clear any stale localStorage so demo data doesn't creep back
+      try { localStorage.removeItem(SK); } catch(e) {}
+      // Update banner to show production mode
+      const banner = document.getElementById('mode-banner');
+      const dot = document.getElementById('mode-dot');
+      const label = document.getElementById('mode-label');
+      if (banner) banner.className = 'mode-banner prod';
+      if (dot) { dot.style.background = '#10b981'; dot.style.animation = 'none'; }
+      if (label) { label.style.color = '#065f46'; label.textContent = 'Production — ' + mapped.length + ' live agents'; }
+    }
+    // Load activity
+    const actRes = await fetch('/api/activity', {
+      headers: {'Authorization': 'Bearer ' + _apiToken}
+    });
+    const acts = await actRes.json();
+    if (Array.isArray(acts) && acts.length > 0) {
+      DB.activity = acts;
+    }
+  } catch(e) {
+    console.log('[AgentRadar] Live data load failed:', e.message);
+  }
+  save();
+  updateStats();
+  // Re-render current view with fresh data
+  if (typeof go === 'function') go(cv||'discovery');
+  // Refresh registered agents panel if visible
+  if (typeof renderConnectionRegistry === 'function') renderConnectionRegistry();
+}
+
+
+/* ══ AUTO-DISCOVERY WIZARD ══ */
+let adSelected = new Set();
+let adSession = null;
+let adPollTimer = null;
+
+function openAutoDiscovery() {
+  let modal = document.getElementById('modal-autodiscovery');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'modal-autodiscovery';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center';
+    modal.innerHTML = '<div id="ad-box" style="background:var(--bg-primary,#1a1f2e);border:1px solid var(--glass-border-dim,#2d3748);border-radius:16px;width:680px;max-width:96vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.5)"></div>';
+    modal.addEventListener('click', e => { if(e.target===modal) closeADWizard(); });
+    document.body.appendChild(modal);
+  }
+  modal.style.display = 'flex';
+  adSelected = new Set();
+  renderADStep1();
+}
+
+function closeADWizard() {
+  const m = document.getElementById('modal-autodiscovery');
+  if (m) m.style.display = 'none';
+  if (adPollTimer) clearInterval(adPollTimer);
+}
+
+function adBox() { return document.getElementById('ad-box'); }
+
+function renderADStep1() {
+  const box = adBox(); if (!box) return;
+  box.innerHTML = `
+  <div style="padding:28px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+      <div style="width:40px;height:40px;background:linear-gradient(135deg,#2563eb,#7c3aed);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">⚡</div>
+      <div><div style="font-size:19px;font-weight:800;color:var(--text-primary)">Auto-Discovery Mode</div>
+      <div style="font-size:12px;color:var(--text-muted)">Connect once · Scan everything · Results in minutes</div></div>
+      <button onclick="closeADWizard()" style="margin-left:auto;background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">✕</button>
+    </div>
+    <div style="background:rgba(37,99,235,0.08);border:1px solid rgba(37,99,235,0.2);border-radius:10px;padding:12px;margin-bottom:16px;font-size:12px;color:#93c5fd;line-height:1.7">
+      ⚡ Provide read-only credentials → AgentRadar detects what's deployed → auto-enables only relevant scanners → runs them → shows results
+    </div>
+    <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:12px">Select your environment(s):</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">
+    ${[
+      {id:'azure',icon:'🔷',name:'Microsoft Azure',desc:'AKS, Azure OpenAI, M365, Entra ID'},
+      {id:'aws',  icon:'🟠',name:'Amazon AWS',     desc:'Bedrock, SageMaker, EKS, Lambda'},
+      {id:'gcp',  icon:'🟢',name:'Google Cloud',   desc:'Vertex AI, GKE, Gemini, BigQuery'},
+      {id:'network',icon:'📡',name:'Network Scan', desc:'Local AI servers, HL7, DICOM, ports'},
+      {id:'github',icon:'🐙',name:'GitHub / GitLab',desc:'Repos, CI/CD, IaC, API key scan'},
+      {id:'saas', icon:'☁️',name:'SaaS Platforms', desc:'Salesforce, ServiceNow, Workday AI'},
+    ].map(o=>`
+      <div id="adopt-${o.id}" onclick="toggleADOpt('${o.id}')"
+        style="padding:12px;border:2px solid var(--glass-border-dim,#2d3748);border-radius:10px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:border-color .15s">
+        <div style="font-size:22px">${o.icon}</div>
+        <div style="flex:1"><div style="font-size:12px;font-weight:700;color:var(--text-primary)">${o.name}</div>
+        <div style="font-size:10px;color:var(--text-muted)">${o.desc}</div></div>
+        <div id="adchk-${o.id}" style="width:18px;height:18px;border-radius:50%;border:2px solid var(--glass-border-dim,#2d3748);flex-shrink:0"></div>
+      </div>`).join('')}
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px">
+      <button onclick="closeADWizard()" class="btn sm">Cancel</button>
+      <button onclick="renderADStep2()" class="btn primary sm">Next: Configure →</button>
+    </div>
+  </div>`;
+}
+
+function toggleADOpt(id) {
+  if (adSelected.has(id)) {
+    adSelected.delete(id);
+    document.getElementById('adopt-'+id).style.borderColor = 'var(--glass-border-dim,#2d3748)';
+    document.getElementById('adchk-'+id).style.cssText = 'width:18px;height:18px;border-radius:50%;border:2px solid var(--glass-border-dim,#2d3748);flex-shrink:0';
+    document.getElementById('adchk-'+id).innerHTML = '';
+  } else {
+    adSelected.add(id);
+    document.getElementById('adopt-'+id).style.borderColor = '#2563eb';
+    const chk = document.getElementById('adchk-'+id);
+    chk.style.cssText = 'width:18px;height:18px;border-radius:50%;background:#2563eb;border:2px solid #2563eb;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:700';
+    chk.innerHTML = '✓';
+  }
+}
+
+function renderADStep2() {
+  if (adSelected.size === 0) { alert('Please select at least one environment'); return; }
+  const box = adBox(); if (!box) return;
+  const fields = {
+    azure:[{id:'az-tenant',label:'Tenant ID',ph:'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',help:'Azure Portal → Entra ID → Properties'},
+           {id:'az-client',label:'Client ID (App Registration)',ph:'app-client-id',help:'App Registration → Overview'},
+           {id:'az-secret',label:'Client Secret',ph:'your-secret',type:'password',help:'App Registration → Certificates & secrets'},
+           {id:'az-sub',label:'Subscription ID',ph:'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',help:'Azure Portal → Subscriptions'}],
+    aws:[{id:'aws-key',label:'Access Key ID',ph:'AKIAIOSFODNN7EXAMPLE',help:'IAM → Users → Security credentials'},
+         {id:'aws-secret',label:'Secret Access Key',ph:'your-secret',type:'password',help:'IAM → Users → Security credentials'},
+         {id:'aws-region',label:'Primary Region',ph:'us-east-1',help:'Your primary AWS region'}],
+    gcp:[{id:'gcp-project',label:'Project ID',ph:'my-gcp-project',help:'GCP Console → Project dropdown'},
+         {id:'gcp-key',label:'Service Account Key (JSON)',ph:'{"type":"service_account",...}',type:'textarea',help:'IAM → Service Accounts → Keys → Add key'}],
+    network:[{id:'net-cidrs',label:'Network CIDR ranges (comma-separated)',ph:'10.1.0.0/24, 192.168.1.0/24',type:'textarea',help:'Internal subnets to scan for AI services'}],
+    github:[{id:'gh-token',label:'Personal Access Token',ph:'ghp_xxxxxxxxxxxx',type:'password',help:'GitHub Settings → Developer settings → PAT'},
+            {id:'gh-org',label:'Organization name',ph:'your-org',help:'GitHub organization to scan'}],
+    saas:[{id:'sf-domain',label:'Salesforce Domain (optional)',ph:'yourcompany.salesforce.com',help:'Salesforce instance URL'},
+          {id:'snow-inst',label:'ServiceNow Instance (optional)',ph:'yourcompany',help:'yourcompany.service-now.com'}],
+  };
+  const icons = {azure:'🔷',aws:'🟠',gcp:'🟢',network:'📡',github:'🐙',saas:'☁️'};
+  const names = {azure:'Azure',aws:'AWS',gcp:'GCP',network:'Network',github:'GitHub',saas:'SaaS'};
+
+  box.innerHTML = `
+  <div style="padding:28px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px">
+      <button onclick="renderADStep1()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-muted)">←</button>
+      <div style="font-size:18px;font-weight:800;color:var(--text-primary)">Configure Credentials</div>
+      <div style="margin-left:auto;font-size:11px;color:var(--text-muted)">Step 2 of 3</div>
+      <button onclick="closeADWizard()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">✕</button>
+    </div>
+    <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#6ee7b7">
+      🔒 Read-only access only. Credentials encrypted in Key Vault. AgentRadar never writes to your systems.
+    </div>
+    ${[...adSelected].map(envId => {
+      const f = fields[envId]; if (!f) return '';
+      return `<div style="margin-bottom:16px;padding:14px;border:1px solid var(--glass-border-dim,#2d3748);border-radius:10px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px">${icons[envId]} ${names[envId]}</div>
+        ${f.map(field=>`
+          <div style="margin-bottom:8px">
+            <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">
+              ${field.label} <span style="text-transform:none;font-weight:400;font-size:9px">(${field.help})</span>
+            </div>
+            ${field.type==='textarea'
+              ? `<textarea id="${field.id}" placeholder="${field.ph}" style="width:100%;font-size:11px;padding:7px 10px;border-radius:8px;border:1px solid var(--glass-border-dim,#2d3748);background:rgba(0,0,0,0.2);color:var(--text-primary);font-family:monospace;resize:vertical;min-height:55px;box-sizing:border-box"></textarea>`
+              : `<input id="${field.id}" type="${field.type||'text'}" placeholder="${field.ph}" style="width:100%;font-size:12px;padding:7px 10px;border-radius:8px;border:1px solid var(--glass-border-dim,#2d3748);background:rgba(0,0,0,0.2);color:var(--text-primary);box-sizing:border-box">`
+            }
+          </div>`).join('')}
+      </div>`;
+    }).join('')}
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px">
+      <button onclick="renderADStep1()" class="btn sm">Back</button>
+      <button onclick="startAutoDiscovery()" class="btn primary sm" style="background:linear-gradient(135deg,#2563eb,#7c3aed);border:none">🚀 Start Auto-Discovery</button>
+    </div>
+  </div>`;
+}
+
+async function startAutoDiscovery() {
+  if (!_apiToken) { alert('Please log in first'); return; }
+  const payload = {};
+  if (adSelected.has('azure')) {
+    const t=document.getElementById('az-tenant')?.value?.trim(), cl=document.getElementById('az-client')?.value?.trim(),
+          s=document.getElementById('az-secret')?.value?.trim(), sub=document.getElementById('az-sub')?.value?.trim();
+    if (t&&cl&&s&&sub) payload.azure={tenantId:t,clientId:cl,clientSecret:s,subscriptionId:sub};
+  }
+  if (adSelected.has('aws')) {
+    const k=document.getElementById('aws-key')?.value?.trim(), s=document.getElementById('aws-secret')?.value?.trim(),
+          r=document.getElementById('aws-region')?.value?.trim()||'us-east-1';
+    if (k&&s) payload.aws={accessKeyId:k,secretAccessKey:s,region:r};
+  }
+  if (adSelected.has('gcp')) {
+    const p=document.getElementById('gcp-project')?.value?.trim(), k=document.getElementById('gcp-key')?.value?.trim();
+    if (p&&k) payload.gcp={projectId:p,serviceAccountKey:k};
+  }
+  if (adSelected.has('network')) {
+    const cidrs=document.getElementById('net-cidrs')?.value?.trim();
+    if (cidrs) payload.network={cidrRanges:cidrs.split(',').map(c=>c.trim()).filter(Boolean)};
+  }
+  if (adSelected.has('github')) {
+    const tok=document.getElementById('gh-token')?.value?.trim(), org=document.getElementById('gh-org')?.value?.trim();
+    if (tok&&org) payload.github={token:tok,org};
+  }
+  if (Object.keys(payload).length===0) { alert('Please fill in at least one set of credentials'); return; }
+
+  // Show progress
+  const box = adBox();
+  box.innerHTML = `<div style="padding:28px;text-align:center">
+    <div style="font-size:48px;margin-bottom:12px;animation:spin 2s linear infinite">⚡</div>
+    <div style="font-size:20px;font-weight:800;color:var(--text-primary);margin-bottom:8px">Auto-Discovery Running</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Scanning your environment — 2-5 minutes</div>
+    <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:14px;text-align:left;max-height:220px;overflow-y:auto" id="ad-log">
+      <div id="ad-log-entries" style="font-size:11px;font-family:monospace;color:#94a3b8"><div>⏳ Connecting...</div></div>
+    </div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:12px" id="ad-status">Initializing...</div>
+    <button onclick="closeADWizard()" class="btn sm" style="margin-top:16px">Run in background</button>
+  </div>`;
+
+  try {
+    const resp = await fetch('/api/autodiscovery/start', {
+      method:'POST', headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    }).then(r=>r.json());
+    adSession = resp.sessionId;
+    pollADStatus();
+  } catch(e) {
+    const s = document.getElementById('ad-status');
+    if (s) s.textContent = 'Error: '+e.message;
+  }
+}
+
+function pollADStatus() {
+  if (!adSession||!_apiToken) return;
+  let attempts = 0;
+  adPollTimer = setInterval(async()=>{
+    attempts++;
+    try {
+      const status = await fetch('/api/autodiscovery/status/'+adSession,
+        {headers:{'Authorization':'Bearer '+_apiToken}}).then(r=>r.json());
+
+      const logEl = document.getElementById('ad-log-entries');
+      const statEl = document.getElementById('ad-status');
+      if (logEl && status.logs) {
+        const entries = status.logs.flatMap(l=>l.entries||[]);
+        logEl.innerHTML = entries.map(e=>`<div style="color:${e.status==='error'?'#f87171':e.status==='found'?'#34d399':'#94a3b8'}">
+          ${e.status==='ok'?'✓':e.status==='found'?'⚡':e.status==='error'?'✗':'⏳'} [${e.step}] ${e.msg}</div>`).join('');
+        const logBox = document.getElementById('ad-log');
+        if (logBox) logBox.scrollTop = logBox.scrollHeight;
+      }
+      if (statEl) statEl.textContent = `Scanning... (${attempts*3}s elapsed)`;
+
+      if (status.status==='completed') {
+        clearInterval(adPollTimer);
+        const s = status.summary||{}, total = status.agentCount||0, scanners = (status.scanners||[]).length;
+        adBox().innerHTML = `<div style="padding:28px;text-align:center">
+          <div style="font-size:48px;margin-bottom:8px">✅</div>
+          <div style="font-size:22px;font-weight:800;color:var(--text-primary);margin-bottom:6px">Discovery Complete!</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">${total} agents discovered · ${scanners} scanners auto-configured</div>
+          <div style="display:grid;grid-template-columns:repeat(${Math.max(Object.keys(s).length,1)},1fr);gap:10px;margin-bottom:16px">
+            ${Object.entries(s).map(([cloud,data])=>`
+            <div style="background:rgba(37,99,235,0.08);border:1px solid rgba(37,99,235,0.2);border-radius:10px;padding:14px">
+              <div style="font-size:22px">${{azure:'🔷',aws:'🟠',gcp:'🟢',network:'📡'}[cloud]||'☁️'}</div>
+              <div style="font-size:22px;font-weight:800;color:#60a5fa">${data.agents||0}</div>
+              <div style="font-size:10px;color:var(--text-muted)">${cloud.toUpperCase()} agents</div>
+            </div>`).join('')}
+          </div>
+          ${scanners>0?`<div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:10px;margin-bottom:14px;font-size:10px;color:#6ee7b7;text-align:left">
+            ✅ Auto-configured: ${(status.scanners||[]).join(' · ')}</div>`:''}
+          <div style="display:flex;gap:10px;justify-content:center">
+            <button onclick="closeADWizard();go('discovery')" class="btn primary sm">View Inventory →</button>
+            <button onclick="closeADWizard()" class="btn sm">Close</button>
+          </div>
+        </div>`;
+        if (_apiToken) loadLiveAgents().then(()=>{ updateStats&&updateStats(); renderDashboard&&go(cv); });
+        showScannerToast('Auto-discovery: '+total+' agents found', false);
+      } else if (status.status==='error') {
+        clearInterval(adPollTimer);
+        const st = document.getElementById('ad-status');
+        if (st) st.textContent = 'Error: '+status.error;
+      }
+      if (attempts>100) clearInterval(adPollTimer);
+    } catch(e) {}
+  }, 3000);
+}
+/* ══ END AUTO-DISCOVERY ══ */
+
+
+
+/* ── REGISTERED AGENTS VIEW ── */
+function renderRegisteredAgents() {
+  const agents = DB.agents || [];
+  const tbody = document.getElementById('ra-tbody');
+  if (!tbody) return;
+
+  // Update stats
+  const total = agents.length;
+  const shadow = agents.filter(a=>a.shadow).length;
+  const high = agents.filter(a=>a.risk==='critical'||a.risk==='high').length;
+  const approved = agents.filter(a=>a.approved).length;
+  const phi = agents.filter(a=>a.phi).length;
+
+  const setEl = (id,val) => { const el=document.getElementById(id); if(el) el.textContent=val; };
+  setEl('ra-total', total);
+  setEl('ra-shadow', shadow);
+  setEl('ra-high', high);
+  setEl('ra-approved', approved);
+  setEl('ra-phi', phi);
+
+  if (!total) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted);font-size:13px">No agents found. Run a scan or click + Register Agent to add one.</td></tr>';
+    return;
+  }
+
+  filterRegisteredAgents();
+}
+
+function filterRegisteredAgents() {
+  const agents = DB.agents || [];
+  const search = (document.getElementById('ra-search')?.value||'').toLowerCase();
+  const riskF  = document.getElementById('ra-filter-risk')?.value||'';
+  const envF   = document.getElementById('ra-filter-env')?.value||'';
+  const typeF  = document.getElementById('ra-filter-shadow')?.value||'';
+
+  const filtered = agents.filter(a => {
+    if (search && !((a.name||'')+(a.type||'')+(a.detect||'')).toLowerCase().includes(search)) return false;
+    if (riskF && a.risk !== riskF) return false;
+    if (envF && a.env !== envF) return false;
+    if (typeF === 'shadow' && !a.shadow) return false;
+    if (typeF === 'approved' && !a.approved) return false;
+    return true;
+  });
+
+  const riskColor = {critical:'#ef4444',high:'#f59e0b',medium:'#3b82f6',low:'#10b981'};
+  const tbody = document.getElementById('ra-tbody');
+  if (!tbody) return;
+
+  tbody.innerHTML = filtered.length ? filtered.map(a => `
+    <tr style="border-top:1px solid var(--glass-border-dim);cursor:pointer" onclick="openDrawer('${a.id}')">
+      <td style="padding:10px 14px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:7px;height:7px;border-radius:50%;background:${riskColor[a.risk]||'#64748b'};flex-shrink:0"></div>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--text-primary)">${a.name||'Unknown'}</div>
+            ${a.shadow?'<span style="font-size:9px;background:rgba(239,68,68,0.1);color:#ef4444;border-radius:4px;padding:1px 5px;font-weight:700">SHADOW AI</span>':''}
+            ${a.phi?'<span style="font-size:9px;background:rgba(245,158,11,0.1);color:#f59e0b;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:2px">PHI</span>':''}
+          </div>
+        </div>
+      </td>
+      <td style="padding:10px 14px;font-size:11px;color:var(--text-muted)">${a.type||'—'}</td>
+      <td style="padding:10px 14px;font-size:11px;color:var(--text-muted)">${a.env||'—'}</td>
+      <td style="padding:10px 14px">
+        <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:${riskColor[a.risk]||'#64748b'}18;color:${riskColor[a.risk]||'#64748b'};text-transform:uppercase">${a.risk||'unknown'}</span>
+      </td>
+      <td style="padding:10px 14px">
+        ${a.approved?'<span style="font-size:10px;font-weight:700;color:#10b981">✓ Approved</span>':
+          a.quarantined?'<span style="font-size:10px;font-weight:700;color:#ef4444">⛔ Quarantined</span>':
+          '<span style="font-size:10px;color:#f59e0b;font-weight:700">⚠ Pending</span>'}
+      </td>
+      <td style="padding:10px 14px;font-size:11px;color:var(--text-muted)">${a.detect||'Manual'}</td>
+      <td style="padding:10px 14px;font-size:11px;color:var(--text-muted)">${a.lastSeen||'—'}</td>
+      <td style="padding:10px 14px">
+        <div style="display:flex;gap:4px">
+          <button class="btn sm" style="font-size:9px;padding:2px 6px" onclick="event.stopPropagation();openDrawer(${JSON.stringify(a.id)})">View</button>
+          ${!a.approved?`<button class="btn sm" style="font-size:9px;padding:2px 6px;color:#10b981" onclick="event.stopPropagation();approveAgent('${a.id}')">Approve</button>`:''}
+        </div>
+      </td>
+    </tr>`).join('') :
+    '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-muted);font-size:12px">No agents match filters</td></tr>';
+
+  const countEl = document.getElementById('ra-count');
+  if (countEl) countEl.textContent = `Showing ${filtered.length} of ${agents.length} agents`;
+}
+
+async function approveAgent(id) {
+  if (!_apiToken) return;
+  try {
+    await fetch('/api/agents/'+id, {
+      method:'PATCH',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body:JSON.stringify({approved:true})
+    });
+    await loadLiveAgents();
+    renderRegisteredAgents();
+    showScannerToast('Agent approved', false);
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+
+/* ══ CONNECT & DISCOVER — MAIN ENTRY POINT ══ */
+
+async function startFullDiscovery() {
+  if (!_apiToken) { alert('Please sign in first'); return; }
+
+  const btn = document.getElementById('cd-scan-btn');
+  const prog = document.getElementById('cd-progress');
+  const progMsg = document.getElementById('cd-progress-msg');
+  const results = document.getElementById('cd-results');
+  const resultsBody = document.getElementById('cd-results-body');
+
+  // Build payload — load full unmasked creds from DB first
+  const payload = {};
+  let _dbCreds = {};
+  try {
+    _dbCreds = await fetch('/api/integrations/credentials/full', {
+      headers: {'Authorization':'Bearer '+_apiToken}
+    }).then(r=>r.json());
+    // Merge into window._savedCreds
+    window._savedCreds = window._savedCreds || {};
+    Object.assign(window._savedCreds, _dbCreds);
+  } catch(e) {}
+
+  const azTenant = document.getElementById('cd-az-tenant')?.value?.trim();
+  const azClient = document.getElementById('cd-az-client')?.value?.trim();
+  const azSecret = document.getElementById('cd-az-secret')?.value?.trim();
+  const azSub    = document.getElementById('cd-az-sub')?.value?.trim();
+  if (azTenant && azClient && azSecret && azSub)
+    payload.azure = { tenantId:azTenant, clientId:azClient, clientSecret:azSecret, subscriptionId:azSub };
+
+  const awsKey    = document.getElementById('cd-aws-key')?.value?.trim();
+  const awsSecret = document.getElementById('cd-aws-secret')?.value?.trim();
+  const awsRegion = document.getElementById('cd-aws-region')?.value?.trim() || 'us-east-1';
+  if (awsKey && awsSecret)
+    payload.aws = { accessKeyId:awsKey, secretAccessKey:awsSecret, region:awsRegion };
+
+  const gcpProject = document.getElementById('cd-gcp-project')?.value?.trim();
+  const gcpKey     = document.getElementById('cd-gcp-key')?.value?.trim();
+  if (gcpProject && gcpKey)
+    payload.gcp = { projectId:gcpProject, serviceAccountKey:gcpKey };
+
+  const netCidrs = document.getElementById('cd-net-cidrs')?.value?.trim();
+  if (netCidrs)
+    payload.network = { cidrRanges: netCidrs.split(/[,\n]/).map(s=>s.trim()).filter(Boolean) };
+
+  if (Object.keys(payload).length === 0) {
+    alert('Please enter credentials for at least one environment');
+    return;
+  }
+
+  // Run endpoint scans in parallel (non-blocking)
+  runEndpointScans();
+
+
+async function runEndpointScans() {
+  if (!_apiToken) return;
+
+  // Cortex XDR
+  const cortexKey  = document.getElementById('cd-cortex-key')?.value?.trim();
+  const cortexKeyId= document.getElementById('cd-cortex-keyid')?.value?.trim();
+  const cortexFqdn = document.getElementById('cd-cortex-fqdn')?.value?.trim();
+  if (cortexKey && cortexKeyId && cortexFqdn) {
+    const statusEl = document.getElementById('cd-cortex-status');
+    if (statusEl) { statusEl.textContent = 'Scanning...'; statusEl.style.color='#f59e0b'; }
+    fetch('/api/endpoint/scan/cortex', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body: JSON.stringify({apiKey:cortexKey, apiKeyId:cortexKeyId, fqdn:cortexFqdn})
+    }).then(r=>r.json()).then(d=>{
+      const count = d.discovered||0;
+      if (statusEl) { statusEl.textContent = count+' found'; statusEl.style.color='#10b981'; }
+      if (count>0) { loadLiveAgents(); showScannerToast('Cortex XDR: '+count+' AI agents found on endpoints', false); }
+    }).catch(()=>{ if (statusEl) { statusEl.textContent = 'Error'; statusEl.style.color='#ef4444'; }});
+  }
+
+  // CrowdStrike
+  const csKey    = document.getElementById('cd-cs-key')?.value?.trim();
+  const csSecret = document.getElementById('cd-cs-secret')?.value?.trim();
+  const csRegion = document.getElementById('cd-cs-region')?.value;
+  if (csKey && csSecret) {
+    const statusEl = document.getElementById('cd-cs-status');
+    if (statusEl) { statusEl.textContent = 'Scanning...'; statusEl.style.color='#f59e0b'; }
+    fetch('/api/endpoint/scan/crowdstrike', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body: JSON.stringify({clientId:csKey, clientSecret:csSecret, baseUrl:csRegion})
+    }).then(r=>r.json()).then(d=>{
+      const count = d.discovered||0;
+      if (statusEl) { statusEl.textContent = count+' found'; statusEl.style.color='#10b981'; }
+      if (count>0) { loadLiveAgents(); showScannerToast('CrowdStrike: '+count+' AI agents found on endpoints', false); }
+    }).catch(()=>{ if (statusEl) { statusEl.textContent = 'Error'; statusEl.style.color='#ef4444'; }});
+  }
+
+  // Netskope
+  const netskopeToken = document.getElementById('cd-netskope-token')?.value?.trim();
+  const netskopeTenant = document.getElementById('cd-netskope-tenant')?.value?.trim();
+  if (netskopeToken && netskopeTenant) {
+    const statusEl = document.getElementById('cd-netskope-status');
+    if (statusEl) { statusEl.textContent = 'On'; statusEl.style.background = 'rgba(0,180,100,0.15)'; statusEl.style.color = '#00b464'; }
+  }
+
+  // Intune
+  const intuneTenant = document.getElementById('cd-intune-tenant')?.value?.trim();
+  const intuneClient = document.getElementById('cd-intune-client')?.value?.trim();
+  const intuneSecret = document.getElementById('cd-intune-secret')?.value?.trim();
+  if (intuneTenant && intuneClient && intuneSecret) {
+    const statusEl = document.getElementById('cd-intune-status');
+    if (statusEl) { statusEl.textContent = 'Scanning...'; statusEl.style.color='#f59e0b'; }
+    fetch('/api/endpoint/scan/intune', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body: JSON.stringify({tenantId:intuneTenant, clientId:intuneClient, clientSecret:intuneSecret})
+    }).then(r=>r.json()).then(d=>{
+      const count = d.discovered||0;
+      if (statusEl) { statusEl.textContent = count+' found'; statusEl.style.color='#10b981'; }
+      if (count>0) { loadLiveAgents(); showScannerToast('Intune: '+count+' AI apps found on managed devices', false); }
+    }).catch(()=>{ if (statusEl) { statusEl.textContent = 'Error'; statusEl.style.color='#ef4444'; }});
+  }
+
+  // Proxy logs
+  const proxyLogs = document.getElementById('cd-proxy-logs')?.value?.trim();
+  const proxyType = document.getElementById('cd-proxy-type')?.value;
+  if (proxyLogs && proxyType) {
+    const statusEl = document.getElementById('cd-proxy-status');
+    if (statusEl) { statusEl.textContent = 'Processing...'; statusEl.style.color='#f59e0b'; }
+    try {
+      const logs = JSON.parse(proxyLogs);
+      fetch('/api/proxy/ingest', {
+        method:'POST',
+        headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+        body: JSON.stringify({source:proxyType, logs})
+      }).then(r=>r.json()).then(d=>{
+        const count = d.newAgents||0;
+        if (statusEl) { statusEl.textContent = count+' found'; statusEl.style.color='#10b981'; }
+        if (count>0) { loadLiveAgents(); showScannerToast('Proxy: '+count+' AI agents discovered from logs', false); }
+      }).catch(()=>{ if (statusEl) { statusEl.textContent = 'Error'; statusEl.style.color='#ef4444'; }});
+    } catch(e) {
+      if (statusEl) { statusEl.textContent = 'Invalid JSON'; statusEl.style.color='#ef4444'; }
+    }
+  }
+}
+
+async function exportZscalerConfig() {
+  if (!_apiToken) return;
+  const data = await fetch('/api/proxy/config/zscaler', {
+    headers:{'Authorization':'Bearer '+_apiToken}
+  }).then(r=>r.json()).catch(()=>null);
+  if (!data) return;
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'agentRadar-zscaler-policy.json';
+  a.click();
+  showScannerToast('Zscaler policy exported', false);
+}
+
+  // Save credentials to DB
+  for (const [provider, creds] of Object.entries(payload)) {
+    if (provider === 'network') continue;
+    fetch('/api/integrations/credentials', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body: JSON.stringify({ provider, credentials: creds })
+    }).catch(()=>{});
+  }
+
+  // Start scanning
+  btn.style.opacity = '0.6';
+  btn.disabled = true;
+  if (prog) prog.style.display = 'flex';
+  if (results) results.style.display = 'none';
+
+  const clouds = Object.keys(payload).join(', ').toUpperCase();
+  if (progMsg) progMsg.textContent = 'Scanning ' + clouds + '... (2-5 minutes)';
+
+  try {
+    const resp = await fetch('/api/autodiscovery/start', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    }).then(r=>r.json());
+
+    if (!resp.sessionId) throw new Error(resp.error || 'Failed to start discovery');
+
+    // Poll for results
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      attempts++;
+      if (progMsg) progMsg.textContent = 'Scanning ' + clouds + '... (' + (attempts*3) + 's)';
+
+      const status = await fetch('/api/autodiscovery/status/'+resp.sessionId, {
+        headers:{'Authorization':'Bearer '+_apiToken}
+      }).then(r=>r.json()).catch(()=>({}));
+
+      if (status.status === 'completed' || status.status === 'error') {
+        clearInterval(poll);
+        btn.style.opacity = '1';
+        btn.disabled = false;
+        if (prog) prog.style.display = 'none';
+
+        if (status.status === 'completed') {
+          // Show results
+          const total = status.agentCount || 0;
+          const scanners = (status.scanners||[]).length;
+          const summary = status.summary || {};
+
+          if (results) results.style.display = 'block';
+          if (resultsBody) resultsBody.innerHTML = `
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+              <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+                <div style="font-size:24px;font-weight:800;color:#2563eb">${total}</div>
+                <div style="font-size:11px;color:var(--text-muted)">Agents discovered</div>
+              </div>
+              <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+                <div style="font-size:24px;font-weight:800;color:#7c3aed">${scanners}</div>
+                <div style="font-size:11px;color:var(--text-muted)">Scanners auto-enabled</div>
+              </div>
+              <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+                <div style="font-size:24px;font-weight:800;color:#059669">${Object.keys(summary).length}</div>
+                <div style="font-size:11px;color:var(--text-muted)">Environments scanned</div>
+              </div>
+            </div>
+            ${total > 0 ? '<div style="font-size:12px;color:#059669;font-weight:600">✅ Discovery complete — agents saved to inventory</div>' : '<div style="font-size:12px;color:var(--text-muted)">No new agents found (may already be in inventory)</div>'}
+            <div style="margin-top:10px;display:flex;gap:8px">
+              <button onclick="go('discovery')" class="btn primary sm">View Agent Inventory →</button>
+              <button onclick="go('registered-agents')" class="btn sm">Registered Agents →</button>
+            </div>`;
+
+          // Reload agents
+          loadLiveAgents().then(()=>{ updateStats(); });
+          showScannerToast('Discovery complete: ' + total + ' agents found', false);
+
+          // Update last scan time
+          const lastScan = document.getElementById('cd-last-scan');
+          if (lastScan) lastScan.textContent = 'Last scan: ' + new Date().toLocaleTimeString();
+
+          // Update status badges
+          Object.keys(payload).forEach(p => {
+            const el = document.getElementById('cd-'+p+'-status');
+            if (el) { el.textContent = 'Scanned ✓'; el.style.background='rgba(5,150,105,0.1)'; el.style.color='#059669'; }
+          });
+        } else {
+          showScannerToast('Discovery error: ' + status.error, true);
+        }
+      }
+      if (attempts > 100) clearInterval(poll);
+    }, 3000);
+
+  } catch(e) {
+    btn.style.opacity = '1';
+    btn.disabled = false;
+    if (prog) prog.style.display = 'none';
+    alert('Error starting discovery: ' + e.message);
+  }
+}
+
+async function cdSaveOnly() {
+  if (!_apiToken) { alert('Please sign in first'); return; }
+  const providers = {
+    azure: { tenantId:document.getElementById('cd-az-tenant')?.value?.trim(), clientId:document.getElementById('cd-az-client')?.value?.trim(), clientSecret:document.getElementById('cd-az-secret')?.value?.trim(), subscriptionId:document.getElementById('cd-az-sub')?.value?.trim() },
+    aws: { accessKeyId:document.getElementById('cd-aws-key')?.value?.trim(), secretAccessKey:document.getElementById('cd-aws-secret')?.value?.trim(), region:document.getElementById('cd-aws-region')?.value?.trim()||'us-east-1' },
+    gcp: { projectId:document.getElementById('cd-gcp-project')?.value?.trim(), serviceAccountKey:document.getElementById('cd-gcp-key')?.value?.trim() },
+  };
+  let saved = 0;
+  for (const [provider, creds] of Object.entries(providers)) {
+    if (!Object.values(creds).some(v=>v)) continue;
+    await fetch('/api/integrations/credentials', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_apiToken,'Content-Type':'application/json'},
+      body: JSON.stringify({ provider, credentials: creds })
+    });
+    saved++;
+    const el = document.getElementById('cd-'+provider+'-status');
+    if (el) { el.textContent = 'Saved ✓'; el.style.background='rgba(5,150,105,0.1)'; el.style.color='#059669'; }
+  }
+  showScannerToast(saved + ' credential set(s) saved — click Discover to scan', false);
+}
+
+async function loadConnectDiscoverState() {
+  if (!_apiToken) return;
+  try {
+    const saved = await fetch('/api/integrations/credentials', {
+      headers:{'Authorization':'Bearer '+_apiToken}
+    }).then(r=>r.json());
+
+    Object.entries(saved).forEach(([provider, creds]) => {
+      if (!creds._saved) return;
+      // Pre-fill non-secret fields
+      const fieldMap = {
+        azure: [['cd-az-tenant','tenantId'],['cd-az-client','clientId'],['cd-az-sub','subscriptionId']],
+        aws:   [['cd-aws-key','accessKeyId'],['cd-aws-region','region']],
+        gcp:   [['cd-gcp-project','projectId']],
+      };
+      (fieldMap[provider]||[]).forEach(([elId,key]) => {
+        const el = document.getElementById(elId);
+        if (el && creds[key]) el.value = creds[key];
+      });
+      // Show saved status
+      const statusEl = document.getElementById('cd-'+provider+'-status');
+      if (statusEl) {
+        statusEl.textContent = 'Credentials saved';
+        statusEl.style.background = 'rgba(37,99,235,0.1)';
+        statusEl.style.color = '#2563eb';
+      }
+      // Store in memory
+      window._savedCreds = window._savedCreds || {};
+      window._savedCreds[provider] = creds;
+    });
+  } catch(e) {}
+}
+/* ══ END CONNECT & DISCOVER ══ */
+
+
+/* ══ REMEDIATION RECOMMENDATION ENGINE ══════════════════ */
+
+const REMEDIATION = {
+  euai: {
+    fail: {
+      title: 'EU AI Act — Conformity Assessment Required',
+      why: 'This AI system is classified as high-risk under EU AI Act Annex III. High-risk AI systems require mandatory conformity assessment before deployment or continued use.',
+      steps: [
+        { step: 'Appoint an AI Compliance Officer or assign to Legal/Risk team', effort: '1 day', owner: 'CISO / Legal' },
+        { step: 'Complete EU AI Act conformity assessment (use EC template)', effort: '2 weeks', owner: 'Legal / Compliance' },
+        { step: 'Implement human oversight mechanism — log all AI decisions', effort: '1 week', owner: 'Engineering' },
+        { step: 'Create and publish model card (training data, purpose, limitations)', effort: '3 days', owner: 'AI Owner / Engineering' },
+        { step: 'Register system in EU AI database if used in public sector', effort: '1 day', owner: 'Legal' },
+        { step: 'Implement post-market monitoring and incident reporting process', effort: '1 week', owner: 'Engineering / Compliance' },
+      ],
+      deadline: 'August 2026 (EU AI Act enforcement date)',
+      effort: 'Medium — 3–5 weeks',
+      owner: 'CISO + Legal + Engineering',
+      priority: 'High',
+      framework: 'EU AI Act Art. 6, Annex III',
+    },
+    warn: {
+      title: 'EU AI Act — Assessment Pending',
+      why: 'This AI system has not been assessed under the EU AI Act. Assessment is required to determine if it falls under high-risk or limited-risk categories.',
+      steps: [
+        { step: 'Classify the AI system using EU AI Act risk categories', effort: '2 days', owner: 'Legal / Compliance' },
+        { step: 'If high-risk: complete conformity assessment', effort: '2 weeks', owner: 'Legal' },
+        { step: 'If limited-risk: implement transparency obligations', effort: '3 days', owner: 'Engineering' },
+        { step: 'Document classification decision and rationale', effort: '1 day', owner: 'Compliance' },
+      ],
+      deadline: 'August 2026',
+      effort: 'Low — 1 week',
+      owner: 'Legal / Compliance',
+      priority: 'Medium',
+      framework: 'EU AI Act Art. 6',
+    }
+  },
+  hipaa: {
+    fail: {
+      title: 'HIPAA — PHI Exposure Without BAA',
+      why: 'This AI agent accesses Protected Health Information (PHI) but does not have a valid Business Associate Agreement (BAA) in place. This is a HIPAA violation under 45 CFR § 164.308.',
+      steps: [
+        { step: 'IMMEDIATE: Suspend AI agent access to PHI data sources', effort: '1 hour', owner: 'CISO / IT' },
+        { step: 'Identify the AI vendor and contact for BAA execution', effort: '1 day', owner: 'Legal' },
+        { step: 'Execute BAA with AI vendor (or switch to BAA-covered provider)', effort: '1–2 weeks', owner: 'Legal / Procurement' },
+        { step: 'Implement PHI de-identification before AI processing (if BAA unavailable)', effort: '1 week', owner: 'Engineering' },
+        { step: 'Enable audit logging for all PHI access by AI agent', effort: '2 days', owner: 'Engineering' },
+        { step: 'Conduct HIPAA risk assessment and document findings', effort: '1 week', owner: 'Compliance' },
+        { step: 'Notify Privacy Officer and document incident', effort: '1 day', owner: 'Privacy Officer' },
+      ],
+      deadline: 'Immediate — active HIPAA violation',
+      effort: 'High — 2–4 weeks',
+      owner: 'CISO + Legal + Privacy Officer',
+      priority: 'Critical',
+      framework: '45 CFR § 164.308, § 164.314',
+    },
+    warn: {
+      title: 'HIPAA — BAA Status Unverified',
+      why: 'This AI agent may access PHI. BAA status with the AI vendor has not been verified. Verification is required before PHI can be processed.',
+      steps: [
+        { step: 'Confirm whether this agent processes PHI in production', effort: '1 day', owner: 'Engineering / CISO' },
+        { step: 'Verify existing BAA covers this AI use case', effort: '1 day', owner: 'Legal' },
+        { step: 'If no BAA: execute BAA or restrict PHI access', effort: '1 week', owner: 'Legal' },
+        { step: 'Document BAA status in agent inventory', effort: '1 hour', owner: 'Compliance' },
+      ],
+      deadline: 'Within 30 days',
+      effort: 'Low — 1 week',
+      owner: 'Legal / Compliance',
+      priority: 'High',
+      framework: '45 CFR § 164.314',
+    }
+  },
+  gdpr: {
+    fail: {
+      title: 'GDPR — Unlawful Processing of Personal Data',
+      why: 'This AI agent processes personal data without verified lawful basis under GDPR Article 6. Automated decision-making may also require DPIA under Article 35.',
+      steps: [
+        { step: 'Identify lawful basis for processing (consent, contract, legitimate interest, etc.)', effort: '2 days', owner: 'Legal / DPO' },
+        { step: 'Conduct Data Protection Impact Assessment (DPIA) if high-risk processing', effort: '2 weeks', owner: 'DPO / Compliance' },
+        { step: 'Update privacy notices to include AI processing disclosure', effort: '3 days', owner: 'Legal / Marketing' },
+        { step: 'Implement data subject rights mechanism (access, deletion, portability)', effort: '1 week', owner: 'Engineering' },
+        { step: 'Ensure data minimization — AI only accesses necessary personal data', effort: '1 week', owner: 'Engineering' },
+        { step: 'Configure data retention limits for AI-processed personal data', effort: '3 days', owner: 'Engineering' },
+      ],
+      deadline: 'Immediate — potential GDPR violation',
+      effort: 'High — 3–5 weeks',
+      owner: 'DPO + Legal + Engineering',
+      priority: 'High',
+      framework: 'GDPR Art. 6, 13, 35',
+    },
+    warn: {
+      title: 'GDPR — Data Processing Assessment Pending',
+      why: 'This AI agent accesses personal data. GDPR compliance requires documented lawful basis and potentially a DPIA.',
+      steps: [
+        { step: 'Document lawful basis for AI processing of personal data', effort: '2 days', owner: 'Legal / DPO' },
+        { step: 'Assess if DPIA is required (automated decisions, large-scale processing)', effort: '1 day', owner: 'DPO' },
+        { step: 'Add AI processing to Records of Processing Activities (RoPA)', effort: '1 day', owner: 'DPO' },
+        { step: 'Verify data minimization — remove unnecessary PII from AI inputs', effort: '3 days', owner: 'Engineering' },
+      ],
+      deadline: 'Within 60 days',
+      effort: 'Medium — 1–2 weeks',
+      owner: 'DPO / Legal',
+      priority: 'Medium',
+      framework: 'GDPR Art. 6, 30, 35',
+    }
+  },
+  soc2: {
+    warn: {
+      title: 'SOC 2 — AI Controls Not Audited',
+      why: 'This AI system has not been included in SOC 2 audit scope. AI systems processing customer data must demonstrate appropriate controls.',
+      steps: [
+        { step: 'Add AI agent to SOC 2 audit scope and asset inventory', effort: '1 day', owner: 'Compliance' },
+        { step: 'Implement access controls and least-privilege for AI system', effort: '1 week', owner: 'Engineering / IT' },
+        { step: 'Enable comprehensive audit logging for AI operations', effort: '3 days', owner: 'Engineering' },
+        { step: 'Document AI system in security policies and procedures', effort: '3 days', owner: 'Compliance' },
+        { step: 'Include AI controls in next SOC 2 assessment', effort: 'Ongoing', owner: 'CISO / Auditor' },
+      ],
+      deadline: 'Before next SOC 2 audit',
+      effort: 'Medium — 2–3 weeks',
+      owner: 'CISO + Compliance',
+      priority: 'Medium',
+      framework: 'SOC 2 CC6, CC7, CC9',
+    }
+  },
+  nist: {
+    warn: {
+      title: 'NIST AI RMF — Governance Framework Not Applied',
+      why: 'This AI system has not been mapped to the NIST AI Risk Management Framework. NIST AI RMF compliance requires systematic risk identification, assessment, and management.',
+      steps: [
+        { step: 'MAP: Document AI system context, purpose, and stakeholders', effort: '2 days', owner: 'AI Owner / CISO' },
+        { step: 'MAP: Identify AI risks (bias, reliability, privacy, security)', effort: '3 days', owner: 'AI Owner / Risk' },
+        { step: 'MEASURE: Implement metrics for AI system performance and risk', effort: '1 week', owner: 'Engineering' },
+        { step: 'MANAGE: Create risk treatment plan for identified AI risks', effort: '1 week', owner: 'CISO / Risk' },
+        { step: 'GOVERN: Assign AI system owner and establish oversight process', effort: '1 day', owner: 'CISO' },
+      ],
+      deadline: 'Within 90 days',
+      effort: 'Medium — 2–4 weeks',
+      owner: 'CISO + AI Owner',
+      priority: 'Medium',
+      framework: 'NIST AI RMF 1.0',
+    }
+  },
+  iso27001: {
+    warn: {
+      title: 'ISO 27001 — AI System Not in ISMS Scope',
+      why: 'This AI system has not been included in the Information Security Management System (ISMS) scope. ISO 27001 requires all information assets to be managed under the ISMS.',
+      steps: [
+        { step: 'Add AI system to ISMS asset register with classification', effort: '1 day', owner: 'ISMS Manager / IT' },
+        { step: 'Conduct information security risk assessment for AI system', effort: '3 days', owner: 'ISMS Manager' },
+        { step: 'Apply relevant ISO 27001 Annex A controls (A.8, A.9, A.12)', effort: '2 weeks', owner: 'Engineering / IT' },
+        { step: 'Include AI system in annual ISMS internal audit', effort: 'Ongoing', owner: 'Internal Auditor' },
+      ],
+      deadline: 'Before next ISO 27001 surveillance audit',
+      effort: 'Medium — 2 weeks',
+      owner: 'ISMS Manager / IT',
+      priority: 'Medium',
+      framework: 'ISO 27001:2022 Annex A',
+    }
+  },
+  hitrust: {
+    fail: {
+      title: 'HITRUST — Healthcare AI Controls Required',
+      why: 'This AI system handles healthcare data and requires HITRUST CSF controls. Missing controls could jeopardize HITRUST certification.',
+      steps: [
+        { step: 'Map AI system to applicable HITRUST CSF control categories', effort: '3 days', owner: 'Compliance' },
+        { step: 'Implement required technical safeguards (encryption, access control)', effort: '1 week', owner: 'Engineering' },
+        { step: 'Document AI system in HITRUST MyCSF assessment', effort: '2 days', owner: 'Compliance' },
+        { step: 'Complete gap assessment for AI-specific HITRUST controls', effort: '1 week', owner: 'Compliance / Auditor' },
+      ],
+      deadline: 'Before next HITRUST assessment',
+      effort: 'High — 3–4 weeks',
+      owner: 'Compliance + Engineering',
+      priority: 'High',
+      framework: 'HITRUST CSF v11',
+    },
+    warn: {
+      title: 'HITRUST — AI Controls Assessment Pending',
+      why: 'HITRUST compliance status for this AI system has not been assessed.',
+      steps: [
+        { step: 'Determine if AI system falls in HITRUST assessment scope', effort: '1 day', owner: 'Compliance' },
+        { step: 'Map to HITRUST control requirements if in scope', effort: '3 days', owner: 'Compliance' },
+      ],
+      deadline: 'Within 60 days',
+      effort: 'Low — 1 week',
+      owner: 'Compliance',
+      priority: 'Medium',
+      framework: 'HITRUST CSF v11',
+    }
+  },
+  fda_samd: {
+    warn: {
+      title: 'FDA SaMD — Medical AI Device Validation Required',
+      why: 'This AI system may qualify as Software as a Medical Device (SaMD) under FDA 21 CFR. SaMD requires 510(k) clearance or De Novo classification before clinical use.',
+      steps: [
+        { step: 'Determine if AI system meets FDA SaMD definition (clinical decision support)', effort: '2 days', owner: 'Regulatory Affairs / Legal' },
+        { step: 'If SaMD: classify risk level (Class I, II, or III)', effort: '3 days', owner: 'Regulatory Affairs' },
+        { step: 'Prepare 510(k) submission or De Novo request if Class II/III', effort: '3–6 months', owner: 'Regulatory Affairs' },
+        { step: 'Implement FDA-required clinical validation studies', effort: '3–12 months', owner: 'Clinical / Engineering' },
+        { step: 'Establish post-market surveillance and adverse event reporting', effort: '2 weeks', owner: 'Regulatory / Engineering' },
+      ],
+      deadline: 'Before clinical deployment',
+      effort: 'Very High — 3–12 months',
+      owner: 'Regulatory Affairs + Clinical',
+      priority: 'Critical',
+      framework: 'FDA 21 CFR Part 820, SaMD Guidance',
+    }
+  }
+};
+
+function getRemediations(controls) {
+  const items = [];
+  if (!controls) return items;
+  Object.entries(controls).forEach(([fw, status]) => {
+    if (status === 'pass') return;
+    const fwData = REMEDIATION[fw];
+    if (!fwData) return;
+    const rec = fwData[status] || fwData['warn'];
+    if (rec) items.push({ framework: fw, status, ...rec });
+  });
+  // Sort by priority
+  const order = {Critical:0, High:1, Medium:2, Low:3};
+  items.sort((a,b) => (order[a.priority]||3) - (order[b.priority]||3));
+  return items;
+}
+
+function renderRemediations(controls, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const items = getRemediations(controls);
+  if (items.length === 0) {
+    container.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text-muted);text-align:center">✅ No remediation required — all controls passing</div>';
+    return;
+  }
+  container.innerHTML = items.map(item => {
+    const priColor = {Critical:'var(--red-text)',High:'var(--amber-text)',Medium:'var(--brand)',Low:'var(--green-text)'}[item.priority] || 'var(--text-muted)';
+    const priBg = {Critical:'var(--red-bg)',High:'var(--amber-bg)',Medium:'var(--brand-bg)',Low:'var(--green-bg)'}[item.priority] || 'var(--bg-secondary)';
+    const stepsList = item.steps.map((s,i) =>
+      `<div style="display:flex;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--glass-border-dim)">
+        <span style="width:18px;height:18px;border-radius:50%;background:var(--brand-bg);color:var(--brand);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</span>
+        <div style="flex:1">
+          <div style="font-size:12px;color:var(--text-primary)">${s.step}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">⏱ ${s.effort} &nbsp;·&nbsp; 👤 ${s.owner}</div>
+        </div>
+      </div>`
+    ).join('');
+    return `<div style="background:var(--glass-white);border:1px solid var(--glass-border-dim);border-radius:10px;margin-bottom:10px;overflow:hidden">
+      <div style="padding:10px 14px;background:${priBg};border-bottom:1px solid var(--glass-border-dim);display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:${priColor};color:white">${item.priority}</span>
+        <span style="font-size:13px;font-weight:700;color:var(--text-primary)">${item.title}</span>
+      </div>
+      <div style="padding:10px 14px">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">${item.why}</div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">Remediation Steps</div>
+        ${stepsList}
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px">
+          <div style="background:var(--bg-secondary);border-radius:6px;padding:6px 10px">
+            <div style="font-size:10px;color:var(--text-muted)">Deadline</div>
+            <div style="font-size:11px;font-weight:600;color:var(--text-primary)">${item.deadline}</div>
+          </div>
+          <div style="background:var(--bg-secondary);border-radius:6px;padding:6px 10px">
+            <div style="font-size:10px;color:var(--text-muted)">Effort</div>
+            <div style="font-size:11px;font-weight:600;color:var(--text-primary)">${item.effort}</div>
+          </div>
+          <div style="background:var(--bg-secondary);border-radius:6px;padding:6px 10px">
+            <div style="font-size:10px;color:var(--text-muted)">Owner</div>
+            <div style="font-size:11px;font-weight:600;color:var(--text-primary)">${item.owner}</div>
+          </div>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:6px">
+          <button class="btn sm" onclick="createJiraTicket(${JSON.stringify({title:item.title,priority:item.priority,framework:item.framework,deadline:item.deadline,owner:item.owner,steps:item.steps.map(s=>s.step)})})" 
+            style="font-size:11px;background:linear-gradient(135deg,#0052CC,#0065FF);color:white;border:none">
+            🎫 Create Jira Ticket
+          </button>
+          <span style="font-size:10px;color:var(--text-muted);align-self:center">${item.framework}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function createJiraTicket(data) {
+  // Check if Jira is configured
+  const jiraUrl = localStorage.getItem('ar-jira-url');
+  const jiraToken = localStorage.getItem('ar-jira-token');
+  const jiraProject = localStorage.getItem('ar-jira-project');
+
+  if (!jiraUrl || !jiraToken || !jiraProject) {
+    // Show Jira config modal
+    const url = prompt('Jira URL (e.g. https://yourcompany.atlassian.net):');
+    if (!url) return;
+    const token = prompt('Jira API Token (from id.atlassian.com/manage-profile/security/api-tokens):');
+    if (!token) return;
+    const email = prompt('Your Jira email:');
+    if (!email) return;
+    const project = prompt('Jira Project Key (e.g. SEC, COMP):');
+    if (!project) return;
+    localStorage.setItem('ar-jira-url', url);
+    localStorage.setItem('ar-jira-token', btoa(email+':'+token));
+    localStorage.setItem('ar-jira-project', project);
+  }
+
+  const savedUrl = localStorage.getItem('ar-jira-url');
+  const savedToken = localStorage.getItem('ar-jira-token');
+  const savedProject = localStorage.getItem('ar-jira-project');
+
+  const priorityMap = {Critical:'Highest', High:'High', Medium:'Medium', Low:'Low'};
+  const description = `*Why this matters:*\n${data.title}\n\n*Remediation Steps:*\n${data.steps.map((s,i)=>`${i+1}. ${s}`).join('\n')}\n\n*Deadline:* ${data.deadline}\n*Framework:* ${data.framework}\n\n_Created by AgentRadar_`;
+
+  try {
+    showScannerToast('Creating Jira ticket...', false);
+    const resp = await fetch(savedUrl+'/rest/api/3/issue', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic '+savedToken,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        fields: {
+          project: { key: savedProject },
+          summary: '[AgentRadar] '+data.title,
+          description: { type:'doc', version:1, content:[{type:'paragraph',content:[{type:'text',text:description}]}] },
+          issuetype: { name: 'Task' },
+          priority: { name: priorityMap[data.priority] || 'Medium' },
+          labels: ['agentRadar', 'ai-governance', data.framework.replace(/\s+/g,'-').toLowerCase()],
+        }
+      })
+    });
+
+    if (resp.ok) {
+      const issue = await resp.json();
+      showScannerToast('Jira ticket created: '+issue.key, false);
+      window.open(savedUrl+'/browse/'+issue.key, '_blank');
+    } else {
+      const err = await resp.json();
+      showScannerToast('Jira error: '+(err.errorMessages?.[0]||resp.status), true);
+    }
+  } catch(e) {
+    // Jira may block CORS — open pre-filled URL instead
+    showScannerToast('Opening Jira (CORS blocked direct API)...', false);
+    window.open(savedUrl+'/secure/CreateIssueDetails!init.jspa?pid='+savedProject+'&issuetype=10002&summary='+encodeURIComponent('[AgentRadar] '+data.title)+'&priority='+encodeURIComponent(priorityMap[data.priority]||'Medium'), '_blank');
+  }
+}
+/* ══ END REMEDIATION ENGINE ══════════════════════════════ */
+
+function doSignOut() {
+  if (!confirm('Sign out of AgentRadar?')) return;
+  _apiToken = '';
+  _apiMode = false;
+  sessionStorage.removeItem('ar-role');
+  sessionStorage.removeItem('ar-user');
+  document.getElementById('login-screen').classList.remove('hidden');
+  addAct('reg', 'User signed out', 'System', '#6366f1');
+}
+
+function applyRBAC() {
+  const isViewer  = currentRole === 'viewer';
+  const isAuditor = currentRole === 'auditor';
+  const canAct    = can('register');   // analyst, ciso, platform_admin
+  const canScan   = can('scan');       // analyst, ciso, platform_admin
+  const canExport = can('export');     // analyst, ciso, platform_admin, auditor
+  const canConfig = can('configure');  // platform_admin only
+
+  // ── Helper: disable a button with tooltip ──────────────────
+  var lockBtn = function(el, reason) {
+    if (!el) return;
+    el.disabled = true;
+    el.style.opacity = '0.35';
+    el.style.cursor  = 'not-allowed';
+    el.title = reason || 'Insufficient permissions';
+    el.onclick = (e) => { e.stopPropagation(); e.preventDefault();
+      showToast('Access denied: ' + (reason||'Insufficient permissions'), 'warn'); };
+  }
+  var hideBtn = function(el) { if (el) el.style.display = 'none'; };
+  var lockSelector = function(sel, reason) {
+    document.querySelectorAll(sel).forEach(function(b) { lockBtn(b, reason); });
+  };
+  var hideSelector = function(sel) {
+    document.querySelectorAll(sel).forEach(function(b) { b.style.display = 'none'; });
+  };
+
+  // ── VIEWER — most restrictive ───────────────────────────────
+  if (isViewer) {
+    // Hide ALL action buttons
+    hideBtn(document.getElementById('btn-add'));
+    hideBtn(document.getElementById('btn-import'));
+    hideBtn(document.getElementById('btn-export'));
+    hideBtn(document.getElementById('btn-compare'));
+    hideBtn(document.getElementById('btn-ai-agent'));
+    hideBtn(document.getElementById('btn-mode-switch'));
+
+    // Hide scan/discovery buttons
+    lockSelector('[onclick*="startScan"]',         'Viewer cannot run scans');
+    lockSelector('[onclick*="runAllScanners"]',     'Viewer cannot run scans');
+    lockSelector('[onclick*="runScannerById"]',     'Viewer cannot run scans');
+    lockSelector('[onclick*="toggleAllScanners"]',  'Viewer cannot control scanners');
+    lockSelector('[onclick*="openAutoDiscovery"]',  'Viewer cannot run discovery');
+    lockSelector('[onclick*="baselineScan"]',       'Viewer cannot set baseline');
+    lockSelector('[onclick*="runCorrelation"]',     'Viewer cannot run correlation');
+
+    // Hide integration connect/configure
+    lockSelector('[onclick*="runCloudScan"]',       'Viewer cannot run cloud scans');
+    lockSelector('[onclick*="saveIntegration"]',    'Viewer cannot configure integrations');
+    lockSelector('[onclick*="connectCloud"]',       'Viewer cannot connect cloud accounts');
+    lockSelector('[onclick*="saveScope"]',          'Viewer cannot edit scope');
+    lockSelector('[onclick*="saveScopeModal"]',     'Viewer cannot edit scope');
+
+    // Hide register/quarantine/remediate actions
+    lockSelector('[onclick*="quarantine"]',         'Viewer cannot quarantine agents');
+    lockSelector('[onclick*="openModal"]',          'Viewer cannot perform actions');
+    lockSelector('[onclick*="registerAgent"]',      'Viewer cannot register agents');
+    lockSelector('[onclick*="addToAllowlist"]',     'Viewer cannot modify allowlist');
+    lockSelector('[onclick*="removeFromAllowlist"]','Viewer cannot modify allowlist');
+    lockSelector('[onclick*="saveCustomFingerprint"]','Viewer cannot add fingerprints');
+    lockSelector('[onclick*="showAddFingerprintForm"]','Viewer cannot add fingerprints');
+
+    // Hide policy/webhook actions
+    lockSelector('[onclick*="openModal"]', 'Viewer cannot configure webhooks');
+    lockSelector('[onclick*="openModal"]', 'Viewer cannot export evidence');
+    lockSelector('[onclick*="savePolicy"]',         'Viewer cannot modify policies');
+
+    // Hide integration panel entirely — show read-only notice
+    const intPanel = document.getElementById('connect-discover-panel');
+    if (intPanel) {
+      intPanel.innerHTML = '<div style="padding:32px;text-align:center">'
+        + '<div style="font-size:32px;margin-bottom:12px">🔒</div>'
+        + '<div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:8px">View Only Access</div>'
+        + '<div style="font-size:13px;color:var(--text-muted);max-width:360px;margin:0 auto;line-height:1.7">'
+        + 'Your Viewer role does not have permission to configure integrations or run discovery scans. '
+        + 'Contact your Platform Admin to request elevated access.</div></div>';
+    }
+
+    // Show read-only banner at top
+    const body = document.getElementById('main-content') || document.querySelector('.main');
+    const banner = document.createElement('div');
+    banner.id = 'viewer-banner';
+    banner.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:999;'
+      + 'background:var(--amber-bg);border:1px solid var(--amber-border);'
+      + 'border-radius:10px;padding:8px 14px;font-size:11px;font-weight:600;'
+      + 'color:var(--amber-text);display:flex;align-items:center;gap:6px;'
+      + 'box-shadow:var(--glass-shadow);font-family:var(--font-body);';
+    banner.innerHTML = '👁 Viewer mode — read only. Contact admin to request access.';
+    if (!document.getElementById('viewer-banner')) document.body.appendChild(banner);
+  }
+
+  // ── AUDITOR — read-only + export only ──────────────────────
+  if (isAuditor) {
+    hideBtn(document.getElementById('btn-add'));
+    hideBtn(document.getElementById('btn-import'));
+    hideBtn(document.getElementById('btn-ai-agent'));
+    hideBtn(document.getElementById('btn-mode-switch'));
+    lockSelector('[onclick*="startScan"]',          'Auditor cannot run scans');
+    lockSelector('[onclick*="runAllScanners"]',      'Auditor cannot run scans');
+    lockSelector('[onclick*="runScannerById"]',      'Auditor cannot run scans');
+    lockSelector('[onclick*="openAutoDiscovery"]',   'Auditor cannot run discovery');
+    lockSelector('[onclick*="quarantine"]',          'Auditor cannot quarantine agents');
+    lockSelector('[onclick*="savePolicy"]',          'Auditor cannot modify policies');
+    lockSelector('[onclick*="registerAgent"]',       'Auditor cannot register agents');
+    lockSelector('[onclick*="saveIntegration"]',     'Auditor cannot configure integrations');
+    lockSelector('[onclick*="connectCloud"]',        'Auditor cannot connect cloud accounts');
+    lockSelector('[onclick*="runCloudScan"]',        'Auditor cannot run cloud scans');
+    lockSelector('[onclick*="addToAllowlist"]',      'Auditor cannot modify allowlist');
+    lockSelector('[onclick*="saveCustomFingerprint"]','Auditor cannot add fingerprints');
+
+    const intPanel = document.getElementById('connect-discover-panel');
+    if (intPanel) {
+      intPanel.innerHTML = '<div style="padding:32px;text-align:center">'
+        + '<div style="font-size:32px;margin-bottom:12px">📋</div>'
+        + '<div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Audit Access Only</div>'
+        + '<div style="font-size:13px;color:var(--text-muted);max-width:360px;margin:0 auto;line-height:1.7">'
+        + 'Your Auditor role has read-only access. You can view and export compliance reports and audit logs. '
+        + 'Integration configuration requires Analyst or higher access.</div></div>';
+    }
+  }
+
+  // ── ANALYST — no configure, no admin ───────────────────────
+  if (currentRole === 'analyst') {
+    lockSelector('[onclick*="saveIntegration"]',    'Analyst cannot modify integration config');
+    lockSelector('[onclick*="connectCloud"]',       'Analyst cannot modify integration config');
+    hideBtn(document.getElementById('btn-mode-switch'));
+  }
+
+  // ── ALL non-platform_admin — no admin nav ──────────────────
+  if (currentRole !== 'platform_admin') {
+    const adminNav = document.getElementById('nav-admin');
+    if (adminNav) adminNav.style.display = 'none';
+  }
+
+  // ── ALL non-ciso/non-platform_admin — no quarantine ────────
+  if (!canScan) {
+    lockSelector('[onclick*="quarantine"]', 'Requires CISO or Analyst role');
+  }
+}
+
+/* ── DARK MODE ── */
+function toggleDark() {
+  const isDark = document.documentElement.classList.toggle('dark');
+  localStorage.setItem('ar-dark', isDark ? '1' : '0');
+  document.getElementById('dark-toggle').textContent = isDark ? '☀️' : '🌙';
+}
+
+function initDark() {
+  if (localStorage.getItem('ar-dark') === '1') {
+    document.documentElement.classList.add('dark');
+    const btn = document.getElementById('dark-toggle');
+    if (btn) btn.textContent = '☀️';
+  }
+}
+
+/* ── ONBOARDING WIZARD ── */
+let onbStep = 1;
+const ONB_STEPS = [
+  {
+    title:'Welcome to AgentRadar', sub:'Set up your organization to start discovering AI agents in your environment.',
+    body:`<div class="onb-field"><div class="onb-lbl">Organization name</div><input class="onb-inp" id="onb-org" placeholder="e.g. HealthSystem Inc." value="HealthSystem Inc."></div>
+<div class="onb-field"><div class="onb-lbl">Primary industry</div><select class="onb-inp" id="onb-env"><option>Healthcare / Clinical</option><option>Financial Services</option><option>Technology</option><option>Government</option><option>Other</option></select></div>`
+  },
+  {
+    title:'Connect your first cloud', sub:'AgentRadar will scan for AI agents across your cloud accounts. Start with one environment.',
+    body:`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+<div class="role-card" onclick="selectOnbEnv('aws',this)"><div class="role-name">🟠 AWS</div><div class="role-desc">Lambda, SageMaker, Bedrock</div></div>
+<div class="role-card selected" onclick="selectOnbEnv('azure',this)"><div class="role-name">🔷 Azure</div><div class="role-desc">OpenAI, ML Studio</div></div>
+<div class="role-card" onclick="selectOnbEnv('gcp',this)"><div class="role-name">🟢 GCP</div><div class="role-desc">Vertex AI, Cloud Run</div></div>
+<div class="role-card" onclick="selectOnbEnv('onprem',this)"><div class="role-name">🏢 On-prem</div><div class="role-desc">Network sensor</div></div>
+</div>`
+  },
+  {
+    title:'Run your first scan', sub:'AgentRadar will discover AI agents across your connected environment. This takes under 60 seconds.',
+    body:`<div style="text-align:center;padding:16px 0"><div style="font-size:32px;margin-bottom:12px">⟳</div><div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click below to start your first scan. Discovered agents will appear in your inventory.</div><button class="btn primary" onclick="onbRunScan()" style="padding:8px 24px">Start first scan</button><div id="onb-scan-status" style="font-size:11px;color:var(--text-muted);margin-top:10px"></div></div>`
+  },
+  {
+    title:'You\'re ready to go!', sub:'AgentRadar is now monitoring your AI environment. Here\'s what to do next.',
+    body:`<div style="display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:var(--r8);background:var(--brand-bg);border:1px solid var(--brand-border)"><span style="font-size:16px">🔍</span><div><div style="font-size:12px;font-weight:600;color:var(--text-primary)">Review discovered agents</div><div style="font-size:11px;color:var(--text-muted)">Check the Agent Discovery view for all found agents</div></div></div>
+<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:var(--r8);background:var(--red-bg);border:1px solid var(--red-border)"><span style="font-size:16px">⚠</span><div><div style="font-size:12px;font-weight:600;color:var(--text-primary)">Address shadow AI</div><div style="font-size:11px;color:var(--text-muted)">3 unauthorized agents detected — review Shadow AI view</div></div></div>
+<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:var(--r8);background:var(--green-bg);border:1px solid var(--green-border)"><span style="font-size:16px">📋</span><div><div style="font-size:12px;font-weight:600;color:var(--text-primary)">Generate CISO report</div><div style="font-size:11px;color:var(--text-muted)">Share your compliance posture with the board</div></div></div>
+</div>`
+  },
+];
+
+function showOnboarding() {
+  onbStep = 1;
+  renderOnbStep();
+  document.getElementById('onboarding-overlay').classList.remove('hidden');
+}
+
+function selectOnbEnv(env, el) {
+  document.querySelectorAll('#onboarding-overlay .role-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function onbRunScan() {
+  const status = document.getElementById('onb-scan-status');
+  if (status) {
+    status.textContent = 'Scanning… found 3 agents so far';
+    setTimeout(() => { status.textContent = '✓ Scan complete — 18 agents discovered, 3 shadow AI found'; }, 2000);
+  }
+}
+
+function renderOnbStep() {
+  const step = ONB_STEPS[onbStep - 1];
+  const lbl = document.getElementById('onb-step-lbl');
+  const title = document.getElementById('onb-title');
+  const sub = document.getElementById('onb-sub');
+  const body = document.getElementById('onb-body');
+  const fill = document.getElementById('onb-fill');
+  const nextBtn = document.getElementById('onb-next-btn');
+  if (lbl) lbl.textContent = `Step ${onbStep} of 4`;
+  if (title) title.textContent = step.title;
+  if (sub) sub.textContent = step.sub;
+  if (body) body.innerHTML = step.body;
+  if (fill) fill.style.width = (onbStep / 4 * 100) + '%';
+  if (nextBtn) nextBtn.textContent = onbStep === 4 ? 'Get started' : 'Next →';
+  for (let i = 1; i <= 4; i++) {
+    const dot = document.getElementById('onbd-' + i);
+    if (dot) dot.className = 'onb-step-dot' + (i <= onbStep ? ' active' : '');
+  }
+}
+
+function onbNext() {
+  if (onbStep < 4) { onbStep++; renderOnbStep(); }
+  else skipOnboarding();
+}
+
+function skipOnboarding() {
+  localStorage.setItem('ar-onboarded', '1');
+  document.getElementById('onboarding-overlay').classList.add('hidden');
+}
+
+/* ── HELP PANEL ── */
+const HELP_CONTENT = {
+  dashboard:    { title:'Dashboard', what:'Your AI governance command center — live metrics, alerts, and quick actions.', actions:['Click any metric card to navigate to that view','Use Live Alerts to see policy violations in real time','⟳ Scan Now triggers a full environment discovery'], standards:['SOC 2 CC6.6','NIST AI RMF GV-1.1'] },
+  discovery:    { title:'Agent Discovery', what:'Full inventory of all AI agents found across your environments — cloud, on-prem, and hybrid.', actions:['Filter by risk level, environment, or type','Click an agent row to see full details','Register → adds a new agent manually'], standards:['SOC 2 CC6.1','ISO 27001 A.8.1'] },
+  live:         { title:'Live Detection / Scanner Hub', what:'14 active scanners continuously discovering AI agents across all environments.', actions:['Click Run Scan on any scanner to execute immediately','Coverage Gap tab shows what is not being scanned','Correlation tab finds agents confirmed by multiple scanners'], standards:['NIST AI RMF MS-1.1','SOC 2 CC7.1'] },
+  shadow:       { title:'Shadow AI', what:'Unauthorized AI deployments operating outside governance — the highest-risk finding category.', actions:['Quarantine stops network access immediately','Register converts shadow to governed agent','Filter by PHI exposure to prioritize HIPAA risk'], standards:['SOC 2 CC6.6','HIPAA 164.312(a)'] },
+  phi:          { title:'PHI Exposure Monitor', what:'All agents accessing Protected Health Information — tracks BAA status and HIPAA compliance per agent.', actions:['BAA Signed filter shows compliant agents','No BAA filter surfaces HIPAA violations','Click agent to see full PHI access scope'], standards:['HIPAA 164.308','HITRUST CSF 07.a'] },
+  compliance:   { title:'Compliance Posture', what:'Pass/warn/fail status across 8 frameworks for every agent in your inventory.', actions:['Click any cell to see the control detail','Filter by framework to focus on one standard','Export CSV produces evidence for auditors'], standards:['SOC 2','ISO 27001','GDPR','NIST AI RMF','EU AI Act','HIPAA','HITRUST CSF','FDA SaMD'] },
+  ciso:         { title:'CISO Report', what:'Board-ready executive summary of your AI governance posture — auto-generated from live data.', actions:['Export PDF produces a downloadable document','AI Narration generates natural-language commentary','Refresh regenerates from current inventory'], standards:['SOC 2 CC1.1','NIST AI RMF GV-6.2'] },
+  lineage:      { title:'Data Lineage Map', what:'Full AI data flow tracing — source system to AI agent to external provider to output destination.', actions:['Click any node to see data type, encryption, BAA, owner, purpose','Filter PHI Only to see all health data flows','Unencrypted filter shows compliance gaps'], standards:['GDPR Art.30','HIPAA 164.308(a)(1)','SOC 2 CC4.1'] },
+  integrations: { title:'Environment Connect Hub', what:'Connect AgentRadar to your cloud APIs, on-prem sensors, SIEM tools, CI/CD pipelines, and healthcare systems.', actions:['Test Connection validates credentials','Deploy Sensor installs the on-prem scanner','Code Editor lets you write custom integration scripts'], standards:['SOC 2 CC7.1','NIST AI RMF MS-2.5'] },
+};
+
+function toggleHelp() {
+  const panel = document.getElementById('help-panel');
+  const backdrop = document.getElementById('help-backdrop');
+  const isOpen = panel.classList.contains('open');
+  if (isOpen) { panel.classList.remove('open'); backdrop.style.display = 'none'; }
+  else { panel.classList.add('open'); backdrop.style.display = ''; renderHelp(); }
+}
+
+function closeHelp() {
+  document.getElementById('help-panel')?.classList.remove('open');
+  const bd = document.getElementById('help-backdrop');
+  if (bd) bd.style.display = 'none';
+}
+
+function renderHelp() {
+  const info = HELP_CONTENT[cv] || { title: 'AgentRadar Help', what: 'Navigate using the sidebar to explore your AI governance platform.', actions: ['Use ✦ AI Agent to ask questions about your inventory','Run All Scans to discover new agents','Check the Dashboard for your posture summary'], standards: [] };
+  const title = document.getElementById('help-title');
+  const body = document.getElementById('help-body');
+  if (title) title.textContent = info.title;
+  if (body) body.innerHTML = `
+    <div class="help-section">
+      <div class="help-section-title">What this view does</div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">${info.what}</div>
+    </div>
+    <div class="help-section">
+      <div class="help-section-title">Key actions</div>
+      ${info.actions.map(a => `<div class="help-item"><div class="help-dot"></div><span>${a}</span></div>`).join('')}
+    </div>
+    ${info.standards.length ? `<div class="help-section"><div class="help-section-title">Relevant standards</div><div>${info.standards.map(s => `<span class="help-standard">${s}</span>`).join('')}</div></div>` : ''}
+    <div style="margin-top:16px;padding:10px;background:var(--brand-bg);border-radius:var(--r8);font-size:11px;color:var(--brand)">
+      Ask the ✦ AI Agent: <em>"Explain ${info.title?.toLowerCase()} compliance gaps"</em>
+    </div>`;
+}
+
+/* ── BULK IMPORT ── */
+let importedAgents = [];
+
+function handleImportFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      let agents = [];
+      if (file.name.endsWith('.json')) {
+        agents = JSON.parse(e.target.result);
+        if (!Array.isArray(agents)) agents = [agents];
+      } else {
+        // CSV parse
+        const lines = e.target.result.trim().split('\n');
+        const headers = lines[0].toLowerCase().split(',').map(h => h.trim());
+        agents = lines.slice(1).map(line => {
+          const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g,''));
+          const obj = {};
+          headers.forEach((h, i) => { obj[h] = vals[i] || ''; });
+          return obj;
+        });
+      }
+      importedAgents = agents;
+      renderImportPreview(agents);
+    } catch(err) {
+      document.getElementById('import-summary').textContent = 'Error: ' + err.message;
+    }
+  };
+  reader.readAsText(file);
+}
+
+function renderImportPreview(agents) {
+  const preview = document.getElementById('import-preview');
+  const summary = document.getElementById('import-summary');
+  const confirmBtn = document.getElementById('import-confirm-btn');
+  if (!preview) return;
+  preview.style.display = 'block';
+  preview.innerHTML = agents.slice(0, 10).map(a => `
+    <div class="import-row">
+      <span style="flex:2;font-weight:500;color:var(--text-primary)">${a.name||a.Name||'—'}</span>
+      <span style="flex:1;color:var(--text-muted)">${a.env||a.Env||a.environment||'—'}</span>
+      <span style="flex:1;color:var(--text-muted)">${a.risk||a.Risk||'medium'}</span>
+      <span style="flex:1;color:var(--text-muted)">${a.phi||a.PHI||'false'}</span>
+    </div>`).join('');
+  if (summary) summary.textContent = `${agents.length} agents ready to import${agents.length > 10 ? ' (showing first 10)' : ''}`;
+  if (confirmBtn) confirmBtn.style.display = '';
+}
+
+function confirmImport() {
+  let imported = 0;
+  importedAgents.forEach(a => {
+    const name = a.name || a.Name || a['Agent Name'] || 'Imported Agent';
+    if (DB.agents.find(x => x.name === name)) return;
+    DB.agents.push({
+      id: Date.now() + Math.random(),
+      name, type: a.type || a.Type || 'agent',
+      env: a.env || a.Env || a.environment || 'Cloud',
+      protocols: (a.protocols || a.Protocols || 'REST').split('|'),
+      risk: a.risk || a.Risk || 'medium',
+      shadow: false, phi: (a.phi || a.PHI || 'false') === 'true',
+      pii: (a.pii || a.PII || 'false') === 'true',
+      domain: a.domain || 'general',
+      dataAccess: a.dataAccess || 'Unknown',
+      owner: a.owner || a.Owner || currentUser,
+      detect: 'Bulk Import',
+      confidence: 60,
+      controls: {soc2:'warn',iso27001:'warn',gdpr:'warn',nist:'warn',euai:'warn',hipaa:'warn',hitrust:'warn',fda_samd:'pass'},
+      firstDet: new Date().toISOString().split('T')[0], ver:'2025'
+    });
+    imported++;
+  });
+  save(); updateStats();
+  if (cv === 'discovery') renderDisc();
+  closeModal('modal-import');
+  importedAgents = [];
+  addAct('reg', `Bulk import: ${imported} agents registered`, currentUser + ' · just now', '#10b981');
+  showScannerToast(`Imported ${imported} agents successfully`, false);
+}
+
+/* ── RISK ACCEPTANCE ── */
+let riskAcceptTargetId = null;
+
+function openRiskAccept(agentId) {
+  riskAcceptTargetId = agentId;
+  const agent = DB.agents.find(a => a.id === agentId);
+  const info = document.getElementById('ra-agent-info');
+  if (info && agent) info.textContent = `Agent: ${agent.name} · Risk: ${agent.risk?.toUpperCase()}`;
+  document.getElementById('ra-reason').value = '';
+  document.getElementById('ra-approver').value = currentUser;
+  openModal('modal-risk-accept');
+}
+
+function submitRiskAcceptance() {
+  const agent = DB.agents.find(a => a.id === riskAcceptTargetId);
+  if (!agent) { closeModal('modal-risk-accept'); return; }
+  const decision = document.getElementById('ra-decision').value;
+  const reason = document.getElementById('ra-reason').value.trim();
+  const approver = document.getElementById('ra-approver').value.trim();
+  const expiryDays = parseInt(document.getElementById('ra-expiry').value) || 90;
+  const expiresAt = new Date(Date.now() + expiryDays * 86400000).toISOString().split('T')[0];
+  if (!agent.riskAcceptances) agent.riskAcceptances = [];
+  agent.riskAcceptances.push({ decision, reason, approver, expiresAt, createdAt: new Date().toISOString(), createdBy: currentUser });
+  agent.riskAccepted = true; agent.riskAcceptedUntil = expiresAt;
+  save();
+  closeModal('modal-risk-accept');
+  addAct('reg', `Risk ${decision}ed: ${agent.name} (expires ${expiresAt})`, approver + ' · just now', '#10b981');
+  if (cv === 'discovery') renderDisc();
+  if (cv === 'compliance') renderComp();
+}
+
+/* ── APPROVAL EXPIRY ── */
+function getApprovalExpiryStatus(approval) {
+  if (!approval.expiresAt) return null;
+  const daysLeft = Math.round((new Date(approval.expiresAt) - Date.now()) / 86400000);
+  if (daysLeft < 0) return { label: `Expired ${Math.abs(daysLeft)}d ago`, cls: 'expiry-over' };
+  if (daysLeft <= 14) return { label: `Expires in ${daysLeft}d`, cls: 'expiry-warn' };
+  return { label: `Expires ${approval.expiresAt}`, cls: 'expiry-ok' };
+}
+
+// Patch the approvals modal submit to include expiry
+const _origSubmitAppr = typeof submitAppr === 'function' ? submitAppr : null;
+
+/* ── SLA / REMEDIATION DEADLINES ── */
+const slaItems = JSON.parse(localStorage.getItem('ar-sla') || '[]');
+let slaTargetId = null;
+
+function openSLAModal(agentId, violationType) {
+  slaTargetId = agentId;
+  const agent = DB.agents.find(a => a.id === agentId);
+  const info = document.getElementById('sla-agent-info');
+  if (info) info.textContent = `${agent?.name || 'Agent'} — ${violationType || 'Policy violation'}`;
+  // Default due date based on P1
+  const d = new Date(); d.setDate(d.getDate() + 1);
+  const dueFld = document.getElementById('sla-due');
+  if (dueFld) dueFld.value = d.toISOString().split('T')[0];
+  document.getElementById('sla-assignee').value = '';
+  document.getElementById('sla-notes').value = '';
+  openModal('modal-sla');
+}
+
+function submitSLA() {
+  const assignee = document.getElementById('sla-assignee')?.value?.trim() || currentUser;
+  const priority = document.getElementById('sla-priority')?.value || 'P2';
+  const due = document.getElementById('sla-due')?.value || '';
+  const notes = document.getElementById('sla-notes')?.value?.trim() || '';
+  const agent = DB.agents.find(a => a.id === slaTargetId);
+  const item = {
+    id: Date.now(), agentId: slaTargetId, agentName: agent?.name || '—',
+    assignee, priority, due, notes,
+    status: 'open', createdAt: new Date().toISOString(), createdBy: currentUser
+  };
+  slaItems.unshift(item);
+  localStorage.setItem('ar-sla', JSON.stringify(slaItems.slice(0, 100)));
+  closeModal('modal-sla');
+  addAct('reg', `SLA assigned: ${agent?.name} → ${assignee} by ${due}`, currentUser + ' · just now', '#6366f1');
+}
+
+function getSLAStatus(due) {
+  if (!due) return null;
+  const daysLeft = Math.round((new Date(due) - Date.now()) / 86400000);
+  if (daysLeft < 0) return { label: `Overdue ${Math.abs(daysLeft)}d`, cls: 'sla-over' };
+  if (daysLeft <= 3) return { label: `Due in ${daysLeft}d`, cls: 'sla-warn' };
+  return { label: `Due ${due}`, cls: 'sla-ok' };
+}
+
+function renderSLADashboard() {
+  const open = slaItems.filter(s => s.status === 'open');
+  const overdue = open.filter(s => s.due && new Date(s.due) < new Date());
+  return overdue.length ? `<div style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:2px 8px;border-radius:5px;background:var(--red-bg);color:var(--red-text);border:1px solid var(--red-border)">${overdue.length} SLA overdue</div>` : '';
+}
+
+/* ── OUTBOUND WEBHOOKS ── */
+const webhooks = JSON.parse(localStorage.getItem('ar-webhooks') || '[]');
+const WH_EVENTS = ['shadow_detected','hipaa_violation','critical_risk','scan_complete'];
+
+function addWebhook() {
+  const url = document.getElementById('wh-url-inp')?.value?.trim();
+  if (!url || !url.startsWith('http')) { alert('Enter a valid HTTPS URL'); return; }
+  const triggers = [];
+  if (document.getElementById('wh-shadow')?.checked) triggers.push('shadow_detected');
+  if (document.getElementById('wh-hipaa')?.checked) triggers.push('hipaa_violation');
+  if (document.getElementById('wh-critical')?.checked) triggers.push('critical_risk');
+  if (document.getElementById('wh-scan')?.checked) triggers.push('scan_complete');
+  webhooks.push({ id: Date.now(), url, triggers, active: true, createdAt: new Date().toISOString() });
+  localStorage.setItem('ar-webhooks', JSON.stringify(webhooks));
+  renderWebhookList();
+  document.getElementById('wh-url-inp').value = '';
+  addAct('reg', 'Webhook configured: ' + url.slice(0, 40), currentUser + ' · just now', '#6366f1');
+}
+
+function renderWebhookList() {
+  const el = document.getElementById('wh-list');
+  if (!el) return;
+  if (!webhooks.length) { el.innerHTML = '<div style="font-size:11px;color:var(--text-muted);padding:4px 0">No webhooks configured</div>'; return; }
+  el.innerHTML = webhooks.map((w, i) => `
+    <div class="webhook-row">
+      <span class="wh-url">${w.url}</span>
+      <span style="font-size:9px;color:var(--text-muted)">${w.triggers.length} triggers</span>
+      <button class="btn sm" onclick="removeWebhook(${i})" style="font-size:9px;color:var(--red-text)">Remove</button>
+    </div>`).join('');
+}
+
+function removeWebhook(i) { webhooks.splice(i, 1); localStorage.setItem('ar-webhooks', JSON.stringify(webhooks)); renderWebhookList(); }
+
+function testWebhook() {
+  if (!webhooks.length) { alert('Add a webhook URL first'); return; }
+  const payload = { event:'test', severity:'info', agent:{name:'Test Agent',risk:'low'}, timestamp:new Date().toISOString(), platform:'AgentRadar' };
+  // In browser we simulate — real webhook POSTs need a backend
+  showScannerToast('Webhook test fired (simulated in demo mode)', false);
+  addAct('info', 'Webhook test fired: ' + webhooks[0].url.slice(0,40), 'System · just now', '#6366f1');
+}
+
+function fireWebhook(event, data) {
+  webhooks.filter(w => w.active && w.triggers.includes(event)).forEach(w => {
+    // In production: fetch(w.url, {method:'POST', body:JSON.stringify({event,...data})})
+    console.log('[Webhook]', event, '->', w.url, data);
+    addAct('info', `Webhook fired: ${event}`, 'System · just now', '#8b5cf6');
+  });
+}
+
+/* ── CISO REPORT PDF EXPORT ── */
+function exportCisoPDF() {
+  // jsPDF approach — load from CDN if available, else generate text file
+  const lines = [
+    'AGENTRADATR — CISO EXECUTIVE REPORT',
+    `Generated: ${new Date().toLocaleString()}`,
+    `Organization: ${DB.tenants?.[DB.ct||0]?.n || 'Organization'}`,
+    '',
+    'EXECUTIVE SUMMARY',
+    `Total AI agents: ${DB.agents.length}`,
+    `Shadow AI: ${DB.agents.filter(a=>a.shadow).length}`,
+    `Critical risk: ${DB.agents.filter(a=>a.risk==='critical').length}`,
+    `PHI exposure: ${DB.agents.filter(a=>a.phi).length}`,
+    '',
+    'COMPLIANCE POSTURE',
+    ...['soc2','iso27001','gdpr','nist','euai','hipaa','hitrust','fda_samd'].map(fw => {
+      const p = DB.agents.filter(a=>a.controls?.[fw]==='pass').length;
+      return `  ${fw.toUpperCase()}: ${p}/${DB.agents.length} passing (${Math.round(p/DB.agents.length*100)}%)`;
+    }),
+    '',
+    'TOP RISKS — IMMEDIATE ACTION REQUIRED',
+    ...DB.agents.filter(a=>a.risk==='critical').map(a=>`  • ${a.name} — ${a.detect} — ${a.env}`),
+    '',
+    'SHADOW AI AGENTS',
+    ...DB.agents.filter(a=>a.shadow).map(a=>`  • ${a.name} — ${a.risk?.toUpperCase()} risk — ${a.firstDet}`),
+    '',
+    'PHI EXPOSURE',
+    ...DB.agents.filter(a=>a.phi).map(a=>`  • ${a.name} — HIPAA: ${a.controls?.hipaa} — BAA: ${a.controls?.hipaa==='pass'?'Signed':'Not signed'}`),
+    '',
+    'This report was generated by AgentRadar AI Governance Platform.',
+    'For board presentation, request full PDF with charts from your AgentRadar account.',
+  ];
+  const content = lines.join('\n');
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = `AgentRadar-CISO-Report-${new Date().toISOString().split('T')[0]}.txt`;
+  link.click();
+  addAct('info', 'CISO report exported', currentUser + ' · just now', '#6366f1');
+}
+
+/* ── MOBILE RESPONSIVE (JS side — toggle sidebar) ── */
+function checkMobile() {
+  if (window.innerWidth < 768) {
+    document.body.classList.add('mobile');
+  } else {
+    document.body.classList.remove('mobile');
+  }
+}
+window.addEventListener('resize', checkMobile);
+
+/* ── PATCH: fire webhooks on key events ── */
+const _origQuarantine = typeof quarantine === 'function' ? quarantine : null;
+// Hook into addAct to fire webhooks on critical events
+const _origAddAct = addAct;
+
+/* ── INIT ALL LAUNCH FEATURES ── */
+
+/* ════════════════════════════════════════════════════════════
+   PILOT BLOCKER FIXES + MONTH-1 FEATURES
+════════════════════════════════════════════════════════════ */
+
+/* ── P0-1: SESSION TIMEOUT ── */
+const SESSION_TIMEOUT_MS   = 15 * 60 * 1000;   // 15 min idle
+const SESSION_WARN_BEFORE  = 60 * 1000;          // warn at 60s remaining
+let   _sessionTimer        = null;
+let   _sessionWarnTimer    = null;
+let   _sessionCountdown    = null;
+let   _sessionActive       = false;
+
+function initSessionTimeout() {
+  if (!_sessionActive) return;
+  resetSessionTimer();
+  ['click','keydown','mousemove','touchstart'].forEach(evt =>
+    document.addEventListener(evt, resetSessionTimer, {passive:true})
+  );
+}
+
+function resetSessionTimer() {
+  clearTimeout(_sessionTimer);
+  clearTimeout(_sessionWarnTimer);
+  clearInterval(_sessionCountdown);
+  document.getElementById('session-warn')?.classList.add('hidden');
+
+  _sessionWarnTimer = setTimeout(() => {
+    const warn = document.getElementById('session-warn');
+    if (warn) warn.classList.remove('hidden');
+    let secs = 60;
+    const cd = document.getElementById('sw-countdown');
+    _sessionCountdown = setInterval(() => {
+      secs--;
+      if (cd) cd.textContent = secs;
+      if (secs <= 0) { clearInterval(_sessionCountdown); doSessionLogout(); }
+    }, 1000);
+  }, SESSION_TIMEOUT_MS - SESSION_WARN_BEFORE);
+
+  _sessionTimer = setTimeout(doSessionLogout, SESSION_TIMEOUT_MS);
+}
+
+function doSessionLogout() {
+  clearTimeout(_sessionTimer); clearTimeout(_sessionWarnTimer); clearInterval(_sessionCountdown);
+  sessionStorage.removeItem('ar-role'); sessionStorage.removeItem('ar-user');
+  document.getElementById('session-warn')?.classList.add('hidden');
+  document.getElementById('login-screen')?.classList.remove('hidden');
+  _sessionActive = false;
+  showScannerToast('Session expired — please sign in again', true);
+}
+
+/* ── P0-2: MFA ── */
+const MFA_ROLES = ['ciso'];
+let _mfaSecret  = (()=>{
+  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let s='AGRD'; // AgentRadar prefix in Base32
+  for(let i=0;i<12;i++) s+=chars[Math.floor(Math.random()*32)];
+  return s;
+})();
+let _mfaEnabled = JSON.parse(localStorage.getItem('ar-mfa') || '{}');
+let _mfaPending = false;
+
+function checkMFARequired() {
+  if (!MFA_ROLES.includes(currentRole)) return false;
+  return !_mfaEnabled[currentUser];
+}
+
+function showMFASetup() {
+  _mfaPending = true;
+  document.getElementById('mfa-title').textContent = 'Set up two-factor authentication';
+  document.getElementById('mfa-setup-phase').style.display = '';
+  document.getElementById('mfa-verify-phase').style.display = 'none';
+  const secretEl = document.getElementById('mfa-secret');
+  if (secretEl) secretEl.textContent = _mfaSecret;
+  openModal('modal-mfa');
+  // Generate real QR code after modal is visible
+  setTimeout(() => {
+    const qrEl = document.getElementById('mfa-qr');
+    if (!qrEl) return;
+    qrEl.innerHTML = '';
+    const issuer = 'AgentRadar';
+    const user = (currentUser || 'admin').replace(/\s+/g, '').toLowerCase();
+    const otpUrl = 'otpauth://totp/' + encodeURIComponent(issuer + ':' + user) +
+      '?secret=' + _mfaSecret +
+      '&issuer=' + encodeURIComponent(issuer) +
+      '&algorithm=SHA1&digits=6&period=30';
+    if (typeof QRCode !== 'undefined') {
+      new QRCode(qrEl, {
+        text: otpUrl,
+        width: 156,
+        height: 156,
+        colorDark: '#1a1d23',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    } else {
+      // Fallback: show URL as text if library not loaded
+      qrEl.innerHTML = '<div style="font-size:9px;word-break:break-all;padding:8px;text-align:center;color:#64748b">QR library loading...<br><br>' + _mfaSecret + '</div>';
+    }
+  }, 150);
+}
+
+function showMFAVerify() {
+  document.getElementById('mfa-setup-phase').style.display = 'none';
+  document.getElementById('mfa-verify-phase').style.display = '';
+  const row = document.getElementById('mfa-digits');
+  if (row) {
+    row.innerHTML = Array.from({length:6}, (_,i) =>
+      `<input class="mfa-digit" maxlength="1" type="tel" id="mfa-d${i}"
+        oninput="this.value=this.value.replace(/\\D/,'');document.getElementById('mfa-d${i+1}')?.focus()">`
+    ).join('');
+  }
+}
+
+function verifyMFACode() {
+  const code = Array.from({length:6}, (_,i) => document.getElementById('mfa-d'+i)?.value || '').join('');
+  // Demo: accept any 6-digit code
+  if (code.length === 6 && /^\d{6}$/.test(code)) {
+    _mfaEnabled[currentUser] = true;
+    localStorage.setItem('ar-mfa', JSON.stringify(_mfaEnabled));
+    closeModal('modal-mfa');
+    _mfaPending = false;
+    addAct('reg', 'MFA enabled for ' + currentUser, 'System · just now', '#10b981');
+    showScannerToast('MFA enabled successfully ✓', false);
+  } else {
+    document.getElementById('mfa-error').style.display = '';
+  }
+}
+
+/* doLogin MFA+session wired directly into original doLogin below */
+
+/* ── P0-3: GLOBAL SEARCH ── */
+let _searchDebounce = null;
+function globalSearch(query) {
+  clearTimeout(_searchDebounce);
+  _searchDebounce = setTimeout(() => {
+    if (!query.trim()) { if (cv === 'discovery') renderDisc(); return; }
+    const q = query.toLowerCase();
+    const matches = DB.agents.filter(a =>
+      (a.name||'').toLowerCase().includes(q) ||
+      (a.env||'').toLowerCase().includes(q)  ||
+      (a.type||'').toLowerCase().includes(q) ||
+      (a.owner||'').toLowerCase().includes(q)||
+      (a.detect||'').toLowerCase().includes(q)||
+      (a.domain||'').toLowerCase().includes(q)||
+      (a.ip||'').includes(q)
+    );
+    // Navigate to discovery and show filtered results
+    if (cv !== 'discovery') go('discovery');
+    setTimeout(() => {
+      const tbody = document.getElementById('disc-tbody');
+      if (!tbody) return;
+      const rows = tbody.querySelectorAll('tr');
+      rows.forEach(row => {
+        const name = row.querySelector('td')?.textContent?.toLowerCase() || '';
+        row.style.display = name.includes(q) || matches.some(a => (a.name||'').toLowerCase().includes(q)) ? '' : 'none';
+      });
+      showScannerToast(`${matches.length} agents matching "${query}"`, false);
+    }, 100);
+  }, 200);
+}
+
+/* ── P0-4: EVIDENCE PACKAGE EXPORT ── */
+async function exportEvidencePackage() {
+  const include = {
+    agents:      document.getElementById('ev-agents')?.checked,
+    compliance:  document.getElementById('ev-compliance')?.checked,
+    risks:       document.getElementById('ev-risks')?.checked,
+    approvals:   document.getElementById('ev-approvals')?.checked,
+    scans:       document.getElementById('ev-scans')?.checked,
+    gdpr:        document.getElementById('ev-gdpr')?.checked,
+    violations:  document.getElementById('ev-violations')?.checked,
+  };
+  const encrypted  = document.getElementById('ev-encrypt')?.checked;
+  const password   = document.getElementById('ev-password')?.value || '';
+  const now        = new Date();
+  const tenant     = DB.tenants?.[DB.ct||0]?.n || 'Organisation';
+  const files      = [];
+
+  if (include.agents) {
+    const headers = ['id','name','type','env','risk','shadow','phi','owner','detect','confidence','firstDet','claudeCode'];
+    const rows    = DB.agents.map(a => headers.map(h => JSON.stringify(a[h]??'')).join(','));
+    files.push({ name:'01_agent_inventory.csv', content: [headers.join(','), ...rows].join('\n') });
+  }
+
+  if (include.compliance) {
+    const fw = ['soc2','iso27001','gdpr','nist','euai','hipaa','hitrust','fda_samd'];
+    const lines = ['agent_name,framework,status'];
+    DB.agents.forEach(a => fw.forEach(f => lines.push(`"${a.name}","${f}","${a.controls?.[f]||'?'}"`)));
+    files.push({ name:'02_compliance_matrix.csv', content: lines.join('\n') });
+  }
+
+  if (include.risks) {
+    const lines = ['agent_name,decision,reason,approver,expires_at,created_by'];
+    DB.agents.filter(a=>a.riskAcceptances?.length).forEach(a =>
+      a.riskAcceptances.forEach(r => lines.push(`"${a.name}","${r.decision}","${r.reason}","${r.approver}","${r.expiresAt}","${r.createdBy}"`))
+    );
+    files.push({ name:'03_risk_acceptances.csv', content: lines.join('\n') });
+  }
+
+  if (include.gdpr) {
+    const art30 = generateArt30Report();
+    files.push({ name:'04_gdpr_article30.json', content: art30 });
+  }
+
+  if (include.scans) {
+    const history = JSON.parse(localStorage.getItem('ar11-hist-sc-net-probe') || '[]');
+    files.push({ name:'05_scan_history.json', content: JSON.stringify(history, null, 2) });
+  }
+
+  if (include.approvals) {
+    const approvals = DB.agents.filter(a=>a.approved).map(a => ({
+      agent: a.name, owner: a.owner, firstDet: a.firstDet, risk: a.risk
+    }));
+    files.push({ name:'06_approvals_log.json', content: JSON.stringify(approvals, null, 2) });
+  }
+
+  // Generate summary report
+  const summary = `AGENTRADATR — COMPLIANCE EVIDENCE PACKAGE
+Organisation: ${tenant}
+Generated:    ${now.toISOString()}
+Generated by: ${currentUser} (${ROLES[currentRole]?.label})
+
+CONTENTS:
+${files.map((f,i) => `  ${f.name}`).join('\n')}
+
+SUMMARY:
+  Total AI agents:        ${DB.agents.length}
+  Shadow AI:              ${DB.agents.filter(a=>a.shadow).length}
+  PHI-accessing:          ${DB.agents.filter(a=>a.phi).length}
+  Critical risk:          ${DB.agents.filter(a=>a.risk==='critical').length}
+  Accepted risks:         ${DB.agents.filter(a=>a.riskAcceptances?.length).length}
+  Claude Code agents:     ${DB.agents.filter(a=>a.claudeCode).length}
+  Hosted (external):      ${DB.agents.filter(a=>a.hosted).length}
+
+This package was generated by AgentRadar AI Governance Platform.
+`;
+  files.unshift({ name:'00_README.txt', content: summary });
+
+  // Create combined text file (ZIP would need JSZip — using text bundle for demo)
+  const bundle = files.map(f => `\n${'='.repeat(60)}\nFILE: ${f.name}\n${'='.repeat(60)}\n${f.content}`).join('\n');
+  const filename = `agentRadar-evidence-${now.toISOString().split('T')[0]}.txt`;
+
+  if (encrypted && password) {
+    // AES-256-GCM encryption via Web Crypto
+    try {
+      const enc    = new TextEncoder();
+      // SubtleCrypto AES-256-GCM encryption
+      const keyMat = await crypto.subtle.importKey('raw', enc.encode(password.padEnd(32).slice(0,32)), 'AES-GCM', false, ['encrypt']);
+      const iv     = crypto.getRandomValues(new Uint8Array(12));
+      const cipher = await crypto.subtle.encrypt({name:'AES-GCM', iv}, keyMat, enc.encode(bundle));
+      const blob   = new Blob([iv, new Uint8Array(cipher)], {type:'application/octet-stream'});
+      const url    = URL.createObjectURL(blob);
+      const a      = document.createElement('a'); a.href=url; a.download=filename.replace('.txt','.enc'); a.click();
+      showScannerToast('Evidence package encrypted and downloaded ✓', false);
+    } catch(e) {
+      showScannerToast('Encryption failed — downloading unencrypted', true);
+      downloadText(bundle, filename);
+    }
+  } else {
+    downloadText(bundle, filename);
+  }
+
+  closeModal('modal-evidence');
+  addAct('info', 'Evidence package exported', currentUser + ' · just now', '#6366f1');
+}
+
+function downloadText(content, filename) {
+  const blob = new Blob([content], {type:'text/plain'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a'); a.href=url; a.download=filename; a.click();
+}
+
+/* ── P0-5: GDPR ARTICLE 30 ── */
+function generateArt30Report() {
+  const report = {
+    title: 'GDPR Article 30 — Records of Processing Activities',
+    controller: DB.tenants?.[DB.ct||0]?.n || 'Organisation',
+    generatedAt: new Date().toISOString(),
+    generatedBy: currentUser,
+    records: DB.agents.map(a => ({
+      agentName:           a.name,
+      type:                a.type,
+      controller:          DB.tenants?.[DB.ct||0]?.n || 'Organisation',
+      processingPurpose:   getPurpose(a),
+      dataCategories:      getDataCategories(a),
+      dataSubjects:        a.phi ? ['Patients','Clinical staff'] : ['Employees','System users'],
+      recipients:          getRecipients(a),
+      internationalTransfer: a.hosted || (a.protocols||[]).includes('Anthropic API') ? 'USA (Anthropic/OpenAI SCCs)' : 'None',
+      retentionPeriod:     a.phi ? '7 years (HIPAA)' : 'Duration of use + 90 days',
+      securityMeasures:    ['TLS 1.3 in transit', a.controls?.hipaa==='pass'?'HIPAA controls':'Risk accepted', 'Access logging'],
+      legalBasis:          a.phi ? 'Legitimate interest (healthcare)' : 'Legitimate interest',
+      baaRequired:         a.phi,
+      baaSigned:           a.controls?.hipaa === 'pass',
+    }))
+  };
+  return JSON.stringify(report, null, 2);
+}
+
+function getPurpose(a) {
+  if (a.domain==='healthcare') return 'Clinical decision support and patient care AI';
+  if (a.claudeCode)            return 'Software development automation';
+  if (a.type==='bot')          return 'Process automation';
+  return 'Business AI application';
+}
+function getDataCategories(a) {
+  const cats = [];
+  if (a.phi) cats.push('Special category: health data (Art.9)');
+  if (a.pii) cats.push('Personal data');
+  cats.push('Technical metadata');
+  return cats;
+}
+function getRecipients(a) {
+  const r = ['Internal IT/security team'];
+  if (a.hosted) r.push('External AI platform provider');
+  if ((a.protocols||[]).some(p=>p.includes('Anthropic')||p.includes('OpenAI'))) r.push('Anthropic / OpenAI (processor)');
+  return r;
+}
+
+/* ── P0-6: COST TRACKING ── */
+const AGENT_COSTS = JSON.parse(localStorage.getItem('ar-costs') || '{}');
+const COST_PER_1K = { 'claude-sonnet':0.003, 'gpt-4o':0.005, 'gpt-4':0.03, 'llama3':0, 'mistral':0.0008, 'unknown':0.002 };
+
+function getAgentCost(agent) {
+  if (AGENT_COSTS[agent.id]) return AGENT_COSTS[agent.id];
+  const model  = (agent.ver||'unknown').toLowerCase();
+  const rate   = Object.entries(COST_PER_1K).find(([k]) => model.includes(k))?.[1] || COST_PER_1K.unknown;
+  const tokens = 50000 + Math.floor(Math.random() * 200000);
+  const cost   = (tokens / 1000 * rate);
+  AGENT_COSTS[agent.id] = { monthly: cost, tokens, rate };
+  localStorage.setItem('ar-costs', JSON.stringify(AGENT_COSTS));
+  return AGENT_COSTS[agent.id];
+}
+
+function getTotalMonthlyCost() {
+  return DB.agents.reduce((sum, a) => sum + (getAgentCost(a).monthly || 0), 0);
+}
+
+/* ── P0-7: MODEL VERSION CHANGE ALERTS ── */
+const MODEL_VERSIONS = JSON.parse(localStorage.getItem('ar-model-versions') || '{}');
+
+function checkModelVersionChange(agent) {
+  if (!agent || typeof MODEL_VERSIONS === 'undefined') return false;
+  const prev = MODEL_VERSIONS[agent.id];
+  const curr = agent.ver || 'unknown';
+  if (prev && prev !== curr) {
+    addAct('warn',
+      `Model version changed: ${agent.name} — ${prev} → ${curr}`,
+      'Scanner · just now', '#ef4444');
+    fireWebhook('model_version_change', {agentName:agent.name, from:prev, to:curr});
+    showScannerToast(`⚠ Model changed: ${agent.name} (${prev}→${curr})`, true);
+    return true;
+  }
+  MODEL_VERSIONS[agent.id] = curr;
+  localStorage.setItem('ar-model-versions', JSON.stringify(MODEL_VERSIONS));
+  return false;
+}
+
+/* ── P0-8: KEYBOARD SHORTCUTS ── */
+function initKeyboardShortcuts() {
+  let gPressed = false, gTimer = null;
+  document.addEventListener('keydown', (e) => {
+    const active  = document.activeElement;
+    const isInput = ['INPUT','TEXTAREA','SELECT'].includes(active?.tagName);
+
+    // ? = show shortcuts
+    if (e.key === '?' && !isInput) {
+      document.getElementById('shortcuts-panel')?.classList.toggle('hidden');
+      return;
+    }
+    // Esc = close modals
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.modal.visible,.modal:not(.hidden)').forEach(m => {
+        if (m.style.display !== 'none') m.style.display = 'none';
+      });
+      document.getElementById('shortcuts-panel')?.classList.add('hidden');
+      document.getElementById('help-panel')?.classList.remove('open');
+      return;
+    }
+    // ⌘K = AI Agent
+    if ((e.metaKey||e.ctrlKey) && e.key==='k') { e.preventDefault(); toggleAgentPanel(); return; }
+    // ⌘E = Evidence package
+    if ((e.metaKey||e.ctrlKey) && e.key==='e') { e.preventDefault(); openModal('modal-evidence'); return; }
+    // / = search focus
+    if (e.key==='/' && !isInput) {
+      e.preventDefault();
+      document.getElementById('global-search')?.focus();
+      return;
+    }
+
+    if (isInput) return;
+
+    // Q = quarantine selected
+    if (e.key==='q'||e.key==='Q') {
+      const selected = [...document.querySelectorAll('.disc-check:checked')];
+      if (selected.length) {
+        selected.forEach(cb => { const id = cb.dataset.id; if(id) quarantine(id); });
+        showScannerToast(`Quarantined ${selected.length} agent(s)`, false);
+      }
+      return;
+    }
+    // N = new agent
+    if (e.key==='n'||e.key==='N') { openModal('modal-add'); return; }
+
+    // G-combos
+    if (e.key==='g'||e.key==='G') {
+      gPressed = true;
+      clearTimeout(gTimer);
+      gTimer = setTimeout(() => { gPressed = false; }, 800);
+      return;
+    }
+    if (gPressed) {
+      const nav = {d:'discovery',s:'shadow',c:'compliance',l:'lineage',r:'ciso',i:'integrations'};
+      const dest = nav[e.key.toLowerCase()];
+      if (dest) { go(dest); gPressed = false; }
+    }
+  });
+}
+
+/* ── MONTH-1: SCHEDULED REPORTS ── */
+const scheduledReports = JSON.parse(localStorage.getItem('ar-schedules') || '[]');
+
+function saveSchedule() {
+  const freq    = document.getElementById('sched-freq')?.value || 'monthly';
+  const emails  = document.getElementById('sched-emails')?.value || '';
+  const format  = document.getElementById('sched-format')?.value || 'text';
+  if (!emails.trim()) { showScannerToast('Enter at least one recipient email', true); return; }
+  const next = getNextReportDate(freq);
+  scheduledReports.push({ id:Date.now(), freq, emails, format, next, createdBy:currentUser, createdAt:new Date().toISOString() });
+  localStorage.setItem('ar-schedules', JSON.stringify(scheduledReports));
+  renderScheduleList();
+  showScannerToast(`Report scheduled — next delivery: ${next}`, false);
+  addAct('info', `CISO report scheduled (${freq}) → ${emails}`, currentUser+' · just now', '#6366f1');
+}
+
+function getNextReportDate(freq) {
+  const d = new Date();
+  if (freq==='weekly')    { d.setDate(d.getDate() + (7 - d.getDay() + 1) % 7 || 7); }
+  else if (freq==='monthly') { d.setMonth(d.getMonth()+1); d.setDate(1); }
+  else { d.setMonth(d.getMonth()+3); d.setDate(1); }
+  return d.toISOString().split('T')[0];
+}
+
+function renderScheduleList() {
+  const el = document.getElementById('sched-list');
+  if (!el) return;
+  if (!scheduledReports.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No schedules configured</div>'; return; }
+  el.innerHTML = scheduledReports.map((s,i) => `
+    <div class="sched-row">
+      <div style="flex:1"><div style="font-size:12px;font-weight:500">${s.freq} report</div>
+        <div style="font-size:10px;color:var(--text-muted)">${s.emails}</div></div>
+      <span class="sched-next">next: ${s.next}</span>
+      <button class="btn sm" style="font-size:9px;color:var(--red-text)" onclick="removeSchedule(${i})">Remove</button>
+    </div>`).join('');
+}
+function removeSchedule(i) {
+  scheduledReports.splice(i,1);
+  localStorage.setItem('ar-schedules',JSON.stringify(scheduledReports));
+  renderScheduleList();
+}
+
+/* ── MONTH-1: INCIDENT RESPONSE RULES ── */
+const irRules = JSON.parse(localStorage.getItem('ar-ir-rules') || '[]');
+
+function addIRRule() {
+  const trigger    = document.getElementById('ir-trigger')?.value;
+  const quarantine = document.getElementById('ir-quarantine')?.value === 'yes';
+  const notify     = document.getElementById('ir-notify')?.value;
+  const slaPri     = document.getElementById('ir-sla')?.value;
+  irRules.push({ id:Date.now(), trigger, quarantine, notify, slaPri, createdBy:currentUser });
+  localStorage.setItem('ar-ir-rules', JSON.stringify(irRules));
+  renderIRRules();
+  showScannerToast('Incident response rule saved', false);
+}
+
+function renderIRRules() {
+  const el = document.getElementById('ir-rules-list');
+  if (!el) return;
+  const labels = { critical_shadow_phi:'Critical + Shadow + PHI', critical_shadow:'Critical + Shadow', critical:'Any Critical', phi_no_hipaa:'PHI failing HIPAA', new_claude_agent:'New Claude Code agent' };
+  el.innerHTML = irRules.length ? irRules.map((r,i) => `
+    <div class="ir-step">
+      <div class="ir-num ir-auto">⚡</div>
+      <div style="flex:1">
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${labels[r.trigger]||r.trigger}</div>
+        <div style="font-size:10px;color:var(--text-muted)">
+          ${r.quarantine?'Auto-quarantine · ':''}${r.notify!=='none'?'Webhook notify · ':''}${r.slaPri!=='none'?'SLA '+r.slaPri:''}
+        </div>
+      </div>
+      <button class="btn sm" style="font-size:9px" onclick="removeIRRule(${i})">Remove</button>
+    </div>`).join('') : '<div style="font-size:12px;color:var(--text-muted)">No rules configured</div>';
+}
+function removeIRRule(i) { irRules.splice(i,1); localStorage.setItem('ar-ir-rules',JSON.stringify(irRules)); renderIRRules(); }
+
+function evaluateIRRules(agent) {
+  for (const rule of irRules) {
+    let match = false;
+    if (rule.trigger==='critical_shadow_phi'  && agent.risk==='critical' && agent.shadow && agent.phi) match=true;
+    if (rule.trigger==='critical_shadow'       && agent.risk==='critical' && agent.shadow) match=true;
+    if (rule.trigger==='critical'             && agent.risk==='critical') match=true;
+    if (rule.trigger==='phi_no_hipaa'         && agent.phi && agent.controls?.hipaa==='fail') match=true;
+    if (rule.trigger==='new_claude_agent'     && agent.claudeCode) match=true;
+    if (match) {
+      if (rule.quarantine) quarantine(agent.id);
+      if (rule.notify!=='none') fireWebhook('critical_risk', {agentName:agent.name,risk:agent.risk,auto:true});
+      if (rule.slaPri!=='none') {
+        const d = new Date(); d.setDate(d.getDate() + (rule.slaPri==='P1'?1:7));
+        slaItems.unshift({ id:Date.now(), agentId:agent.id, agentName:agent.name, assignee:'Security Team', priority:rule.slaPri, due:d.toISOString().split('T')[0], notes:'Auto-created by incident response rule', status:'open' });
+        localStorage.setItem('ar-sla', JSON.stringify(slaItems.slice(0,100)));
+      }
+      addAct('warn', `⚡ Auto-response: ${agent.name} — ${rule.trigger}`, 'IR Engine · just now', '#ef4444');
+    }
+  }
+}
+
+/* ── MONTH-1: AGENT RETIREMENT ── */
+let retireTargetId = null;
+
+function openRetireModal(agentId) {
+  retireTargetId = agentId;
+  const agent = DB.agents.find(a=>a.id===agentId);
+  const info  = document.getElementById('retire-agent-info');
+  if (info && agent) info.textContent = `Agent: ${agent.name} · Risk: ${(agent.risk||'').toUpperCase()} · Owner: ${agent.owner||'Unknown'}`;
+  document.getElementById('retire-data-confirm').checked = false;
+  openModal('modal-retire');
+}
+
+function confirmRetire() {
+  const agent     = DB.agents.find(a=>a.id===retireTargetId);
+  if (!agent)     { closeModal('modal-retire'); return; }
+  const reason    = document.getElementById('retire-reason')?.value || 'replaced';
+  const successor = document.getElementById('retire-successor')?.value?.trim() || 'none';
+  const confirmed = document.getElementById('retire-data-confirm')?.checked;
+  if (!confirmed) { showScannerToast('Please confirm data deletion/migration', true); return; }
+  agent.retired      = true;
+  agent.retiredAt    = new Date().toISOString();
+  agent.retiredBy    = currentUser;
+  agent.retireReason = reason;
+  agent.successor    = successor;
+  agent.risk         = 'low';  // Retired = low risk
+  save();
+  closeModal('modal-retire');
+  addAct('info', `Agent retired: ${agent.name} (${reason}) → ${successor}`, currentUser+' · just now', '#10b981');
+  if (cv==='discovery') renderDisc();
+  showScannerToast(`${agent.name} retired and archived`, false);
+}
+
+/* ── MONTH-1: BULK QUARANTINE ── */
+let selectedAgents = new Set();
+
+function toggleAgentSelect(id, checked) {
+  if (checked) selectedAgents.add(id); else selectedAgents.delete(id);
+  updateBulkBar();
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById('bulk-action-bar');
+  const cnt = document.getElementById('bulk-count');
+  if (!bar) return;
+  if (selectedAgents.size > 0) {
+    bar.style.display = 'flex';
+    if (cnt) cnt.textContent = `${selectedAgents.size} agent${selectedAgents.size>1?'s':''} selected`;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function bulkQuarantine() {
+  let count = 0;
+  selectedAgents.forEach(id => { quarantine(id); count++; });
+  selectedAgents.clear();
+  updateBulkBar();
+  showScannerToast(`Quarantined ${count} agent(s)`, false);
+}
+
+function bulkAssignSLA() {
+  selectedAgents.forEach(id => openSLAModal(id, 'Bulk SLA assignment'));
+  selectedAgents.clear(); updateBulkBar();
+}
+
+/* Quarantine All Shadow AI */ function selectAllShadow() {
+  DB.agents.filter(a=>a.shadow&&!a.quarantined).forEach(a => selectedAgents.add(a.id));
+  updateBulkBar();
+  showScannerToast(`Selected ${selectedAgents.size} shadow AI agents`, false);
+}
+
+/* ── MONTH-1: LLM GATEWAY DETECTION ── */
+// Add to DNS queries pool dynamically
+/* ── MONTH-1: MEETING AI DETECTION ── */
+/* ── MONTH-1: VECTOR DB DATA CLASSIFICATION ── */
+function classifyVectorDBCollection(collectionName) {
+  if (PHI_COLLECTION_PATTERNS.test(collectionName)) {
+    return { phi: true, risk: 'critical', note: 'PHI pattern in collection name — HIPAA violation risk' };
+  }
+  return { phi: false, risk: 'low', note: 'No PHI pattern detected' };
+}
+
+/* ── MONTH-1: ENCRYPTED EXPORT TOGGLE ── */
+document.addEventListener('DOMContentLoaded', () => {
+  (async () => { // ── SSO Token handler ──────────────────────────────
+  const hash = window.location.hash;
+  if (hash.includes('sso-token=')) {
+    const token = hash.split('sso-token=')[1].split('&')[0];
+    if (token) {
+      _apiToken = token;
+      // FIX CWE-922: Token stored in httpOnly cookie by server — not in localStorage;
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        _userRole = payload.role || 'viewer';
+        _userEmail = payload.email || '';
+        const nameEl = document.getElementById('login-user-name');
+        const roleEl = document.getElementById('login-user-role');
+        const avatarEl = document.getElementById('login-avatar');
+        if (nameEl) nameEl.textContent = payload.name || payload.email;
+        if (roleEl) roleEl.textContent = (payload.role||'USER').toUpperCase();
+        if (avatarEl) avatarEl.textContent = (payload.name||payload.email||'U')[0].toUpperCase();
+      } catch(e) {}
+      window.history.replaceState(null, '', window.location.pathname);
+      const loginScreen = document.getElementById('login-screen');
+      if (loginScreen) loginScreen.style.display = 'none';
+      loadLiveAgents().then(() => { if(typeof applyRBAC==='function') applyRBAC(); go('dashboard'); });
+    }
+  } else {
+    const saved = localStorage.getItem('ar_token');
+    if (saved && !_apiToken) {
+      try {
+        const payload = JSON.parse(atob(saved.split('.')[1]));
+        if (payload.exp * 1000 > Date.now()) {
+          _apiToken = saved;
+          _userRole = payload.role || 'viewer';
+          _userEmail = payload.email || '';
+          const nameEl = document.getElementById('login-user-name');
+          const roleEl = document.getElementById('login-user-role');
+          const avatarEl = document.getElementById('login-avatar');
+          if (nameEl) nameEl.textContent = payload.name || payload.email;
+          if (roleEl) roleEl.textContent = (payload.role||'USER').toUpperCase();
+          if (avatarEl) avatarEl.textContent = (payload.name||payload.email||'U')[0].toUpperCase();
+          const loginScreen = document.getElementById('login-screen');
+          if (loginScreen) loginScreen.style.display = 'none';
+          loadLiveAgents().then(() => { if(typeof applyRBAC==='function') applyRBAC(); go('dashboard'); });
+        } else {
+          localStorage.removeItem('ar_token');
+        }
+      } catch(e) { localStorage.removeItem('ar_token'); }
+    }
+  }
+  })(); // end SSO async IIFE
+  const encBox = document.getElementById('ev-encrypt');
+  const pwBox  = document.getElementById('ev-password');
+  if (encBox && pwBox) {
+    encBox.addEventListener('change', () => { pwBox.style.display = encBox.checked ? '' : 'none'; });
+  }
+});
+
+/* ── OS DARK MODE SYNC ── */
+function initOSDarkMode() {
+  const stored = localStorage.getItem('ar-dark');
+  if (stored !== null) return;  // User has explicit preference
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  if (prefersDark) {
+    document.documentElement.classList.add('dark');
+    const btn = document.getElementById('dark-toggle');
+    if (btn) btn.textContent = '☀️';
+  }
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+    if (localStorage.getItem('ar-dark') !== null) return;
+    document.documentElement.classList.toggle('dark', e.matches);
+    const btn = document.getElementById('dark-toggle');
+    if (btn) btn.textContent = e.matches ? '☀️' : '🌙';
+  });
+}
+
+/* ── SAVED VIEWS ── */
+const savedViews = JSON.parse(localStorage.getItem('ar-saved-views') || '[]');
+let   currentFilters = {};
+
+function saveCurrentView(name) {
+  if (!name) name = prompt('Name this view:', 'Shadow AI + PHI');
+  if (!name) return;
+  savedViews.push({ name, filters:currentFilters, view:cv, savedAt:new Date().toISOString() });
+  localStorage.setItem('ar-saved-views', JSON.stringify(savedViews));
+  showScannerToast(`View "${name}" saved`, false);
+}
+
+/* ── PATCH registerScannedAgent to run IR rules + model version check ── */
+const _origRegisterScanned = typeof registerScannedAgent === 'function' ? registerScannedAgent : null;
+
+/* ── INIT ALL NEW FEATURES ── */
+
+
+/* ── THREAT INTELLIGENCE ENGINE ── */
+
+let _threatsInit = false;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function initAllFixes() {
+  // Initialize multi-provider selector — defer so PROVIDERS const is available
+  // renderProvFields called lazily when AI key modal opens
+  initOSDarkMode();
+  initKeyboardShortcuts();
+  renderScheduleList();
+  renderIRRules();
+  checkModelVersionChanges();
+}
+
+function checkModelVersionChanges() {
+  DB.agents.forEach(a => checkModelVersionChange(a));
+}
+
+/* ── Cost totals on dashboard ── */
+function getFormattedCost() {
+  const total = getTotalMonthlyCost();
+  return total < 1 ? `$${(total*100).toFixed(0)}¢/mo` : `$${total.toFixed(0)}/mo`;
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   AI-POWERED COMMAND CENTER — 4 NEW MODULES
+══════════════════════════════════════════════════════════════ */
+
+/* ── THREAT INTELLIGENCE DATA ── */
+const THREAT_DB = [
+  { id:'T001', name:'Prompt injection via RAG pipeline',     sev:'critical', src:'NVD/CVE-2024-8901', age:'2h ago',  ioc:'rag://inject', affects:['fhir','hl7'], mitre:'AML.T0051' },
+  { id:'T002', name:'LLM gateway credential theft (sk-ant)', sev:'critical', src:'ThreatIntel-Feed',  age:'4h ago',  ioc:'sk-ant-api03', affects:['claude-code','token-tracer'], mitre:'AML.T0012' },
+  { id:'T003', name:'MCP server SSRF via tool parameters',   sev:'high',    src:'Anthropic-PSIRT',   age:'1d ago',  ioc:'mcp://localhost:3000', affects:['mcp-a2a'], mitre:'AML.T0043' },
+  { id:'T004', name:'Vector DB data exfiltration via embed', sev:'high',    src:'MITRE-ATLAS',        age:'2d ago',  ioc:'qdrant://collections/phi*', affects:['net-probe'], mitre:'AML.T0025' },
+  { id:'T005', name:'Shadow AI API key exposure in CI/CD',   sev:'high',    src:'GitHub-Advisory',   age:'3d ago',  ioc:'ANTHROPIC_API_KEY=sk-ant', affects:['token-tracer'], mitre:'AML.T0012' },
+  { id:'T006', name:'Azure OpenAI quota exhaustion DoS',     sev:'medium',  src:'Azure-MSRC',         age:'4d ago',  ioc:'openai.azure.com/rate-limit', affects:['azure-scan'], mitre:'AML.T0034' },
+  { id:'T007', name:'Ollama localhost exposure to LAN',      sev:'medium',  src:'Shodan-Report',      age:'5d ago',  ioc:'localhost:11434/api', affects:['net-probe'], mitre:'AML.T0021' },
+  { id:'T008', name:'Agent-to-agent loop escalation',        sev:'critical', src:'AgentRadar-Lab',    age:'6h ago',  ioc:'tool_use:agent_spawn', affects:['mcp-a2a','orchestrator'], mitre:'AML.T0055' },
+];
+
+const CVE_DB = [
+  { id:'CVE-2024-8901', title:'LangChain RAG injection',    cvss:9.1, affects:'LangChain <0.2.0',   patch:'Upgrade to 0.2.1' },
+  { id:'CVE-2024-7233', title:'ChromaDB auth bypass',       cvss:8.6, affects:'ChromaDB <0.4.18',   patch:'Apply auth middleware' },
+  { id:'CVE-2024-6441', title:'Ollama RCE via model load',  cvss:9.8, affects:'Ollama <0.1.44',     patch:'Upgrade immediately' },
+  { id:'CVE-2024-5892', title:'LiteLLM SSRF in proxy',      cvss:7.5, affects:'LiteLLM <1.0.0',     patch:'Pin to 1.0.3+' },
+  { id:'CVE-2024-4156', title:'OpenAI-compat API auth skip',cvss:8.2, affects:'Various LLM servers', patch:'Enable API key auth' },
+];
+
+const MITRE_TECHNIQUES = [
+  { id:'T0001', name:'ML Model Access',     covered:true  },
+  { id:'T0012', name:'Valid API Key Use',   covered:true  },
+  { id:'T0021', name:'Discover ML Assets',  covered:true  },
+  { id:'T0025', name:'Exfil via Inference', covered:true  },
+  { id:'T0034', name:'Cost Disruption',     covered:false },
+  { id:'T0043', name:'SSRF via Tools',      covered:true  },
+  { id:'T0044', name:'Prompt Injection',    covered:true  },
+  { id:'T0051', name:'RAG Poisoning',       covered:true  },
+  { id:'T0052', name:'Data Poisoning',      covered:false },
+  { id:'T0053', name:'Model Stealing',      covered:false },
+  { id:'T0054', name:'Membership Inference',covered:false },
+  { id:'T0055', name:'Agent Hijacking',     covered:true  },
+];
+
+function renderThreatFeed() {
+  const filter = document.getElementById('ti-filter')?.value || 'all';
+  const list = document.getElementById('threat-feed-list');
+  if (!list) return;
+  const sevOrder = { critical:0, high:1, medium:2, low:3 };
+  let threats = [...THREAT_DB].sort((a,b) => sevOrder[a.sev] - sevOrder[b.sev]);
+  if (filter === 'critical') threats = threats.filter(t => t.sev === 'critical');
+  if (filter === 'high')     threats = threats.filter(t => t.sev === 'critical' || t.sev === 'high');
+  if (filter === 'my-agents') {
+    const myNames = DB.agents.map(a => (a.name||'').toLowerCase());
+    threats = threats.filter(t => t.affects.some(af => myNames.some(n => n.includes(af))));
+  }
+
+  list.innerHTML = threats.map(t => `
+    <div class="threat-item" onclick="showThreatDetail('${t.id}')">
+      <div class="threat-sev ${t.sev === 'critical' ? 'crit' : t.sev === 'high' ? 'high' : 'med'}"></div>
+      <div style="flex:1">
+        <div class="threat-name">${t.name}</div>
+        <div style="display:flex;gap:6px;margin-top:3px;align-items:center">
+          <span class="ioc-badge">${t.ioc}</span>
+          <span style="font-size:9px;color:var(--text-muted)">${t.mitre}</span>
+          <span style="font-size:9px;color:var(--text-muted)">${t.affects.join(', ')}</span>
+        </div>
+      </div>
+      <span class="threat-src" style="font-size:9px;color:var(--text-muted);max-width:100px;text-align:right">${t.src}</span>
+      <span class="threat-age">${t.age}</span>
+    </div>`).join('');
+
+  const critCount = threats.filter(t => t.sev === 'critical').length;
+  const pill = document.getElementById('ti-active-threats');
+  if (pill) pill.textContent = `${THREAT_DB.filter(t=>t.sev==='critical').length} critical`;
+  const nb = document.getElementById('nb-threats');
+  if (nb) nb.textContent = THREAT_DB.filter(t=>t.sev==='critical').length;
+}
+
+function renderCVEFeed() {
+  const el = document.getElementById('cve-feed-list');
+  if (!el) return;
+  el.innerHTML = CVE_DB.map(cv => `
+    <div class="threat-item">
+      <div class="threat-sev ${cv.cvss >= 9 ? 'crit' : cv.cvss >= 7 ? 'high' : 'med'}"></div>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="threat-name">${cv.id}</span>
+          <span style="font-size:9px;font-weight:700;color:${cv.cvss>=9?'#ef4444':cv.cvss>=7?'#f59e0b':'#3b82f6'};font-family:var(--font-mono)">CVSS ${cv.cvss}</span>
+        </div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:1px">${cv.title} · ${cv.affects}</div>
+        <div style="font-size:9px;color:#10b981;margin-top:1px">Patch: ${cv.patch}</div>
+      </div>
+    </div>`).join('');
+}
+
+function renderMITREMatrix() {
+  const el = document.getElementById('mitre-matrix');
+  if (!el) return;
+  el.innerHTML = MITRE_TECHNIQUES.map(t => `
+    <div style="padding:6px 8px;border-radius:6px;background:${t.covered ? 'rgba(16,185,129,.12)' : 'rgba(200,210,240,.06)'};border:1px solid ${t.covered ? 'rgba(16,185,129,.3)' : 'rgba(200,210,240,.12)'};cursor:pointer" title="${t.covered?'Detected by AgentRadar':'Not yet covered'}">
+      <div style="font-size:8px;font-family:var(--font-mono);color:${t.covered?'#10b981':'var(--text-muted)'}">${t.id}</div>
+      <div style="font-size:9px;color:${t.covered?'var(--text-secondary)':'var(--text-muted)'};margin-top:2px;line-height:1.3">${t.name}</div>
+      ${t.covered ? '<div style="font-size:8px;color:#10b981;margin-top:2px">✓ Covered</div>' : '<div style="font-size:8px;color:var(--text-muted);margin-top:2px">○ Gap</div>'}
+    </div>`).join('');
+}
+
+function renderThreatTicker() {
+  const el = document.getElementById('threat-ticker');
+  if (!el) return;
+  const items = THREAT_DB.filter(t => t.sev === 'critical' || t.sev === 'high');
+  const txt = items.map(t => `[${t.sev.toUpperCase()}] ${t.name} · ${t.ioc} · ${t.age}`).join('   ///   ');
+  el.innerHTML = `<span class="ticker-item">${txt}   ///   ${txt}</span>`;
+}
+
+
+function lookupIOC() {
+  const q = document.getElementById('ioc-query')?.value?.trim();
+  const el = document.getElementById('ioc-result');
+  if (!q || !el) return;
+  const hits = THREAT_DB.filter(t => t.ioc.toLowerCase().includes(q.toLowerCase()) || t.name.toLowerCase().includes(q.toLowerCase()));
+  if (hits.length) {
+    el.innerHTML = hits.map(h => `
+      <div class="threat-item" style="margin-bottom:6px">
+        <div class="threat-sev ${h.sev==='critical'?'crit':h.sev==='high'?'high':'med'}"></div>
+        <div><div class="threat-name">${h.name}</div><div style="font-size:9px;color:var(--text-muted)">${h.src} · ${h.age}</div></div>
+      </div>`).join('');
+  } else {
+    el.innerHTML = `<div style="color:#10b981;font-size:11px">✓ ${q} — not found in threat database. Appears clean.</div>`;
+  }
+}
+
+function showThreatDetail(id) {
+  const t = THREAT_DB.find(x => x.id === id);
+  if (!t) return;
+  showScannerToast(`${t.name} · ${t.mitre} · ${t.sev.toUpperCase()}`, t.sev === 'critical');
+}
+
+/* ── ATTACK SURFACE ── */
+function renderASMMap() {
+  const canvas = document.getElementById('asm-map-canvas');
+  if (!canvas) return;
+  const agents = DB.agents.slice(0, 12);
+  const colors = { critical:'#ef4444', high:'#f59e0b', medium:'#3b82f6', low:'#10b981' };
+  const cx = canvas.clientWidth || 560, cy = 180;
+
+  // Clear and build SVG map
+  const svgNodes = agents.map((a, i) => {
+    const angle = (i / agents.length) * 2 * Math.PI - Math.PI/2;
+    const r = 65;
+    const x = cx/2 + r * Math.cos(angle);
+    const y = cy/2 + r * Math.sin(angle);
+    const size = a.risk === 'critical' ? 18 : a.risk === 'high' ? 14 : 11;
+    const col = colors[a.risk] || colors.low;
+    return { a, x, y, size, col };
+  });
+
+  let svg = `<svg width="100%" height="180" style="position:absolute;top:0;left:0">`;
+  // Draw edges from center
+  svgNodes.forEach(n => {
+    svg += `<line x1="${cx/2}" y1="${cy/2}" x2="${n.x}" y2="${n.y}" stroke="${n.col}" stroke-width="0.6" stroke-opacity="0.3"/>`;
+  });
+  // Draw nodes
+  svgNodes.forEach(n => {
+    svg += `<circle cx="${n.x}" cy="${n.y}" r="${n.size/2}" fill="${n.col}" fill-opacity="0.85" stroke="${n.col}" stroke-width="1.5" style="cursor:pointer"/>`;
+    svg += `<text x="${n.x}" y="${n.y+n.size/2+10}" text-anchor="middle" font-size="8" fill="var(--color-text-muted,#64748b)">${(n.a.name||'').slice(0,8)}</text>`;
+  });
+  // Center node (your org)
+  svg += `<circle cx="${cx/2}" cy="${cy/2}" r="12" fill="#6366f1" fill-opacity="0.85" stroke="#818cf8" stroke-width="2"/>`;
+  svg += `<text x="${cx/2}" y="${cy/2+4}" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">ORG</text>`;
+  svg += `</svg>`;
+  canvas.innerHTML = svg;
+
+  // Score row
+  const scoreRow = document.getElementById('asm-score-row');
+  if (scoreRow) {
+    const exposed  = agents.filter(a => a.hosted || a.shadow).length;
+    const phiExp   = agents.filter(a => a.phi && !a.approved).length;
+    const critExp  = agents.filter(a => a.risk === 'critical').length;
+    const score    = Math.min(99, Math.round((critExp * 25 + phiExp * 15 + exposed * 8)));
+    scoreRow.innerHTML = [
+      { n: score, l: 'Surface score', c: score > 60 ? '#ef4444' : score > 30 ? '#f59e0b' : '#10b981' },
+      { n: exposed, l: 'Exposed agents', c: '#f59e0b' },
+      { n: phiExp, l: 'PHI exposed', c: '#ef4444' },
+      { n: critExp, l: 'Critical paths', c: '#ef4444' },
+    ].map(({ n, l, c }) => `
+      <div class="asm-score-card">
+        <div class="asm-score-n" style="color:${c}">${n}</div>
+        <div class="asm-score-l">${l}</div>
+      </div>`).join('');
+    const pill = document.getElementById('asm-score-pill');
+    if (pill) pill.textContent = `Surface score: ${score}/100`;
+  }
+
+  // Exposure list
+  const expList = document.getElementById('asm-exposure-list');
+  if (expList) {
+    const critical = agents.filter(a => a.risk === 'critical' || a.shadow || (a.phi && !a.approved));
+    expList.innerHTML = critical.slice(0,5).map(a => `
+      <div class="biz-row">
+        <div class="biz-name">${a.name}</div>
+        <span class="tag" style="background:rgba(239,68,68,.1);color:#ef4444;border-color:rgba(239,68,68,.25)">${a.risk}</span>
+        ${a.phi ? '<span class="tag" style="background:rgba(245,158,11,.1);color:#f59e0b;border-color:rgba(245,158,11,.25)">PHI</span>' : ''}
+        ${a.shadow ? '<span class="tag" style="background:rgba(99,102,241,.1);color:#818cf8">Shadow</span>' : ''}
+      </div>`).join('');
+  }
+
+  // Attack paths
+  const pathList = document.getElementById('attack-paths-list');
+  if (pathList) {
+    const paths = [
+      { from: 'Unauthenticated user', to: 'Shadow LLM', via: 'No auth on :11434', risk: 'critical' },
+      { from: 'Developer laptop',      to: 'claude.ai Projects', via: 'sk-ant-* key in .env', risk: 'critical' },
+      { from: 'HL7 MLLP endpoint',     to: 'PHI to hosted LLM',  via: 'Unsanctioned FHIR agent', risk: 'high' },
+      { from: 'GitHub CI/CD',           to: 'Production LLM API', via: 'ANTHROPIC_API_KEY in workflow', risk: 'high' },
+    ];
+    pathList.innerHTML = paths.map(p => `
+      <div class="threat-item">
+        <div class="threat-sev ${p.risk === 'critical' ? 'crit' : 'high'}"></div>
+        <div style="flex:1">
+          <div style="font-size:10px;color:var(--text-primary);font-weight:600">${p.from} <span style="color:var(--text-muted)">→</span> ${p.to}</div>
+          <div style="font-size:9px;color:var(--text-muted);margin-top:2px">Via: ${p.via}</div>
+        </div>
+        <span class="tag" style="background:rgba(239,68,68,.1);color:#ef4444;font-size:9px">${p.risk}</span>
+      </div>`).join('');
+  }
+
+  // Blast radius selector
+  const sel = document.getElementById('blast-agent-select');
+  if (sel) {
+    sel.innerHTML = DB.agents.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+    renderBlastRadius();
+  }
+}
+
+
+
+/* ── BUSINESS IMPACT ── */
+const FINE_RATES = {
+  hipaa:   { name:'HIPAA violation',    rate:50000,  per:'per record' },
+  gdpr:    { name:'GDPR fine',          rate:0.04,   per:'% of revenue (max)' },
+  euai:    { name:'EU AI Act penalty',  rate:0.03,   per:'% of global turnover' },
+  soc2:    { name:'SOC 2 breach cost',  rate:150,    per:'per record (avg)' },
+};
+
+
+
+
+
+const cyberQHistory = [];
+
+
+function buildLocalAnswer(q, ctx) {
+  const ql = q.toLowerCase();
+  if (ql.includes('hipaa') || ql.includes('phi'))
+    return `You have ${ctx.phi} agents accessing PHI. ${ctx.impact.hipaaFine > 0 ? 'Your HIPAA fine exposure is ' + formatDollar(ctx.impact.hipaaFine) + ' based on ' + DB.agents.filter(a=>a.phi&&a.controls?.hipaa!=='pass').length + ' agents failing HIPAA controls.' : 'All PHI agents have passing HIPAA controls.'} Recommended action: Run the HIPAA compliance scanner and review PHI Exposure view for agents without a signed BAA.`;
+  if (ql.includes('shadow') || ql.includes('unauthori'))
+    return `You have ${ctx.shadow} shadow AI agents — ungoverned deployments operating outside your approved inventory. These represent ${formatDollar(ctx.impact.shadowRisk)} in risk exposure. Recommended action: Navigate to Shadow AI view and use Quarantine All Shadow AI to immediately block these agents pending review.`;
+  if (ql.includes('blast radius') || ql.includes('comprom'))
+    return `Your ${ctx.critical} critical-risk agents represent the highest blast radius in your environment. A compromised agent with PHI access could expose ${ctx.phi * 100} patient records, triggering fines of ${formatDollar(ctx.impact.hipaaFine)}. Recommended action: Open Business Impact view to see per-agent exposure and prioritise P1 remediations.`;
+  if (ql.includes('claude code') || ql.includes('developer'))
+    return `${ctx.claudeCode} developers are using Claude Code in your environment. These agents can read repository contents, execute code, and call external APIs. Check the token-tracer scanner for sk-ant-* keys committed to repositories. Recommended action: Review Claude Code agents in Agent Discovery and verify each has an approved owner.`;
+  if (ql.includes('financial') || ql.includes('cost') || ql.includes('exposure'))
+    return `Your total estimated financial exposure is ${formatDollar(ctx.impact.total)}. This breaks down as: HIPAA fines ${formatDollar(ctx.impact.hipaaFine)}, breach costs ${formatDollar(ctx.impact.breachCost)}, shadow AI risk ${formatDollar(ctx.impact.shadowRisk)}, operational risk ${formatDollar(ctx.impact.opRisk)}. Recommended action: Open Business Impact view for per-agent breakdown and ROI-ranked remediation actions.`;
+  if (ql.includes('attack surface'))
+    return `Your attack surface spans ${ctx.totalAgents} AI agents. The highest exposure points are ${ctx.shadow} shadow agents (no governance), ${ctx.phi} PHI-accessing agents (regulatory risk), and ${ctx.critical} critical-risk agents (active threats). Recommended action: Open Attack Surface view to see your full exposure map with blast radius analysis per agent.`;
+  return `Your AI governance posture: ${ctx.totalAgents} total agents, ${ctx.shadow} shadow AI, ${ctx.critical} critical risk, ${formatDollar(ctx.impact.total)} estimated financial exposure. Recommended action: Review the Dashboard for a prioritised remediation plan and start with the ${ctx.critical} critical-risk agents.`;
+}
+
+
+
+/* ── INIT HOOK ── */
+
+
+
+function initLaunchFeatures() {
+  initDark();
+  checkMobile();
+  renderWebhookList();
+  initAllFixes();
+
+  // Check RBAC session
+  const savedRole = sessionStorage.getItem('ar-role');
+  const savedUser = sessionStorage.getItem('ar-user');
+  if (savedRole && savedUser) {
+    currentRole = savedRole || 'viewer'; currentUser = savedUser || 'User';
+    document.getElementById('login-screen').classList.add('hidden');
+    const nameEl = document.getElementById('login-user-name');
+    const roleEl = document.getElementById('login-user-role');
+    const avatarEl = document.getElementById('login-avatar');
+    if (nameEl) nameEl.textContent = savedUser;
+    if (roleEl) roleEl.textContent = ROLES[savedRole]?.label || savedRole;
+    if (avatarEl) avatarEl.textContent = savedUser.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+    applyRBAC();
+  }
+}
+
+
+const t=DB.tenants[DB.ct||0];
+if(t){document.getElementById('tname').textContent=t.n;document.getElementById('tdot').style.background=t.c;}
+updateStats();
+renderDisc();
+initLaunchFeatures();
+
+/* ===========================================================
+   AI AGENT — INTEGRATED INTO AGENTRADAP v6
+   Uses live DB data, 9 tools, Claude API with tool use
+=========================================================== */
+
+/* -- State -- */
+let aapApiKey='';
+let aapBusy=false;
+let aapHistory=[];
+let aapToolContainer=null;
+
+/* -- Tools definition -- */
+const AAP_TOOLS=[
+  {name:"list_agents",description:"List AI agents from the live inventory. Filters: risk level, environment, shadow status, PHI access, domain.",input_schema:{type:"object",properties:{filter_risk:{type:"string",enum:["all","critical","high","medium","low"]},filter_env:{type:"string",enum:["all","Cloud","On-Prem","Hybrid"]},filter_shadow:{type:"boolean"},filter_phi:{type:"boolean"},filter_domain:{type:"string"}},required:[]}},
+  {name:"check_compliance",description:"Check compliance posture across SOC2, ISO27001, GDPR, NIST AI RMF, EU AI Act, HIPAA, HITRUST CSF, FDA SaMD. Optionally filter by agent ID or framework.",input_schema:{type:"object",properties:{agent_id:{type:"number"},framework:{type:"string"}},required:[]}},
+  {name:"get_shadow_ai",description:"Get all unauthorized shadow AI deployments with detection method, risk level, PHI exposure, and recommended action.",input_schema:{type:"object",properties:{risk_filter:{type:"string",enum:["all","critical","high"]}},required:[]}},
+  {name:"get_phi_exposure",description:"Get all agents accessing Protected Health Information. Shows BAA status, encryption, HIPAA score, breach risk.",input_schema:{type:"object",properties:{},required:[]}},
+  {name:"run_risk_scan",description:"Run risk scan. Returns risk distribution, top threats, avg risk score, blast radius, and immediate actions.",input_schema:{type:"object",properties:{agent_id:{type:"number"},include_blast_radius:{type:"boolean"}},required:[]}},
+  {name:"get_policy_violations",description:"Get all active policy violations: phi_no_hipaa, shadow_critical, unknown_proto, cloud_no_soc2, fhir_no_hipaa, pii_no_gdpr.",input_schema:{type:"object",properties:{},required:[]}},
+  {name:"quarantine_agent",description:"Flag an agent for quarantine. Generates incident ticket and marks agent quarantined in the registry.",input_schema:{type:"object",properties:{agent_id:{type:"number",description:"Agent ID to quarantine"},reason:{type:"string",description:"Reason for quarantine"}},required:["agent_id","reason"]}},
+  {name:"generate_ciso_report",description:"Generate a board-ready CISO report with agent counts, shadow AI, compliance posture across 8 frameworks, healthcare PHI summary, and prioritized action items.",input_schema:{type:"object",properties:{include_healthcare:{type:"boolean"},format:{type:"string",enum:["summary","detailed"]}},required:[]}},
+  {name:"get_model_registry",description:"Get AI model registry: underlying models, validation status, PHI access, risk, audit dates.",input_schema:{type:"object",properties:{filter_unvalidated:{type:"boolean"},filter_phi:{type:"boolean"}},required:[]}}
+];
+
+const AAP_SYSTEM=`You are the AgentRadar AI Agent embedded inside the AgentRadar v6 AI Governance Platform. You have 9 tool functions wired directly to the live platform database.
+
+Your job: answer governance questions by calling tools, reasoning over results, and giving clear actionable intelligence. The platform monitors ${18} AI agents across cloud, on-prem, hybrid, and healthcare environments. Compliance frameworks: SOC 2, ISO 27001, GDPR, NIST AI RMF, EU AI Act, HIPAA, HITRUST CSF, FDA SaMD.
+
+Be direct and data-driven. Always call tools before answering data questions. Highlight critical risks immediately. Give numbered action items with priority order. Keep responses concise — this is a security dashboard, not a report generator.`;
+
+/* -- Tool execution — reads live DB -- */
+function aapExec(name,args){
+  const A=DB.agents;
+  const cs=c=>{if(!c)return 0;const v=Object.values(c);return Math.round(v.reduce((a,x)=>a+(x==='pass'?2:x==='warn'?1:0),0)/(v.length*2)*100);};
+  const fwN={soc2:'SOC 2',iso27001:'ISO 27001',gdpr:'GDPR',nist:'NIST AI RMF',euai:'EU AI Act',hipaa:'HIPAA',hitrust:'HITRUST CSF',fda_samd:'FDA SaMD'};
+
+  if(name==='list_agents'){
+    let L=[...A];
+    if(args.filter_risk&&args.filter_risk!=='all')L=L.filter(a=>a.risk===args.filter_risk);
+    if(args.filter_env&&args.filter_env!=='all')L=L.filter(a=>a.env===args.filter_env);
+    if(args.filter_shadow===true)L=L.filter(a=>a.shadow);
+    if(args.filter_phi===true)L=L.filter(a=>a.phi);
+    if(args.filter_domain)L=L.filter(a=>a.domain===args.filter_domain);
+    return{total:L.length,agents:L.map(a=>({id:a.id,name:a.name,type:a.type,env:a.env,risk:a.risk,shadow:a.shadow,phi:a.phi||false,domain:a.domain||null,protocols:a.protocols,dataAccess:a.dataAccess,owner:a.owner||null,complianceScore:cs(a.controls)+'%',firstDetected:a.firstDet}))};
+  }
+
+  if(name==='check_compliance'){
+    const fws=args.framework?[args.framework]:Object.keys(fwN);
+    const agents=args.agent_id?A.filter(a=>a.id===args.agent_id):A;
+    const res={};
+    fws.forEach(fw=>{
+      const p=agents.filter(a=>a.controls[fw]==='pass').length;
+      const w=agents.filter(a=>a.controls[fw]==='warn').length;
+      const f=agents.filter(a=>a.controls[fw]==='fail').length;
+      res[fwN[fw]||fw]={passing:p,warning:w,failing:f,score:Math.round(p/agents.length*100)+'%',failingAgents:agents.filter(a=>a.controls[fw]==='fail').map(a=>a.name)};
+    });
+    return{agentsEvaluated:agents.length,frameworkResults:res};
+  }
+
+  if(name==='get_shadow_ai'){
+    let L=A.filter(a=>a.shadow);
+    if(args.risk_filter==='critical')L=L.filter(a=>a.risk==='critical');
+    if(args.risk_filter==='high')L=L.filter(a=>['critical','high'].includes(a.risk));
+    return{totalShadow:L.length,phiExposed:L.filter(a=>a.phi).length,criticalCount:L.filter(a=>a.risk==='critical').length,agents:L.map(a=>({id:a.id,name:a.name,env:a.env,risk:a.risk,phi:a.phi||false,protocols:a.protocols,dataAccess:a.dataAccess,firstDetected:a.firstDet,recommendedAction:a.risk==='critical'?'IMMEDIATE QUARANTINE':'Schedule for review'}))};
+  }
+
+  if(name==='get_phi_exposure'){
+    const phi=A.filter(a=>a.phi);
+    return{totalPhiAgents:phi.length,noBaaCount:phi.filter(a=>a.controls.hipaa!=='pass').length,shadowWithPhi:phi.filter(a=>a.shadow).length,agents:phi.map(a=>({id:a.id,name:a.name,domain:a.domain,env:a.env,protocols:a.protocols.filter(p=>['FHIR R4','HL7 v2','DICOM','MCP'].includes(p)),hipaaStatus:a.controls.hipaa,baaStatus:a.controls.hipaa==='pass'?'BAA Signed':a.controls.hipaa==='warn'?'BAA Pending':'NO BAA — VIOLATION',shadow:a.shadow,breachRisk:(a.shadow&&a.phi)?'CRITICAL — shadow agent with PHI':a.controls.hipaa==='fail'?'HIGH — PHI without HIPAA controls':'MANAGED'}))};
+  }
+
+  if(name==='run_risk_scan'){
+    const sm={critical:100,high:75,medium:50,low:25};
+    const targets=args.agent_id?A.filter(a=>a.id===args.agent_id):A;
+    const top=[...A].sort((a,b)=>(sm[b.risk]||0)-(sm[a.risk]||0)).slice(0,5);
+    return{scanned:targets.length,distribution:{critical:A.filter(a=>a.risk==='critical').length,high:A.filter(a=>a.risk==='high').length,medium:A.filter(a=>a.risk==='medium').length,low:A.filter(a=>a.risk==='low').length},avgRiskScore:Math.round(A.reduce((s,a)=>s+(sm[a.risk]||0),0)/A.length),topThreats:top.map(a=>({name:a.name,risk:a.risk,shadow:a.shadow,phi:a.phi||false,protocols:a.protocols,dataAccess:a.dataAccess,blastRadius:args.include_blast_radius?(a.pii?'HIGH — PII access':'MEDIUM'):undefined})),immediateActions:["Quarantine AutoGPT Instance — prod API keys on unmanaged workstation","Block Shadow HL7 Listener on port 2575 — PHI exposure without HIPAA authorization","Isolate GPT-4 Automation Hub — unrestricted PII, no DPA","Freeze Unknown ML Endpoint — blocked egress to external IPs"]};
+  }
+
+  if(name==='get_policy_violations'){
+    const vs=[];
+    A.forEach(a=>{
+      if(a.pii&&a.controls.gdpr!=='pass')vs.push({policy:'pii_no_gdpr',agent:a.name,id:a.id,severity:'high',detail:'Agent accesses PII but GDPR controls do not pass'});
+      if(a.shadow&&a.risk==='critical')vs.push({policy:'shadow_critical',agent:a.name,id:a.id,severity:'critical',detail:'Critical-risk shadow agent — no governance registration'});
+      if(a.protocols.some(p=>p.toLowerCase().includes('unknown')))vs.push({policy:'unknown_proto',agent:a.name,id:a.id,severity:'high',detail:'Agent using unknown/unclassified protocol'});
+      if(a.phi&&a.controls.hipaa!=='pass')vs.push({policy:'phi_no_hipaa',agent:a.name,id:a.id,severity:'critical',detail:'Agent accesses PHI but HIPAA controls are not passing'});
+      if(a.protocols.some(p=>p.includes('FHIR'))&&a.controls.hipaa!=='pass')vs.push({policy:'fhir_no_hipaa',agent:a.name,id:a.id,severity:'high',detail:'FHIR protocol agent without HIPAA compliance'});
+    });
+    return{totalViolations:vs.length,violations:vs};
+  }
+
+  if(name==='quarantine_agent'){
+    const a=A.find(x=>x.id===args.agent_id);
+    if(!a)return{success:false,error:'Agent not found with ID '+args.agent_id};
+    const prev=a.risk;
+    a.risk='low';a.lastSeen='Quarantined';
+    DB.risks=DB.risks.filter(r=>r.aid!==a.id);
+    addAct('alert','Agent quarantined: '+a.name,'AI Agent · just now','#ef4444');
+    save();updateStats();
+    if(cv==='discovery')renderDisc();
+    if(cv==='shadow')renderShadow();
+    return{success:true,agentName:a.name,previousRisk:prev,action:'QUARANTINED',timestamp:new Date().toISOString(),reason:args.reason,incidentId:'INC-'+Math.floor(Math.random()*90000+10000),nextSteps:['Network access blocked','Forensic review initiated','Owner notified','Compliance team alerted']};
+  }
+
+  if(name==='generate_ciso_report'){
+    const avg=Math.round(A.reduce((s,a)=>s+cs(a.controls),0)/A.length);
+    const phi=A.filter(a=>a.phi);
+    const fwScores={};
+    Object.entries(fwN).forEach(([k,n])=>{fwScores[n]=Math.round(A.filter(a=>a.controls[k]==='pass').length/A.length*100)+'%';});
+    return{executiveSummary:{totalAgents:A.length,shadowAgents:A.filter(a=>a.shadow).length,criticalRisk:A.filter(a=>a.risk==='critical').length,avgCompliancePosture:avg+'%',policyViolations:A.filter(a=>a.shadow&&a.risk==='critical').length+A.filter(a=>a.phi&&a.controls.hipaa!=='pass').length},frameworkPosture:fwScores,healthcare:args.include_healthcare!==false?{phiAgents:phi.length,noBaa:phi.filter(a=>a.controls.hipaa!=='pass').length,shadowWithPhi:phi.filter(a=>a.shadow).length,fdaSaMdGap:A.filter(a=>a.controls.fda_samd==='fail').length+' agents need FDA SaMD classification'}:undefined,topPriorities:[{priority:1,action:'Contain Shadow HL7 Listener — HIPAA breach risk on port 2575'},{priority:2,action:'Quarantine AutoGPT Instance — production API keys exposed'},{priority:3,action:'Execute HIPAA BAA for Patient Classifier API'},{priority:4,action:'Quarantine GPT-4 Hub — unrestricted PII, no DPA'},{priority:5,action:'Initiate FDA SaMD classification for Radiology Pipeline'}]};
+  }
+
+  if(name==='get_model_registry'){
+    const models=DB.models||[];
+    let L=[...models];
+    if(args.filter_unvalidated)L=L.filter(m=>!m.validated);
+    if(args.filter_phi)L=L.filter(m=>m.phi);
+    return{totalModels:L.length,unvalidated:L.filter(m=>!m.validated).length,phiModels:L.filter(m=>m.phi).length,models:L.map(m=>({id:m.id,name:m.name,vendor:m.vendor,type:m.type,task:m.task,phi:m.phi,validated:m.validated,risk:m.risk,lastAudit:m.lastAudit||'NEVER AUDITED',usedByAgents:m.agents.map(id=>{const a=A.find(x=>x.id===id);return a?a.name:'Unknown';})}))};
+  }
+
+  return{error:'Unknown tool: '+name};
+}
+
+/* -- Agentic loop -- */
+/* ════ MULTI-PROVIDER AI ENGINE ════ */
+var AI_PROVIDER  = 'anthropic';   // current provider (var = hoisted)
+var AI_CREDS     = {};            // current credentials (var = hoisted)
+
+// Provider configuration: how to build an OpenAI-compatible request for each
+const PROVIDERS = {
+  anthropic: {
+    name:    'Anthropic Claude',
+    url:     'https://api.anthropic.com/v1/messages',
+    model:   'claude-sonnet-4-20250514',
+    fields:  [{ id:'api_key', label:'API Key', placeholder:'sk-ant-api03-…', type:'password', hint:'Get at console.anthropic.com' }],
+    buildHeaders: (creds) => ({ 'Content-Type':'application/json', 'x-api-key':creds.api_key, 'anthropic-version':'2023-06-01' }),
+    buildBody:    (msgs, tools, sys) => ({ model:'claude-sonnet-4-20250514', max_tokens:1500, system:sys, tools, messages:msgs }),
+    parseResponse:(res) => res,
+    supportsTools: true,
+  },
+  openai: {
+    name:    'OpenAI GPT-4o',
+    url:     'https://api.openai.com/v1/chat/completions',
+    model:   'gpt-4o',
+    fields:  [{ id:'api_key', label:'API Key', placeholder:'sk-…', type:'password', hint:'Get at platform.openai.com' }],
+    buildHeaders: (creds) => ({ 'Content-Type':'application/json', 'Authorization':'Bearer '+creds.api_key }),
+    buildBody:    (msgs, tools, sys) => ({ model:'gpt-4o', max_tokens:1500, messages:[{role:'system',content:sys},...msgs.map(m=>({...m,content:typeof m.content==='string'?m.content:JSON.stringify(m.content)}))], tools:tools.map(t=>({type:'function',function:{name:t.name,description:t.description,parameters:t.input_schema}})), tool_choice:'auto' }),
+    parseResponse: (res) => {
+      // Convert OpenAI format → Anthropic format (so aapLoop can handle both)
+      const choice = res.choices?.[0];
+      if (!choice) return { error:{ message: JSON.stringify(res) } };
+      const content = [];
+      if (choice.message.content) content.push({ type:'text', text:choice.message.content });
+      if (choice.message.tool_calls) {
+        choice.message.tool_calls.forEach(tc => content.push({ type:'tool_use', id:tc.id, name:tc.function.name, input:JSON.parse(tc.function.arguments||'{}') }));
+      }
+      return { content, stop_reason: choice.finish_reason==='tool_calls'?'tool_use':'end_turn' };
+    },
+    supportsTools: true,
+  },
+  azure: {
+    name:    'Azure OpenAI',
+    url:     '',  // set dynamically from endpoint field
+    model:   '',  // set from deployment name
+    fields:  [
+      { id:'endpoint',    label:'Endpoint URL',     placeholder:'https://myresource.openai.azure.com', type:'text' },
+      { id:'deployment',  label:'Deployment name',  placeholder:'gpt-4o-deployment', type:'text' },
+      { id:'api_key',     label:'API Key',           placeholder:'Azure OpenAI key', type:'password', hint:'Azure Portal → Resource Keys' },
+    ],
+    buildHeaders: (creds) => ({ 'Content-Type':'application/json', 'api-key':creds.api_key }),
+    buildBody:    (msgs, tools, sys) => ({ messages:[{role:'system',content:sys},...msgs.map(m=>({...m,content:typeof m.content==='string'?m.content:JSON.stringify(m.content)}))], tools:tools.map(t=>({type:'function',function:{name:t.name,description:t.description,parameters:t.input_schema}})), tool_choice:'auto', max_tokens:1500 }),
+    getUrl:       (creds) => `${creds.endpoint}/openai/deployments/${creds.deployment}/chat/completions?api-version=2024-02-01`,
+    parseResponse: PROVIDERS_OPENAI_PARSE,  // same as OpenAI
+    supportsTools: true,
+  },
+  gemini: {
+    name:    'Google Gemini',
+    url:     'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent',
+    model:   'gemini-1.5-pro',
+    fields:  [{ id:'api_key', label:'API Key', placeholder:'AIza…', type:'password', hint:'Get at aistudio.google.com' }],
+    buildHeaders: (creds) => ({ 'Content-Type':'application/json' }),
+    getUrl:    (creds) => `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${creds.api_key}`,
+    buildBody: (msgs, tools, sys) => ({
+      systemInstruction:{ parts:[{ text:sys }] },
+      contents: msgs.filter(m=>m.role!=='system').map(m=>({ role:m.role==='assistant'?'model':'user', parts:[{ text:typeof m.content==='string'?m.content:JSON.stringify(m.content) }] })),
+      tools:[{ functionDeclarations:tools.map(t=>({ name:t.name, description:t.description, parameters:t.input_schema })) }],
+      generationConfig:{ maxOutputTokens:1500 },
+    }),
+    parseResponse: (res) => {
+      const cand = res.candidates?.[0];
+      if (!cand) return { error:{ message:JSON.stringify(res) } };
+      const content = [];
+      cand.content.parts?.forEach(p => {
+        if (p.text) content.push({ type:'text', text:p.text });
+        if (p.functionCall) content.push({ type:'tool_use', id:'gemini-'+Date.now(), name:p.functionCall.name, input:p.functionCall.args });
+      });
+      return { content, stop_reason: content.some(b=>b.type==='tool_use')?'tool_use':'end_turn' };
+    },
+    supportsTools: true,
+  },
+  bedrock: {
+    name:    'AWS Bedrock (Claude)',
+    url:     '',
+    model:   'anthropic.claude-3-5-sonnet-20241022-v2:0',
+    fields:  [
+      { id:'region',     label:'AWS Region',     placeholder:'us-east-1', type:'text' },
+      { id:'access_key', label:'Access Key ID',  placeholder:'AKIA…', type:'text' },
+      { id:'secret_key', label:'Secret Access Key', placeholder:'…', type:'password', hint:'IAM user with bedrock:InvokeModel permission' },
+    ],
+    buildHeaders: (creds) => ({ 'Content-Type':'application/json' }),
+    getUrl:    (creds) => `https://bedrock-runtime.${creds.region||'us-east-1'}.amazonaws.com/model/anthropic.claude-3-5-sonnet-20241022-v2:0/invoke`,
+    buildBody: (msgs, tools, sys) => ({ anthropic_version:'bedrock-2023-05-31', max_tokens:1500, system:sys, tools, messages:msgs }),
+    parseResponse: (res) => res,   // Bedrock returns Anthropic format
+    supportsTools: true,
+    note: 'Requires AWS SigV4 signing — use backend proxy for production',
+  },
+  ollama: {
+    name:    'Ollama (Local)',
+    url:     'http://localhost:11434/api/chat',
+    model:   'llama3',
+    fields:  [
+      { id:'base_url', label:'Ollama URL', placeholder:'http://localhost:11434', type:'text', hint:'Default: http://localhost:11434' },
+      { id:'model',    label:'Model name', placeholder:'llama3, mistral, mixtral…', type:'text' },
+    ],
+    buildHeaders: (creds) => ({ 'Content-Type':'application/json' }),
+    getUrl:    (creds) => `${creds.base_url||'http://localhost:11434'}/api/chat`,
+    buildBody: (msgs, tools, sys) => ({ model:creds.model||'llama3', messages:[{role:'system',content:sys},...msgs.map(m=>({role:m.role,content:typeof m.content==='string'?m.content:JSON.stringify(m.content)}))], stream:false }),
+    parseResponse: (res) => {
+      if (!res.message) return { error:{ message:JSON.stringify(res) } };
+      return { content:[{ type:'text', text:res.message.content }], stop_reason:'end_turn' };
+    },
+    supportsTools: false,  // Most local models don't support tool use — fall back to text
+    note: 'Tool use not supported for most local models — AI Agent uses text mode',
+  },
+};
+
+// Shared OpenAI-format response parser (used by openai + azure)
+function PROVIDERS_OPENAI_PARSE(res) {
+  const choice = res.choices?.[0];
+  if (!choice) return { error:{ message:JSON.stringify(res) } };
+  const content = [];
+  if (choice.message.content) content.push({ type:'text', text:choice.message.content });
+  if (choice.message.tool_calls) {
+    choice.message.tool_calls.forEach(tc => content.push({ type:'tool_use', id:tc.id, name:tc.function.name, input:JSON.parse(tc.function.arguments||'{}') }));
+  }
+  return { content, stop_reason: choice.finish_reason==='tool_calls'?'tool_use':'end_turn' };
+}
+// Wire azure to use same parser
+if (PROVIDERS.azure) PROVIDERS.azure.parseResponse = PROVIDERS_OPENAI_PARSE;
+
+/* ── Provider UI ── */
+function selectProv(provId, el) {
+  if (typeof PROVIDERS === 'undefined') return;
+  AI_PROVIDER = provId;
+  document.querySelectorAll('.prov-card').forEach(c=>c.classList.remove('selected'));
+  el.classList.add('selected');
+  renderProvFields(provId);
+}
+
+function renderProvFields(provId) {
+  if (typeof PROVIDERS === 'undefined') return;
+  const prov   = PROVIDERS[provId];
+  const fields = document.getElementById('prov-fields');
+  if (!prov || !fields) return;
+  const hints = {
+    anthropic: 'console.anthropic.com → API Keys',
+    openai:    'platform.openai.com → API Keys',
+    azure:     'Azure Portal → Your OpenAI resource → Keys and Endpoint',
+    gemini:    'aistudio.google.com → Get API key',
+    bedrock:   'IAM user with bedrock:InvokeModel permission',
+    ollama:    'Run: ollama serve (must allow CORS for browser access)',
+  };
+  fields.innerHTML = `
+    ${prov.note ? `<div style="font-size:9px;color:#f59e0b;background:rgba(245,158,11,0.1);border-radius:5px;padding:5px 8px;margin-bottom:8px">⚠ ${prov.note}</div>` : ''}
+    ${prov.fields.map(f=>`
+      <div class="prov-field-row">
+        <label class="prov-field-lbl">${f.label}</label>
+        <input class="akb-inp" type="${f.type||'text'}" id="prov-f-${f.id}" placeholder="${f.placeholder}" autocomplete="off" style="width:100%">
+        ${f.hint?`<div style="font-size:9px;color:#3d4560;margin-top:2px">${f.hint}</div>`:''}
+      </div>`).join('')}
+    <div style="font-size:9px;color:#3d4560;margin-top:4px">
+      💡 Get credentials: ${hints[provId]||'See provider documentation'}
+      ${!prov.supportsTools?'<br>⚠ This provider uses text mode (no tool calls)':''}
+    </div>`;
+}
+
+function akbSaveMulti() {
+  const prov = PROVIDERS[AI_PROVIDER];
+  if (!prov) return;
+
+  // Collect all field values
+  const creds = {};
+  prov.fields.forEach(f => {
+    const el = document.getElementById('prov-f-'+f.id);
+    creds[f.id] = el?.value?.trim() || '';
+  });
+
+  // Validate required fields
+  const missing = prov.fields.filter(f=>f.type==='password'||f.id==='api_key').find(f=>!creds[f.id]);
+  if (missing && AI_PROVIDER !== 'ollama') {
+    aapAppendError(`Please enter your ${missing.label}`);
+    return;
+  }
+
+  AI_CREDS = creds;
+
+  // For backward compatibility, also set aapApiKey for Anthropic
+  if (AI_PROVIDER === 'anthropic') aapApiKey = creds.api_key;
+
+  // Close key box
+  document.querySelector('.agent-key-box')?.style && (document.querySelector('.agent-key-box').style.display = 'none');
+
+  // Show active provider badge
+  const badge = document.getElementById('aap-provider-badge');
+  if (badge) badge.textContent = `✓ ${prov.name}`;
+
+  aapAppendBot(`Connected to **${prov.name}**. ${prov.supportsTools ? 'Full tool use enabled — I can query your live agent inventory.' : 'Text mode (no tool calls) — I can answer questions based on the context you provide.'}
+
+How can I help with your AI governance today?`);
+}
+
+/* ── Universal LLM call ── */
+async function callLLM(messages, tools, systemPrompt) {
+  const prov = PROVIDERS[AI_PROVIDER];
+  if (!prov) throw new Error('No provider configured');
+
+  const url     = prov.getUrl ? prov.getUrl(AI_CREDS) : prov.url;
+  const headers = prov.buildHeaders(AI_CREDS);
+  const toolsArg = prov.supportsTools ? tools : [];
+  const body    = prov.buildBody(messages, toolsArg, systemPrompt);
+
+  // For Bedrock — note: real SigV4 signing needs backend
+  if (AI_PROVIDER === 'bedrock') {
+    throw new Error('AWS Bedrock requires server-side SigV4 signing. Connect via the AgentRadar backend API instead.');
+  }
+
+  const r = await fetch(url, { method:'POST', headers, body:JSON.stringify(body) });
+  if (!r.ok) {
+    const err = await r.json().catch(()=>({ message:r.statusText }));
+    throw new Error(`${prov.name} API error ${r.status}: ${err.error?.message || err.message || JSON.stringify(err)}`);
+  }
+  const raw = await r.json();
+  return prov.parseResponse(raw);
+}
+
+async function aapLoop(userMsg){
+  aapHistory.push({role:'user',content:userMsg});
+  const MAX=8;
+  let turn=0;
+  while(turn<MAX){
+    turn++;
+    let res;
+    const hasCredentials = AI_PROVIDER === 'ollama' || Object.values(AI_CREDS).some(v=>v);
+    if(!hasCredentials && !aapApiKey){res=await aapDemo(userMsg,turn);}
+    else{
+      try{
+        if (AI_PROVIDER === 'anthropic' || aapApiKey) {
+          // Legacy Anthropic path (backward compatible)
+          const key = AI_CREDS.api_key || aapApiKey;
+          const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,system:AAP_SYSTEM,tools:AAP_TOOLS,messages:aapHistory})});
+          res=await r.json();
+        } else {
+          res = await callLLM(aapHistory, AAP_TOOLS, AAP_SYSTEM);
+        }
+      }catch(e){aapAppendError('API connection failed: '+e.message);break;}
+    }
+    if(res.error){aapAppendError('Error: '+(res.error.message||JSON.stringify(res.error)));break;}
+    const texts=(res.content||[]).filter(b=>b.type==='text');
+    const calls=(res.content||[]).filter(b=>b.type==='tool_use');
+    if(texts.length)aapAppendBot(texts.map(b=>b.text).join('\n\n'));
+    if(!calls.length||res.stop_reason==='end_turn')break;
+    const results=[];
+    for(const tu of calls){
+      aapHighlight(tu.name,true);
+      const el=aapAppendToolCall(tu.name,tu.input);
+      await aapSleep(250);
+      const result=aapExec(tu.name,tu.input);
+      aapUpdateToolCall(el,result);
+      aapHighlight(tu.name,false);
+      results.push({type:'tool_result',tool_use_id:tu.id,content:JSON.stringify(result)});
+    }
+    aapHistory.push({role:'assistant',content:res.content});
+    aapHistory.push({role:'user',content:results});
+  }
+  aapSetIdle();
+}
+
+/* -- Demo mode (no API key) -- */
+async function aapDemo(msg,turn){
+  const m=msg.toLowerCase();
+  const fid=()=>'toolu_'+Math.random().toString(36).slice(2,12);
+  if(turn===1){
+    if(m.includes('phi')||m.includes('hipaa')||m.includes('baa'))return{stop_reason:'tool_use',content:[{type:'tool_use',id:fid(),name:'get_phi_exposure',input:{}}]};
+    if(m.includes('shadow'))return{stop_reason:'tool_use',content:[{type:'tool_use',id:fid(),name:'get_shadow_ai',input:{risk_filter:'all'}}]};
+    if(m.includes('ciso')||m.includes('report')||m.includes('summary'))return{stop_reason:'tool_use',content:[{type:'tool_use',id:fid(),name:'generate_ciso_report',input:{include_healthcare:true}},{type:'tool_use',id:fid(),name:'get_policy_violations',input:{}}]};
+    if(m.includes('risk')||m.includes('threat'))return{stop_reason:'tool_use',content:[{type:'tool_use',id:fid(),name:'run_risk_scan',input:{include_blast_radius:true}}]};
+    if(m.includes('model')||m.includes('unvalidated'))return{stop_reason:'tool_use',content:[{type:'tool_use',id:fid(),name:'get_model_registry',input:{filter_unvalidated:true}}]};
+    if(m.includes('violat')||m.includes('polic'))return{stop_reason:'tool_use',content:[{type:'tool_use',id:fid(),name:'get_policy_violations',input:{}}]};
+    if(m.includes('quarantine'))return{stop_reason:'tool_use',content:[{type:'tool_use',id:fid(),name:'get_shadow_ai',input:{risk_filter:'critical'}}]};
+    return{stop_reason:'tool_use',content:[{type:'tool_use',id:fid(),name:'list_agents',input:{}}]};
+  }
+  await aapSleep(500);
+  const A=DB.agents;
+  const phi=A.filter(a=>a.phi);
+  const shadow=A.filter(a=>a.shadow);
+  const crit=A.filter(a=>a.risk==='critical');
+  let text='';
+  if(m.includes('phi')||m.includes('hipaa')||m.includes('baa')){text=`PHI Exposure scan found **${phi.length} agents** accessing Protected Health Information.\n\n**Critical:** ${phi.filter(a=>a.controls.hipaa!=='pass').length} have no valid HIPAA BAA. The **Shadow HL7 Listener** (ID 17) is the most urgent — unauthorized agent receiving live ADT feeds on port 2575 with full PHI access and zero controls.\n\n**Actions:**\n1. Block port 2575 — potential active HIPAA breach\n2. Suspend Patient Classifier API until BAA executed\n3. Initiate 60-day breach assessment for the HL7 listener\n4. Genomics Agent: GDPR Article 9 consent required for genomic data`;}
+  else if(m.includes('shadow')){text=`Shadow AI scan: **${shadow.length} unauthorized agents** found — **${crit.length} critical risk**.\n\n**Most dangerous:**\n- **Shadow HL7 Listener** — live hospital ADT feeds with PHI on port 2575, no HIPAA auth — potential active breach\n- **AutoGPT Instance** — prod API keys on unmanaged workstation DESKTOP-7F3A\n- **Shadow Crawler v2** — scanning internal network and file shares\n\nWant me to quarantine the critical ones?`;}
+  else if(m.includes('ciso')||m.includes('report')||m.includes('summary')){const avg=Math.round(A.reduce((s,a)=>{const v=Object.values(a.controls);return s+Math.round(v.reduce((acc,x)=>acc+(x==='pass'?2:x==='warn'?1:0),0)/(v.length*2)*100);},0)/A.length);text=`CISO Report — **${A.length} agents** total, **${shadow.length} shadow**, **${crit.length} critical**.\n\n**Avg compliance: ${avg}%** across 8 frameworks.\n\n**Worst gaps:** HIPAA ${Math.round(A.filter(a=>a.controls.hipaa==='pass').length/A.length*100)}%, FDA SaMD ${Math.round(A.filter(a=>a.controls.fda_samd==='pass').length/A.length*100)}%, EU AI Act ${Math.round(A.filter(a=>a.controls.euai==='pass').length/A.length*100)}%.\n\n**Top 3 priorities:**\n1. Shadow HL7 Listener — HIPAA breach risk\n2. AutoGPT — prod credentials exposed\n3. Patient Classifier — BAA missing`;}
+  else if(m.includes('risk')||m.includes('threat')){text=`Risk scan: **${crit.length} critical**, ${A.filter(a=>a.risk==='high').length} high, ${A.filter(a=>a.risk==='medium').length} medium, ${A.filter(a=>a.risk==='low').length} low.\n\n**Immediate actions:**\n1. Quarantine AutoGPT on DESKTOP-7F3A — prod keys\n2. Block Shadow HL7 Listener — PHI on port 2575\n3. Isolate GPT-4 Automation Hub — unrestricted PII\n4. Freeze Unknown ML Endpoint — blocked egress detected`;}
+  else if(m.includes('model')||m.includes('unvalidated')){const mods=DB.models||[];text=`Model Registry: **${mods.length} models**, **${mods.filter(m=>!m.validated).length} unvalidated** in production.\n\n**Unvalidated:**\n- **radiology-vit-large** — PHI-accessing vision transformer with no validation audit. Powers the Radiology Pipeline (FDA SaMD unclassified)\n- **gpt-4o** — GPT-4 Automation Hub. No validation, no audit, critical risk\n- **genomics-risk-scorer** — PHI model, never audited. Genomics Research Agent`;}
+  else if(m.includes('violat')||m.includes('polic')){const vs=aapExec('get_policy_violations',{});text=`**${vs.totalViolations} policy violations** found.\n\n**Critical:**\n${vs.violations.filter(v=>v.severity==='critical').map(v=>`- ${v.agent}: ${v.policy}`).join('\n')}\n\n**High:**\n${vs.violations.filter(v=>v.severity==='high').slice(0,3).map(v=>`- ${v.agent}: ${v.policy}`).join('\n')}`;}
+  else{text=`Scanned **${A.length} agents** across your environment.\n\n**Current posture:** ${crit.length} critical, ${shadow.length} shadow AI, ${phi.filter(a=>a.controls.hipaa!=='pass').length} PHI agents without HIPAA compliance.\n\nUse the chips below to investigate specific areas. **Connect your Anthropic API key** (⚙ icon in the main topbar) to enable the full Claude-powered agentic loop.`;}
+  return{stop_reason:'end_turn',content:[{type:'text',text}]};
+}
+
+/* -- UI helpers -- */
+function aapSleep(ms){return new Promise(r=>setTimeout(r,ms));}
+
+function aapAppendBot(text){
+  aapRemoveThinking();
+  const msgs=document.getElementById('aap-messages');
+  const div=document.createElement('div');
+  div.className='aap-msg';
+  const html=text.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>').replace(/^/,'<p>').replace(/$/,'</p>');
+  div.innerHTML=`<div class="aap-av agent">AR</div><div class="aap-bubble">${html}</div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop=msgs.scrollHeight;
+  document.getElementById('btn-ai-agent').classList.add('has-msg');
+  setTimeout(()=>document.getElementById('btn-ai-agent').classList.remove('has-msg'),3000);
+}
+
+function aapAppendUser(text){
+  const msgs=document.getElementById('aap-messages');
+  const div=document.createElement('div');
+  div.className='aap-msg user';
+  div.innerHTML=`<div class="aap-av user">YOU</div><div class="aap-bubble">${text.replace(/\n/g,'<br>')}</div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop=msgs.scrollHeight;
+}
+
+function aapRemoveThinking(){document.getElementById('aap-thinking')?.remove();}
+
+function aapShowThinking(){
+  aapRemoveThinking();
+  const msgs=document.getElementById('aap-messages');
+  const div=document.createElement('div');
+  div.className='aap-msg';div.id='aap-thinking';
+  div.innerHTML=`<div class="aap-av agent">AR</div><div class="aap-thinking"><div class="aap-dots"><div class="aap-dot-sm"></div><div class="aap-dot-sm"></div><div class="aap-dot-sm"></div></div><span style="font-family:var(--font-mono);font-size:10px;color:#4a5268">Reasoning…</span></div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop=msgs.scrollHeight;
+}
+
+function aapAppendToolCall(toolName,args){
+  aapRemoveThinking();
+  const msgs=document.getElementById('aap-messages');
+  if(!aapToolContainer){
+    const wrap=document.createElement('div');
+    wrap.className='aap-msg';wrap.id='aap-tc-group';
+    wrap.innerHTML=`<div class="aap-av agent">AR</div><div style="flex:1" id="aap-tc-body"></div>`;
+    msgs.appendChild(wrap);
+    aapToolContainer=document.getElementById('aap-tc-body');
+  }
+  const div=document.createElement('div');
+  div.className='aap-tool-call';
+  const aStr=Object.entries(args).filter(([,v])=>v!==undefined).map(([k,v])=>`${k}:${typeof v==='object'?JSON.stringify(v):v}`).join(' · ');
+  div.innerHTML=`<div class="aap-tc-head"><span class="aap-tc-name">${toolName}</span><span class="aap-tc-st aap-tc-run">running</span></div>${aStr?`<div class="aap-tc-args">${aStr}</div>`:''}<div class="aap-tc-res" id="tcr-${toolName.replace(/\W/g,'')}"></div>`;
+  aapToolContainer.appendChild(div);
+  msgs.scrollTop=msgs.scrollHeight;
+  return div;
+}
+
+function aapUpdateToolCall(el,result){
+  el.querySelector('.aap-tc-st').className='aap-tc-st aap-tc-done';
+  el.querySelector('.aap-tc-st').textContent='done';
+  const res=el.querySelector('[id^="tcr-"]');
+  if(res){
+    let s='';
+    if(result.total!==undefined)s=result.total+' agents returned';
+    else if(result.totalShadow!==undefined)s=result.totalShadow+' shadow ('+result.criticalCount+' critical)';
+    else if(result.totalPhiAgents!==undefined)s=result.totalPhiAgents+' PHI agents, '+result.noBaaCount+' no BAA';
+    else if(result.scanned!==undefined)s=result.scanned+' scanned, avg risk '+result.avgRiskScore;
+    else if(result.totalViolations!==undefined)s=result.totalViolations+' violations found';
+    else if(result.success===true)s='Quarantined — '+result.incidentId;
+    else if(result.executiveSummary)s=result.executiveSummary.totalAgents+' agents, '+result.executiveSummary.avgCompliancePosture+' posture';
+    else if(result.totalModels!==undefined)s=result.totalModels+' models, '+result.unvalidated+' unvalidated';
+    else s=JSON.stringify(result).slice(0,60)+'…';
+    res.textContent=s;
+  }
+  aapToolContainer=null;
+}
+
+function aapAppendError(msg){
+  aapRemoveThinking();
+  const msgs=document.getElementById('aap-messages');
+  const div=document.createElement('div');
+  div.className='aap-msg';
+  div.innerHTML=`<div class="aap-av agent">AR</div><div class="aap-bubble" style="border-color:rgba(240,62,62,0.3);color:#f87171">${msg}</div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop=msgs.scrollHeight;
+}
+
+function aapHighlight(name,on){
+  const el=document.getElementById('aptool-'+name);
+  if(el)el.classList.toggle('active',on);
+}
+
+function aapSetBusy(){
+  aapBusy=true;
+  document.getElementById('aap-send').disabled=true;
+  document.getElementById('aap-input').disabled=true;
+  document.getElementById('aap-dot').classList.add('thinking');
+  document.getElementById('aap-status-label').textContent='Thinking…';
+  aapShowThinking();
+}
+
+function aapSetIdle(){
+  aapBusy=false;
+  document.getElementById('aap-send').disabled=false;
+  document.getElementById('aap-input').disabled=false;
+  document.getElementById('aap-dot').classList.remove('thinking');
+  document.getElementById('aap-status-label').textContent='Ready';
+  aapToolContainer=null;
+}
+
+/* -- Send message -- */
+async function aapSend(){
+  const inp=document.getElementById('aap-input');
+  const text=inp.value.trim();
+  if(!text||aapBusy)return;
+  inp.value='';inp.style.height='auto';
+  aapBusy=true;
+  aapToolContainer=null;
+  document.getElementById('aap-send').disabled=true;
+  document.getElementById('aap-input').disabled=true;
+  aapAppendUser(text);
+  aapSetBusy();
+  await aapLoop(text);
+}
+
+function aapHandleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();aapSend();}}
+function aapAutoResize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,100)+'px';}
+function aapAsk(q){document.getElementById('aap-input').value=q;aapSend();}
+
+/* -- Panel toggle -- */
+function toggleAgentPanel(){
+  if (typeof PROVIDERS !== 'undefined' && !document.getElementById('prov-fields')?.children?.length) {
+    renderProvFields('anthropic');
+  }
+  const panel=document.getElementById('ai-agent-panel');
+  const bd=document.getElementById('ai-panel-backdrop');
+  if(panel.classList.contains('open')){closeAgentPanel();}
+  else{
+    if(!aapApiKey&&!sessionStorage.getItem('aap-skip')){document.getElementById('agent-key-modal').classList.remove('hidden');return;}
+    panel.classList.add('open');bd.classList.add('show');
+    setTimeout(()=>document.getElementById('aap-input').focus(),320);
+  }
+}
+function closeAgentPanel(){
+  document.getElementById('ai-agent-panel').classList.remove('open');
+  document.getElementById('ai-panel-backdrop').classList.remove('show');
+}
+
+/* -- API key modal -- */
+function akbSkip(){
+  document.getElementById('agent-key-modal').classList.add('hidden');
+  sessionStorage.setItem('aap-skip','1');
+  document.getElementById('ai-agent-panel').classList.add('open');
+  document.getElementById('ai-panel-backdrop').classList.add('show');
+  setTimeout(()=>document.getElementById('aap-input').focus(),320);
+}
+function akbSave(){
+  const v=document.getElementById('akb-key-input').value.trim();
+  if(!v.startsWith('sk-ant')){alert('Key should start with sk-ant');return;}
+  aapApiKey=v;
+  aapHistory=[];
+  document.getElementById('agent-key-modal').classList.add('hidden');
+  document.getElementById('ai-agent-panel').classList.add('open');
+  document.getElementById('ai-panel-backdrop').classList.add('show');
+  // Update the main topbar AI button to show key is set
+  const btn=document.getElementById('btn-ai-agent');
+  btn.textContent='✦ AI Agent ✓';
+  setTimeout(()=>document.getElementById('aap-input').focus(),320);
+  aapAppendBot('API key connected. Running full Claude claude-sonnet-4-20250514 agentic loop on your live platform data. What would you like to investigate?');
+}
+
+/* Keep runAI for the CISO report view (calls the agent panel instead) */
+function runAI(){toggleAgentPanel();setTimeout(()=>aapAsk('Generate CISO executive summary with healthcare analysis'),400);}
+

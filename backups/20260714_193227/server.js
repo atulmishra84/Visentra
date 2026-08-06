@@ -73,6 +73,88 @@ function clearCache(pattern) {
 }
 
 
+// ── Safe error response (never leak stack/details in production) ──
+function safeError(e) {
+  if (process.env.NODE_ENV === 'production') return 'Internal server error';
+  return (e && e.message) ? e.message : 'Internal server error';
+}
+
+// ── Encrypt/decrypt credential objects stored as JSON ──
+function encryptCredsObj(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v == null) { out[k] = v; continue; }
+    if (typeof v === 'object') { out[k] = encryptCredsObj(v); continue; }
+    const s = String(v);
+    if (/secret|password|token|key|credential|sharedKey|apiKey|clientSecret|serviceAccount/i.test(k) && s && !s.startsWith('v1:') && s !== '***SAVED***') {
+      out[k] = encryptCred(s);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+function decryptCredsObj(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const out = Array.isArray(obj) ? [] : {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (typeof v === 'string' && v.startsWith('v1:')) out[k] = decryptCred(v);
+    else if (v && typeof v === 'object') out[k] = decryptCredsObj(v);
+    else out[k] = v;
+  }
+  return out;
+}
+
+// ── SSRF guard: https only, no credentials, no private IPs ──
+function assertSafeUrl(raw, opts = {}) {
+  if (!raw || typeof raw !== 'string') throw new Error('URL required');
+  let u;
+  try { u = new URL(raw); } catch { throw new Error('Invalid URL'); }
+  if (u.protocol !== 'https:') throw new Error('Only HTTPS URLs allowed');
+  if (u.username || u.password) throw new Error('URL credentials not allowed');
+  const host = u.hostname.toLowerCase();
+  if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal'))
+    throw new Error('Private/local hosts blocked');
+  if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.|::1$|fc|fd|fe80)/i.test(host))
+    throw new Error('Private IP ranges blocked');
+  if (opts.allowedHosts && opts.allowedHosts.length) {
+    const ok = opts.allowedHosts.some(h => host === h || host.endsWith('.' + h));
+    if (!ok) throw new Error('Host not in allowlist');
+  }
+  return u.toString().replace(/\/$/, '');
+}
+
+function assertGuid(val, label = 'id') {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(val||'')))
+    throw new Error(`Invalid ${label}`);
+  return String(val);
+}
+
+function assertFqdnLabel(val, label = 'fqdn') {
+  const s = String(val||'');
+  if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i.test(s) || s.length > 253)
+    throw new Error(`Invalid ${label}`);
+  if (/[\/\?\s@]/.test(s)) throw new Error(`Invalid ${label}`);
+  return s;
+}
+
+const AGENT_PATCHABLE_FIELDS = new Set([
+  'name','type','env','risk','shadow','phi','pii','hosted','quarantined',
+  'owner','controls','metadata','notes','protocols','detect','last_seen'
+]);
+
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '4h';
+function jwtExpiresMs() {
+  const m = String(JWT_EXPIRES_IN).match(/^(\d+)([smhd])$/i);
+  if (!m) return 4 * 60 * 60 * 1000;
+  const n = parseInt(m[1], 10);
+  const u = m[2].toLowerCase();
+  return n * ({ s:1000, m:60000, h:3600000, d:86400000 }[u] || 3600000);
+}
+
+
+
 const express     = require('express');
 const cookieParser = require('cookie-parser');
 const { z }       = require('zod');
@@ -231,10 +313,13 @@ async function loadSecrets() {
   if (!KV_URI) {
     // Local dev: read from env vars directly
     console.log('[secrets] KV_URI not set — using env vars (local dev mode)');
+    if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+      throw new Error('JWT_SECRET is required in production');
+    }
     return {
       dbPassword:    process.env.DB_PASSWORD     || 'localdev',
-      jwtSecret:     process.env.JWT_SECRET      || 'localdev-jwt-secret-change-in-prod',
-      encryptionKey: process.env.ENCRYPTION_KEY  || 'localdev-enc-key-32-chars-padded',
+      jwtSecret:     process.env.JWT_SECRET      || require('crypto').randomBytes(48).toString('hex'),
+      encryptionKey: process.env.ENCRYPTION_KEY  || process.env.JWT_SECRET || require('crypto').randomBytes(32).toString('hex'),
       redisPassword: process.env.REDIS_PASSWORD  || '',
     };
   }
@@ -289,37 +374,6 @@ function createRedis(password) {
 // ── Express app ───────────────────────────────────────────
 const app = express();
 
-
-// ── FIX CWE-918: SSRF protection — validate outbound URLs ────
-const SSRF_ALLOWED_HOSTS = new Set([
-  'management.azure.com',
-  'login.microsoftonline.com',
-  'graph.microsoft.com',
-  'api.securitycenter.microsoft.com',
-  'api.loganalytics.io',
-]);
-const SSRF_ALLOWED_PATTERNS = [
-  /^[a-zA-Z0-9-]+\.splunkcloud\.com$/,
-  /^[a-zA-Z0-9-]+\.splunk\.com$/,
-  /^[a-zA-Z0-9-]+\.siem\.microsoft\.com$/,
-  /^[a-zA-Z0-9-]+\.azure\.com$/,
-  /^[a-zA-Z0-9-]+\.cortex\.paloaltonetworks\.com$/,
-  /^[a-zA-Z0-9-]+\.xdr\.us\.paloaltonetworks\.com$/,
-];
-
-function validateOutboundUrl(urlStr, label) {
-  try {
-    const u = new URL(urlStr);
-    if (u.protocol !== 'https:') throw new Error(`${label}: Only HTTPS outbound connections allowed`);
-    if (SSRF_ALLOWED_HOSTS.has(u.hostname)) return urlStr;
-    if (SSRF_ALLOWED_PATTERNS.some(p => p.test(u.hostname))) return urlStr;
-    throw new Error(`${label}: Host '${u.hostname}' not in SSRF allowlist`);
-  } catch(e) {
-    if (e.message.includes('allowlist') || e.message.includes('HTTPS')) throw e;
-    throw new Error(`${label}: Invalid URL format`);
-  }
-}
-
 // ── H6: Redact sensitive fields before they reach any log or stored session ──
 function redactSecrets(obj) {
   const SENSITIVE = /secret|password|token|key|credential/i;
@@ -337,21 +391,29 @@ function redactSecrets(obj) {
 
 app.set('trust proxy', 1); // Trust NGINX ingress
 app.use(compression());
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'none'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://login.microsoftonline.com", "https://*.azure.com", "https://api.anthropic.com"],
+      fontSrc: ["'self'", "data:"],
+      frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
 const _allowedOrigins = (process.env.ALLOWED_ORIGINS || 'https://20.228.158.234,https://agentradar.idenaccess.com').split(',').map(o => o.trim());
 app.use(cors({
   origin: (origin, cb) => (!origin || _allowedOrigins.includes(origin)) ? cb(null, true) : cb(new Error('CORS: origin not allowed')),
   credentials: true,
 }));
 app.use(express.json({ limit: '2mb' }));
-
-// FIX: Belt-and-suspenders security headers at application layer
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  next();
-});
 app.use(cookieParser());
 
 // H5 FIX: CSRF protection — double-submit cookie pattern
@@ -400,7 +462,8 @@ app.use('/api/', (req, res, next) => {
       status: res.statusCode,
       duration: Date.now()-start+'ms',
       ip: req.ip,
-      user: req.user?.email || 'anonymous'
+      user: req.user?.email || 'anonymous',
+      body: req.body && Object.keys(req.body).length ? redactSecrets(req.body) : undefined,
     });
   });
   next();
@@ -535,7 +598,7 @@ app.post('/api/auth/login', rateLimitLogin, validate(schemas.login), async (req,
     const token = jwt.sign(
       { sub: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenant_id },
       jwtSecret,
-      { expiresIn: '8h' }
+      { expiresIn: JWT_EXPIRES_IN }
     );
 
     // Store session in Redis (15 min inactivity timeout)
@@ -546,7 +609,7 @@ app.post('/api/auth/login', rateLimitLogin, validate(schemas.login), async (req,
       httpOnly: true,
       secure:   true,
       sameSite: 'strict',
-      maxAge:   8 * 60 * 60 * 1000,
+      maxAge:   jwtExpiresMs(),
       path:     '/',
     });
     res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
@@ -574,31 +637,23 @@ app.post('/api/auth/logout', auth, async (req, res) => {
 // ── Agents CRUD ───────────────────────────────────────────
 app.get('/api/agents', auth, asyncHandler(async (req, res) => {
   try {
+    const tId = req.user.tenantId || req.tenantId || '00000000-0000-0000-0000-000000000001';
     const { rows } = await db.query(
       `SELECT id, name, type, env, risk, shadow, phi, pii, hosted, quarantined,
               last_seen, owner, controls, protocols, first_detected, metadata,
               COALESCE(metadata->>'detect', metadata->>'notes', 'manual') as detect
-       FROM agents ORDER BY risk DESC, last_seen DESC LIMIT 500`
+       FROM agents WHERE tenant_id = $1 OR tenant_id IS NULL
+       ORDER BY risk DESC, last_seen DESC LIMIT 500`,
+      [tId]
     );
     res.json(rows);
   } catch (e) {
-    res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message });
+    res.status(500).json({ error: safeError(e) });
   }
 }));
 
-app.post('/api/agents', auth, async (req, res, next) => {
-  const allowed = ['analyst','ciso','platform_admin'];
-  if (!req.user || !allowed.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-  next();
-}, validate(schemas.agent), async (req, res) => {
+app.post('/api/agents', auth, validate(schemas.agent), async (req, res) => {
   const a = req.body;
-  // Auto-detect PHI from keywords in name/notes/type
-  const PHI_KEYWORDS = ['ehr','phi','hipaa','patient','clinical','health record','epic','cerner','fhir','hl7','medical','diagnosis','prescription','lab result','radiology'];
-  const textToCheck = ((a.name||'') + ' ' + (a.notes||'') + ' ' + (a.type||'')).toLowerCase();
-  if (PHI_KEYWORDS.some(kw => textToCheck.includes(kw))) {
-    a.phi = true;
-    a.pii = true;
-  }
   try {
     const { rows } = await db.query(
       `INSERT INTO agents (id, name, type, env, risk, shadow, phi, pii, hosted,
@@ -614,50 +669,52 @@ app.post('/api/agents', auth, async (req, res, next) => {
     );
     res.json(rows[0]);
   } catch (e) {
-    res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message });
+    res.status(500).json({ error: safeError(e) });
   }
 });
 
 app.patch('/api/agents/:id', auth, async (req, res) => {
   const { id } = req.params;
-  const updates = req.body;
-
-  // FIX CWE-89: Strict allowlist of updatable fields — never interpolate user-supplied field names
-  const ALLOWED_FIELDS = ['name', 'notes', 'type', 'env', 'risk', 'shadow', 'phi', 'pii', 'protocols', 'detect', 'controls'];
-  const fields = Object.keys(updates).filter(k => ALLOWED_FIELDS.includes(k));
-  if (!fields.length) return res.status(400).json({ error: 'No valid fields to update' });
-
-  // Sanitize string values
-  fields.forEach(f => {
-    if (typeof updates[f] === 'string') {
-      updates[f] = updates[f].replace(/[<>"'`]/g, '').trim().substring(0, 1000);
-    }
-  });
+  const updates = req.body || {};
+  const fields  = Object.keys(updates).filter(k => AGENT_PATCHABLE_FIELDS.has(k));
+  const rejected = Object.keys(updates).filter(k => k !== 'id' && !AGENT_PATCHABLE_FIELDS.has(k));
+  if (rejected.length) return res.status(400).json({ error: 'Disallowed fields', rejected });
+  if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
 
   const sets   = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
-  const values = [id, ...fields.map(f => updates[f])];
+  const values = [id, ...fields.map(f => {
+    const v = updates[f];
+    return (f === 'controls' || f === 'metadata' || f === 'protocols') && typeof v === 'object'
+      ? JSON.stringify(v) : v;
+  })];
+  const tId = req.user.tenantId || req.tenantId || '00000000-0000-0000-0000-000000000001';
 
   try {
     const { rows } = await db.query(
-      `UPDATE agents SET ${sets}, last_seen = NOW() WHERE id = $1 RETURNING *`, values
+      `UPDATE agents SET ${sets}, last_seen = NOW() WHERE id = $1 AND (tenant_id = $${fields.length+2} OR tenant_id IS NULL) RETURNING *`,
+      [...values, tId]
     );
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
     res.json(rows[0]);
   } catch (e) {
-    res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message });
+    res.status(500).json({ error: safeError(e) });
   }
 });
 
 // ── Compliance results ────────────────────────────────────
 app.get('/api/compliance/:agentId', auth, async (req, res) => {
   try {
+    const tId = req.user.tenantId || req.tenantId || '00000000-0000-0000-0000-000000000001';
     const { rows } = await db.query(
-      'SELECT * FROM compliance_results WHERE agent_id = $1 ORDER BY assessed_at DESC',
-      [req.params.agentId]
+      `SELECT c.* FROM compliance_results c
+       INNER JOIN agents a ON a.id = c.agent_id
+       WHERE c.agent_id = $1 AND (a.tenant_id = $2 OR a.tenant_id IS NULL)
+       ORDER BY c.assessed_at DESC`,
+      [req.params.agentId, tId]
     );
     res.json(rows);
   } catch (e) {
-    res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message });
+    res.status(500).json({ error: safeError(e) });
   }
 });
 
@@ -672,7 +729,7 @@ app.get('/api/activity', auth, asyncHandler(async (req, res) => {
     );
     res.json(rows);
   } catch (e) {
-    res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message });
+    res.status(500).json({ error: safeError(e) });
   }
 }));
 
@@ -686,7 +743,7 @@ app.post('/api/activity', auth, async (req, res) => {
     );
     res.json(rows[0]);
   } catch (e) {
-    res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message });
+    res.status(500).json({ error: safeError(e) });
   }
 });
 
@@ -695,7 +752,7 @@ app.get('/api/risk-acceptances', auth, async (req, res) => {
   try {
     const { rows } = await db.query('SELECT * FROM risk_acceptances ORDER BY created_at DESC');
     res.json(rows);
-  } catch (e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch (e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 app.post('/api/risk-acceptances', auth, async (req, res) => {
@@ -707,7 +764,7 @@ app.post('/api/risk-acceptances', auth, async (req, res) => {
       [uuidv4(), agent_id, framework, justification, expires_at, req.user.sub]
     );
     res.json(rows[0]);
-  } catch (e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch (e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 // ── 404 ───────────────────────────────────────────────────
@@ -725,13 +782,32 @@ app.use('/api/', dbGuard);
 app.use('/api/', tenantMiddleware);
 
 // ── Admin audit log ───────────────────────────────────
-async function adminAuditLog(adminEmail, action, tenantId, resource, details, ip) {
+async function adminAuditLog(adminUserOrEmail, action, tenantId, resource, details, ip) {
   try {
+    const adminId = (adminUserOrEmail && typeof adminUserOrEmail === 'object')
+      ? (adminUserOrEmail.sub || adminUserOrEmail.id)
+      : null;
+    const adminEmail = (adminUserOrEmail && typeof adminUserOrEmail === 'object')
+      ? adminUserOrEmail.email
+      : adminUserOrEmail;
+    // Prefer admin_id (UUID) — email-only inserts fail when column is UUID-typed
     await db.query(
-      'INSERT INTO admin_audit_log (admin_email,action,tenant_id,resource,details,ip_address) VALUES ($1,$2,$3,$4,$5,$6)',
-      [adminEmail, action, tenantId||null, resource||null, JSON.stringify(details||{}), ip||null]
+      `INSERT INTO admin_audit_log (admin_id, admin_email, action, tenant_id, resource, details, ip_address)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [adminId, adminEmail || null, action, tenantId||null, resource||null, JSON.stringify(details||{}), ip||null]
     );
-  } catch(e) { console.error('[audit]', e.message); }
+  } catch(e) {
+    // Fallback if schema only has admin_id
+    try {
+      const adminId = (adminUserOrEmail && typeof adminUserOrEmail === 'object')
+        ? (adminUserOrEmail.sub || adminUserOrEmail.id)
+        : adminUserOrEmail;
+      await db.query(
+        'INSERT INTO admin_audit_log (admin_id,action,tenant_id,resource,details,ip_address) VALUES ($1,$2,$3,$4,$5,$6)',
+        [adminId, action, tenantId||null, resource||null, JSON.stringify(details||{}), ip||null]
+      );
+    } catch(e2) { console.error('[audit]', e2.message); }
+  }
 }
 
 // ── Tenant management (platform admin only) — see consolidated routes below ───────────
@@ -752,7 +828,7 @@ app.get('/api/export', auth, async (req, res) => {
       activity: acts.rows,
       webhooks: hooks.rows
     });
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 // ── Customer data deletion (GDPR right to erasure) ────
@@ -762,7 +838,7 @@ app.delete('/api/tenant/data', auth, async (req, res) => {
   const { confirm } = req.body;
   if (confirm !== 'DELETE ALL DATA')
     return res.status(400).json({ error: 'Send confirm: "DELETE ALL DATA" to proceed' });
-  await adminAuditLog(req.user.email, 'delete_all_data', req.user.tenantId, 'all', {}, req.ip);
+  await adminAuditLog(req.user, 'delete_all_data', req.user.tenantId, 'all', {}, req.ip);
   const _client = await db.connect();
   try {
     await _client.query('BEGIN');
@@ -775,7 +851,7 @@ app.delete('/api/tenant/data', auth, async (req, res) => {
     res.json({ deleted: true, message: 'All tenant data permanently deleted' });
   } catch(e) {
     await _client.query('ROLLBACK').catch(()=>{});
-    res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message });
+    res.status(500).json({ error: safeError(e) });
   } finally { _client.release(); }
 });
 
@@ -787,7 +863,7 @@ app.get('/api/audit-log', auth, async (req, res) => {
       [req.user.tenantId]
     );
     res.json(r.rows);
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 // ── Scanner results ──────────────────────────────────
@@ -834,37 +910,47 @@ app.post('/api/scan/result', auth, async (req, res) => {
 // ── Webhooks ──────────────────────────────────────────
 app.get('/api/webhooks', auth, async (req, res) => {
   try {
-    const r = await db.query('SELECT * FROM webhooks ORDER BY created_at DESC');
+    const tId = req.user.tenantId || '00000000-0000-0000-0000-000000000001';
+    const r = await db.query(
+      'SELECT id,name,url,type,events,active,created_at,tenant_id FROM webhooks WHERE tenant_id=$1 OR tenant_id IS NULL ORDER BY created_at DESC',
+      [tId]
+    );
     res.json(r.rows);
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 app.post('/api/webhooks', auth, validate(schemas.webhook), async (req, res) => {
   const { name, url, type, events, secret } = req.body;
   if (!name || !url) return res.status(400).json({ error: 'name and url required' });
   try {
+    assertSafeUrl(url);
+    const tId = req.user.tenantId || '00000000-0000-0000-0000-000000000001';
+    const encSecret = secret ? encryptCred(secret) : null;
     const r = await db.query(
-      'INSERT INTO webhooks (name,url,type,events,secret) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [name, url, type||'generic', JSON.stringify(events||['agent.discovered','policy.violation']), secret||null]
+      'INSERT INTO webhooks (name,url,type,events,secret,tenant_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id,name,url,type,events,active,created_at,tenant_id',
+      [name, url, type||'generic', JSON.stringify(events||['agent.discovered','policy.violation']), encSecret, tId]
     );
     res.json(r.rows[0]);
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 app.delete('/api/webhooks/:id', auth, async (req, res) => {
   try {
-    await db.query('DELETE FROM webhooks WHERE id=$1', [req.params.id]);
+    const tId = req.user.tenantId || '00000000-0000-0000-0000-000000000001';
+    const r = await db.query('DELETE FROM webhooks WHERE id=$1 AND (tenant_id=$2 OR tenant_id IS NULL) RETURNING id', [req.params.id, tId]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Webhook not found' });
     res.json({ deleted: true });
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 app.post('/api/webhooks/:id/test', auth, async (req, res) => {
   try {
-    const r = await db.query('SELECT * FROM webhooks WHERE id=$1', [req.params.id]);
+    const tId = req.user.tenantId || '00000000-0000-0000-0000-000000000001';
+    const r = await db.query('SELECT * FROM webhooks WHERE id=$1 AND (tenant_id=$2 OR tenant_id IS NULL)', [req.params.id, tId]);
     if (!r.rows.length) return res.status(404).json({ error: 'Webhook not found' });
     await fireWebhook('test', { message: 'AgentRadar webhook test', hook: r.rows[0].name });
     res.json({ fired: true });
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 // ── Password change ───────────────────────────────────
@@ -883,7 +969,7 @@ app.post('/api/auth/change-password', auth, validate(schemas.changePassword), as
     const newHash = await bcrypt.hash(new_password, 12);
     await db.query('UPDATE users SET password_hash=$1,updated_at=NOW() WHERE id=$2', [newHash, user.id]);
     res.json({ success: true });
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 // ── Webhook fire function ─────────────────────────────
@@ -906,7 +992,8 @@ async function fireWebhook(event, payload) {
         const _ctrl = new AbortController();
         const _tid = setTimeout(() => _ctrl.abort(), 10000);
         try {
-          await fetch(hook.url, {
+          const safeHookUrl = assertSafeUrl(hook.url);
+          await fetch(safeHookUrl, {
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify(body), signal: _ctrl.signal,
           });
@@ -928,10 +1015,16 @@ const pgSession = require('connect-pg-simple')(session);
 // Session store in PostgreSQL
 app.use(session({
   store: new pgSession({ pool: db, tableName: 'user_sessions', createTableIfMissing: true }),
-  secret: process.env.JWT_SECRET || 'agentRadar-session-secret-change-in-prod',
+  secret: (() => {
+    if (!process.env.JWT_SECRET) {
+      if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET required for sessions');
+      return require('crypto').randomBytes(48).toString('hex');
+    }
+    return process.env.JWT_SECRET;
+  })(),
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: true, httpOnly: true, maxAge: 8 * 60 * 60 * 1000 }
+  cookie: { secure: true, httpOnly: true, maxAge: jwtExpiresMs() }
 }));
 
 // SSO provider configs (loaded from env)
@@ -1001,6 +1094,7 @@ app.get('/api/auth/sso/providers', (req, res) => {
 // GET /api/auth/sso/:provider — initiate SSO login
 app.get('/api/auth/sso/:provider', async (req, res) => {
   const { provider } = req.params;
+  if (!SSO_PROVIDERS[provider]) return res.status(400).json({ error: 'Unknown SSO provider' });
   try {
     const client = await getOIDCClient(provider);
     const state = generators.state();
@@ -1012,13 +1106,14 @@ app.get('/api/auth/sso/:provider', async (req, res) => {
     });
     res.redirect(url);
   } catch(e) {
-    res.status(400).json({ error: process.env.NODE_ENV==='production' && 400==='500' ? 'Internal server error' : e.message });
+    res.status(400).json({ error: safeError(e) });
   }
 });
 
 // GET /api/auth/sso/:provider/callback — SSO callback
 app.get('/api/auth/sso/:provider/callback', async (req, res) => {
   const { provider } = req.params;
+  if (!SSO_PROVIDERS[provider]) return res.status(400).json({ error: 'Unknown SSO provider' });
   try {
     const client = await getOIDCClient(provider);
     const { state, nonce } = req.session.sso || {};
@@ -1051,18 +1146,21 @@ app.get('/api/auth/sso/:provider/callback', async (req, res) => {
       );
     }
 
-    // Issue JWT
+    // Issue JWT — never put token in redirect URL (open redirect / token leak)
     const token = jwt.sign(
       { sub: user.id, email: user.email, name: user.name, role: user.role, sso: provider },
-      jwtSecret, { expiresIn: '8h' }
+      jwtSecret, { expiresIn: JWT_EXPIRES_IN }
     );
-    await redis.setex(`session:${user.id}`, 28800, token);
+    await redis.setex(`session:${user.id}`, Math.floor(jwtExpiresMs()/1000), token);
 
-    // Redirect to frontend with token
-    res.redirect(`${process.env.APP_URL||'https://20.228.158.234'}/#sso-token=${token}`);
+    const appUrl = process.env.APP_URL || 'https://agentradar.idenaccess.com';
+    const ssoCode = require('crypto').randomBytes(32).toString('hex');
+    ssoCodeStore.set(ssoCode, { token, expires: Date.now() + 60000 });
+    res.redirect(`${appUrl}/sso-callback?code=${ssoCode}`);
   } catch(e) {
     console.error('[SSO] Callback error:', e.message);
-    res.redirect(`${process.env.APP_URL||'https://20.228.158.234'}/#sso-error=${encodeURIComponent(e.message)}`);
+    const appUrl = process.env.APP_URL || 'https://agentradar.idenaccess.com';
+    res.redirect(`${appUrl}/#sso-error=login_failed`);
   }
 });
 
@@ -1087,7 +1185,7 @@ app.get('/api/admin/stats', auth, platformAdmin, async (req, res) => {
       db.query("SELECT COUNT(*) FROM admin_audit_log WHERE action='download_package'"),
     ]);
     res.json({ tenants:+t.rows[0].count, users:+u.rows[0].count, agents:+a.rows[0].count, downloads:+d.rows[0].count });
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 app.post('/api/admin/tenants', auth, platformAdmin, async (req, res) => {
@@ -1102,9 +1200,9 @@ app.post('/api/admin/tenants', auth, platformAdmin, async (req, res) => {
     const hash = await bcrypt.hash(admin_password, 12);
     await db.query('INSERT INTO users (email,name,role,password_hash,tenant_id) VALUES ($1,$2,$3,$4,$5)',
       [admin_email.toLowerCase(), name+' Admin', 'ciso', hash, tenant.id]);
-    await adminAuditLog(req.user.email, 'create_tenant', tenant.id, 'tenants', {name, admin_email}, req.ip);
+    await adminAuditLog(req.user, 'create_tenant', tenant.id, 'tenants', {name, admin_email}, req.ip);
     res.json({ tenant, message: 'Tenant created' });
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 app.get('/api/admin/download/:pkg', auth, platformAdmin, async (req, res) => {
@@ -1185,7 +1283,7 @@ app.get('/api/auth/sso/config', auth, async (req, res) => {
       }
     };
     res.json(cfg);
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 app.post('/api/auth/sso/config', auth, async (req, res) => {
@@ -1226,7 +1324,7 @@ app.post('/api/auth/sso/config', auth, async (req, res) => {
       );
       res.json({ success: true, message: `${provider} SSO configuration saved.` });
     } else {
-      res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message });
+      res.status(500).json({ error: safeError(e) });
     }
   }
 });
@@ -1527,8 +1625,11 @@ async function discoverAzure(tenantId, clientId, clientSecret, subscriptionId) {
 app.post('/api/endpoint/scan/netskope', auth, async (req, res) => {
   const { tenant, token } = req.body;
   if (!tenant || !token) return res.status(400).json({ error: 'tenant and token required' });
+  let safeTenant;
+  try { safeTenant = assertFqdnLabel(String(tenant).replace(/\.goskope\.com$/i,''), 'tenant'); }
+  catch(e) { return res.status(400).json({ error: e.message }); }
   try {
-    const baseUrl = `https://${tenant}.goskope.com`;
+    const baseUrl = `https://${safeTenant}.goskope.com`;
     // Get AI-related application events from Netskope
     const eventsResp = await fetch(
       `${baseUrl}/api/v2/events/data/application?limit=1000&query=appcategory+eq+%22Generative+AI%22`,
@@ -1594,7 +1695,7 @@ app.post('/api/endpoint/scan/netskope', auth, async (req, res) => {
       source: 'netskope'
     });
   } catch(e) {
-    res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message });
+    res.status(500).json({ error: safeError(e) });
   }
 });
 
@@ -1604,7 +1705,9 @@ app.post('/api/endpoint/scan/netskope', auth, async (req, res) => {
 // GET /api/config — get tenant config (called on page load)
 app.get('/api/config', async (req, res) => {
   try {
-    const tenantId = req.headers['x-tenant-id'] || '00000000-0000-0000-0000-000000000001';
+    let tenantId = req.headers['x-tenant-id'] || '00000000-0000-0000-0000-000000000001';
+    try { tenantId = assertGuid(tenantId, 'X-Tenant-Id'); }
+    catch(e) { return res.status(400).json({ error: e.message }); }
     const result = await db.query(
       'SELECT config_key, config_val FROM tenant_config WHERE tenant_id=$1',
       [tenantId]
@@ -1629,7 +1732,7 @@ app.get('/api/admin/tenants', auth, platformAdmin, async (req, res) => {
       'SELECT t.id, t.name, t.slug, t.plan, t.created_at, COUNT(u.id) as user_count FROM tenants t LEFT JOIN users u ON u.tenant_id=t.id GROUP BY t.id,t.name,t.slug,t.plan,t.created_at ORDER BY t.created_at DESC'
     );
     res.json(result.rows);
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 // GET /api/admin/tenant/:id/config — get config for a specific tenant
@@ -1643,7 +1746,7 @@ app.get('/api/admin/tenant/:id/config', auth, async (req, res) => {
     const config = {};
     result.rows.forEach(r => { config[r.config_key] = r.config_val; });
     res.json(config);
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 // PUT /api/admin/tenant/:id/config — update config for a tenant
@@ -1661,7 +1764,7 @@ app.put('/api/admin/tenant/:id/config', auth, async (req, res) => {
     );
     res.json({success:true, tenant_id:req.params.id, config_key, config_val});
     auditLog(req.params.id, req.user?.id, req.user?.email, 'config_updated', 'tenant_config', req.params.id, { config_key, updated_by: req.user?.email }, req);
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 // GET /api/admin/tenants/:id/users — list users for a tenant
@@ -1673,7 +1776,7 @@ app.get('/api/admin/tenant/:id/users', auth, async (req, res) => {
       [req.params.id]
     );
     res.json(result.rows);
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 
@@ -1695,6 +1798,7 @@ app.get('/api/auth/sso/okta', (req, res) => {
     redirect_uri: `${appUrl}/api/auth/sso/okta/callback`,
     state: Math.random().toString(36).slice(2),
   });
+  try { assertFqdnLabel(domain, 'OKTA_DOMAIN'); } catch(e) { return res.status(400).json({ error: e.message }); }
   res.redirect(`https://${domain}/oauth2/default/v1/authorize?${params}`);
 });
 
@@ -1744,17 +1848,14 @@ app.get('/api/auth/sso/okta/callback', async (req, res) => {
     const jwt = require('jsonwebtoken');
     const token = jwt.sign(
       { sub: user.id, email: user.email, name: user.name, role: user.role, sso: 'okta' },
-      process.env.JWT_SECRET || 'AgentRadarJWT2026SecretKeyForCustomerDeployment',
-      { expiresIn: '8h' }
+      jwtSecret,
+      { expiresIn: JWT_EXPIRES_IN }
     );
     
     // C2 FIX: Never put token in URL — use one-time code
     const ssoCode = require('crypto').randomBytes(32).toString('hex');
     ssoCodeStore.set(ssoCode, { token, expires: Date.now() + 60000 });
-    // FIX: Validate redirect destination before following
-    const allowedOrigin = process.env.APP_URL || 'https://agentradar.idenaccess.com';
-    const safeRedirect  = allowedOrigin.replace(/\/$/, '') + '/sso-callback';
-    res.redirect(`${safeRedirect}?code=${ssoCode}`);
+    res.redirect(`${appUrl}/sso-callback?code=${ssoCode}`);
   } catch(e) {
     res.redirect(`${appUrl}/#sso-error=${encodeURIComponent(e.message)}`);
   }
@@ -1768,15 +1869,17 @@ app.get('/api/auth/sso/okta/callback', async (req, res) => {
 app.post('/api/siem/send', auth, async (req, res) => {
   try {
     const { provider, event } = req.body;
-    const creds = await db.query(
+    const rawCreds = await db.query(
       "SELECT credentials FROM integration_credentials WHERE tenant_id=$1 AND provider=$2",
-      [req.tenantId||'00000000-0000-0000-0000-000000000001', provider]
+      [req.tenantId||'00000000-0000-0000-0000-000000000001', `siem_${provider}`]
     ).then(r => r.rows[0]?.credentials || {});
+    const creds = decryptCredsObj(typeof rawCreds === 'string' ? JSON.parse(rawCreds) : rawCreds);
 
     let result = {};
 
     if (provider === 'splunk') {
-      const r = await fetch(`${creds.url}/services/collector/event`, {
+      const base = assertSafeUrl(creds.url);
+      const r = await fetch(`${base}/services/collector/event`, {
         method: 'POST',
         headers: { 'Authorization': `Splunk ${creds.token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ event, sourcetype: 'agentRadar', source: 'agentRadar-platform' })
@@ -1784,8 +1887,7 @@ app.post('/api/siem/send', auth, async (req, res) => {
       result = r;
 
     } else if (provider === 'sentinel') {
-      // Azure Sentinel Log Analytics workspace
-      const workspaceId = creds.workspaceId;
+      const workspaceId = assertGuid(creds.workspaceId, 'workspaceId');
       const sharedKey = creds.sharedKey;
       const logType = 'AgentRadar';
       const body = JSON.stringify([event]);
@@ -1806,7 +1908,8 @@ x-ms-date:${date}
       result = r;
 
     } else if (provider === 'qradar') {
-      const r = await fetch(`${creds.url}/api/siem/offenses`, {
+      const base = assertSafeUrl(creds.url);
+      const r = await fetch(`${base}/api/siem/offenses`, {
         method: 'POST',
         headers: { 'SEC': creds.token, 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify(event)
@@ -1814,7 +1917,8 @@ x-ms-date:${date}
       result = r;
 
     } else if (provider === 'elastic') {
-      const r = await fetch(`${creds.url}/agentRadar-events/_doc`, {
+      const base = assertSafeUrl(creds.url);
+      const r = await fetch(`${base}/agentRadar-events/_doc`, {
         method: 'POST',
         headers: { 'Authorization': `ApiKey ${creds.apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...event, '@timestamp': new Date().toISOString() })
@@ -1823,7 +1927,7 @@ x-ms-date:${date}
     }
 
     res.json({ success: true, provider, result });
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 // POST /api/siem/test — test SIEM connection
@@ -1833,7 +1937,8 @@ app.post('/api/siem/test', auth, async (req, res) => {
     const testEvent = { source:'AgentRadar', type:'connection_test', message:'AgentRadar SIEM connection test', timestamp: new Date().toISOString() };
 
     if (provider === 'splunk') {
-      const r = await fetch(`${credentials.url}/services/collector/event`, {
+      const base = assertSafeUrl(credentials.url);
+      const r = await fetch(`${base}/services/collector/event`, {
         method: 'POST',
         headers: { 'Authorization': `Splunk ${credentials.token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ event: testEvent })
@@ -1841,7 +1946,8 @@ app.post('/api/siem/test', auth, async (req, res) => {
       res.json({ success: r.ok, status: r.status });
 
     } else if (provider === 'elastic') {
-      const r = await fetch(`${credentials.url}/_cluster/health`, {
+      const base = assertSafeUrl(credentials.url);
+      const r = await fetch(`${base}/_cluster/health`, {
         headers: { 'Authorization': `ApiKey ${credentials.apiKey}` }
       });
       const d = await r.json();
@@ -1850,7 +1956,7 @@ app.post('/api/siem/test', auth, async (req, res) => {
     } else {
       res.json({ success: true, message: `${provider} connection configured` });
     }
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 // POST /api/siem/credentials — save SIEM credentials
@@ -1858,14 +1964,15 @@ app.post('/api/siem/credentials', auth, async (req, res) => {
   try {
     const { provider, credentials } = req.body;
     const tenantId = req.tenantId || '00000000-0000-0000-0000-000000000001';
+    const enc = encryptCredsObj(credentials || {});
     await db.query(
       `INSERT INTO integration_credentials (tenant_id, provider, credentials, updated_at)
        VALUES ($1,$2,$3,NOW())
        ON CONFLICT (tenant_id, provider) DO UPDATE SET credentials=$3, updated_at=NOW()`,
-      [tenantId, `siem_${provider}`, JSON.stringify(credentials)]
+      [tenantId, `siem_${provider}`, JSON.stringify(enc)]
     );
     res.json({ success: true });
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 
@@ -1940,15 +2047,15 @@ app.get('/api/auth/mfa/setup', auth, async (req, res) => {
     const otpauth = authenticator.keyuri(req.user.email, 'AgentRadar', secret);
     const qr = await QRCode.toDataURL(otpauth);
 
-    // Store secret temporarily (not enabled until verified)
+    // Store secret encrypted (not enabled until verified)
+    const encSecret = encryptCred(secret);
     await db.query(
       'UPDATE users SET mfa_secret=$1 WHERE id=$2',
-      [secret, req.user.sub]
+      [encSecret, req.user.sub]
     ).catch(async () => {
-      // Add column if missing
       await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret TEXT');
       await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT false');
-      await db.query('UPDATE users SET mfa_secret=$1 WHERE id=$2', [secret, req.user.sub]);
+      await db.query('UPDATE users SET mfa_secret=$1 WHERE id=$2', [encSecret, req.user.sub]);
     });
 
     res.json({ secret, qr, message: 'Scan QR code then call /api/auth/mfa/verify to enable' });
@@ -1966,7 +2073,7 @@ app.post('/api/auth/mfa/verify', auth, async (req, res) => {
     const user = (await db.query('SELECT mfa_secret FROM users WHERE id=$1', [req.user.sub])).rows[0];
     if (!user?.mfa_secret) return res.status(400).json({ error: 'Run /api/auth/mfa/setup first' });
 
-    const valid = authenticator.verify({ token: code, secret: user.mfa_secret });
+    const valid = authenticator.verify({ token: code, secret: decryptCred(user.mfa_secret) });
     if (!valid) return res.status(401).json({ error: 'Invalid code — check your authenticator app' });
 
     await db.query('UPDATE users SET mfa_enabled=true WHERE id=$1', [req.user.sub]);
@@ -2417,7 +2524,7 @@ app.get('/api/autodiscovery/history', auth, async (req, res) => {
   try {
     const r = await db.query("SELECT * FROM scanner_runs WHERE scanner_id='autodiscovery' ORDER BY created_at DESC LIMIT 10");
     res.json(r.rows);
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 
@@ -2435,12 +2542,13 @@ app.post('/api/integrations/credentials', auth, async (req, res) => {
     if (masked.secretAccessKey) masked.secretAccessKey = '***SAVED***';
     if (masked.serviceAccountKey) masked.serviceAccountKey = '***SAVED***';
 
+    const encCreds = encryptCredsObj(credentials);
     await db.query(`
       INSERT INTO integration_credentials (provider, credentials, tenant_id, updated_by, updated_at)
       VALUES ($1, $2, $3, $4, NOW())
       ON CONFLICT (provider, tenant_id) DO UPDATE
       SET credentials=$2, updated_by=$4, updated_at=NOW()
-    `, [provider, JSON.stringify(credentials), tId, req.user.email]);
+    `, [provider, JSON.stringify(encCreds), tId, req.user.email]);
 
     await auditLog(req.user.email, 'save_integration_credentials', tId, provider, { provider }, req.ip);
     res.json({ saved: true, provider, masked });
@@ -2461,10 +2569,10 @@ app.post('/api/integrations/credentials', auth, async (req, res) => {
       await db.query(`
         INSERT INTO integration_credentials (provider, credentials, tenant_id, updated_by)
         VALUES ($1, $2, $3, $4)
-      `, [provider, JSON.stringify(credentials), tId, req.user.email]);
+      `, [provider, JSON.stringify(encryptCredsObj(credentials)), tId, req.user.email]);
       res.json({ saved: true, provider });
     } else {
-      res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message });
+      res.status(500).json({ error: safeError(e) });
     }
   }
 });
@@ -2478,12 +2586,13 @@ app.get('/api/integrations/credentials/full', auth, async (req, res) => {
     );
     const result = {};
     r.rows.forEach(row => {
-      result[row.provider] = { ...row.credentials, _saved: true, _updatedAt: row.updated_at };
+      const creds = decryptCredsObj(typeof row.credentials === 'string' ? JSON.parse(row.credentials) : row.credentials);
+      result[row.provider] = { ...creds, _saved: true, _updatedAt: row.updated_at };
     });
     res.json(result);
   } catch(e) {
     if (e.message.includes('does not exist')) return res.json({});
-    res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message });
+    res.status(500).json({ error: safeError(e) });
   }
 });
 
@@ -2510,7 +2619,7 @@ app.get('/api/integrations/credentials', auth, async (req, res) => {
     res.json(result);
   } catch(e) {
     if (e.message.includes('does not exist')) return res.json({});
-    res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message });
+    res.status(500).json({ error: safeError(e) });
   }
 });
 
@@ -2523,7 +2632,7 @@ app.delete('/api/integrations/credentials/:provider', auth, async (req, res) => 
     );
     await auditLog(req.user.email, 'delete_integration_credentials', tId, req.params.provider, {}, req.ip);
     res.json({ deleted: true });
-  } catch(e) { res.status(500).json({ error: process.env.NODE_ENV==='production' && 500==='500' ? 'Internal server error' : e.message }); }
+  } catch(e) { res.status(500).json({ error: safeError(e) }); }
 });
 
 
@@ -2724,13 +2833,17 @@ app.post('/api/endpoint/scan/cortex', auth, asyncHandler(async (req, res) => {
   if (!apiKey || !apiKeyId || !fqdn)
     return res.status(400).json({ error: 'apiKey, apiKeyId and fqdn required' });
 
+  let safeFqdn;
+  try { safeFqdn = assertFqdnLabel(fqdn, 'fqdn'); }
+  catch(e) { return res.status(400).json({ error: e.message }); }
+
   const discovered = [];
   const logs = [];
 
   try {
     const crypto = require('crypto');
 
-    // Cortex XDR uses HMAC-SHA256 auth
+    // Cortex XDR uses HMAC-SHA256 auth — authHash never logged or returned
     function cortexAuthHeaders(apiKey, apiKeyId) {
       const nonce = crypto.randomBytes(16).toString('hex');
       const timestamp = Date.now().toString();
@@ -2745,7 +2858,7 @@ app.post('/api/endpoint/scan/cortex', auth, asyncHandler(async (req, res) => {
       };
     }
 
-    const baseUrl = `https://api-${fqdn}.xdr.us.paloaltonetworks.com/public_api/v1`;
+    const baseUrl = `https://api-${safeFqdn}.xdr.us.paloaltonetworks.com/public_api/v1`;
     const headers = cortexAuthHeaders(apiKey, apiKeyId);
 
     // Step 1: Get all endpoints
@@ -2916,7 +3029,7 @@ app.post('/api/endpoint/scan/cortex', auth, asyncHandler(async (req, res) => {
     res.json({devices:endpoints.length, discovered:discovered.length, saved, logs});
 
   } catch(e) {
-    res.status(500).json({error:e.message, logs});
+    res.status(500).json({error:safeError(e), logs});
   }
 }));
 
@@ -2963,6 +3076,7 @@ app.post('/api/endpoint/scan/intune', auth, asyncHandler(async (req, res) => {
 
   if (!tenantId || !clientId || !clientSecret)
     return res.status(400).json({ error: 'tenantId, clientId, clientSecret required' });
+  try { assertGuid(tenantId, 'tenantId'); } catch(e) { return res.status(400).json({ error: e.message }); }
 
   const discovered = [];
   const logs = [];
@@ -3065,7 +3179,7 @@ app.post('/api/endpoint/scan/intune', auth, asyncHandler(async (req, res) => {
     res.json({ devices: devices.length, appsScanned: apps.length, discovered: discovered.length, saved, logs });
 
   } catch(e) {
-    res.status(500).json({ error: e.message, logs });
+    res.status(500).json({ error: safeError(e), logs });
   }
 }));
 
@@ -3073,7 +3187,12 @@ app.post('/api/endpoint/scan/intune', auth, asyncHandler(async (req, res) => {
 app.post('/api/endpoint/scan/crowdstrike', auth, asyncHandler(async (req, res) => {
   const { clientId, clientSecret, baseUrl } = req.body;
   const tId = req.user.tenantId || '00000000-0000-0000-0000-000000000001';
-  const csBase = baseUrl || 'https://api.crowdstrike.com';
+  let csBase;
+  try {
+    csBase = assertSafeUrl(baseUrl || 'https://api.crowdstrike.com', {
+      allowedHosts: ['crowdstrike.com', 'crowdstrike.eu', 'laggar.gcw.crowdstrike.com', 'us-2.crowdstrike.com', 'eu-1.crowdstrike.com']
+    });
+  } catch(e) { return res.status(400).json({ error: e.message }); }
 
   if (!clientId || !clientSecret)
     return res.status(400).json({ error: 'CrowdStrike clientId and clientSecret required' });
@@ -3196,834 +3315,9 @@ app.post('/api/endpoint/scan/crowdstrike', auth, asyncHandler(async (req, res) =
     res.json({ devices: hostIds.length, discovered: discovered.length, saved, logs });
 
   } catch(e) {
-    res.status(500).json({ error: e.message, logs });
+    res.status(500).json({ error: safeError(e), logs });
   }
 }));
-
-
-// ══════════════════════════════════════════════════════════════
-// DYNAMIC RISK SCORING
-// ══════════════════════════════════════════════════════════════
-app.post('/api/agents/:id/risk-score', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { rows } = await db.query('SELECT * FROM agents WHERE id=$1', [id]);
-    if (!rows.length) return res.status(404).json({ error: 'Agent not found' });
-    const a = rows[0];
-    const ctrl = typeof a.controls === 'string' ? JSON.parse(a.controls || '{}') : (a.controls || {});
-    let score = 0;
-    const factors = [];
-    if (a.phi) { score += 20; factors.push({ factor: 'PHI access', points: 20 }); }
-    if (a.pii) { score += 10; factors.push({ factor: 'PII access', points: 10 }); }
-    if (a.shadow) { score += 25; factors.push({ factor: 'Shadow AI', points: 25 }); }
-    const failures = Object.values(ctrl).filter(v => v === 'fail').length;
-    const failScore = Math.min(20, failures * 3);
-    if (failScore > 0) { score += failScore; factors.push({ factor: failures + ' compliance failures', points: failScore }); }
-    if (!a.review_date) { score += 10; factors.push({ factor: 'Never reviewed', points: 10 }); }
-    else {
-      const days = Math.floor((Date.now() - new Date(a.review_date)) / 86400000);
-      if (days > 90) { score += 15; factors.push({ factor: 'Review overdue ' + days + ' days', points: 15 }); }
-    }
-    if (!a.owner) { score += 10; factors.push({ factor: 'No owner', points: 10 }); }
-    const riskLevel = score >= 70 ? 'critical' : score >= 50 ? 'high' : score >= 30 ? 'medium' : 'low';
-    await db.query('UPDATE agents SET risk=$1 WHERE id=$2', [riskLevel, id]);
-    res.json({ score, riskLevel, factors, agentId: id });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-app.post('/api/agents/risk-score/bulk', auth, async (req, res) => {
-  try {
-    const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-    const { rows } = await db.query('SELECT * FROM agents WHERE tenant_id=$1 OR tenant_id IS NULL', [tId]);
-    let updated = 0;
-    for (const a of rows) {
-      const ctrl = typeof a.controls === 'string' ? JSON.parse(a.controls || '{}') : (a.controls || {});
-      let score = 0;
-      if (a.phi) score += 20; if (a.pii) score += 10; if (a.shadow) score += 25;
-      score += Math.min(20, Object.values(ctrl).filter(v => v === 'fail').length * 3);
-      if (!a.review_date) score += 10;
-      else if (Math.floor((Date.now()-new Date(a.review_date))/86400000) > 90) score += 15;
-      if (!a.owner) score += 10;
-      const riskLevel = score>=70?'critical':score>=50?'high':score>=30?'medium':'low';
-      await db.query('UPDATE agents SET risk=$1 WHERE id=$2', [riskLevel, a.id]).catch(()=>{});
-      updated++;
-    }
-    res.json({ updated, message: 'Risk scores recomputed for ' + updated + ' agents' });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// ══════════════════════════════════════════════════════════════
-// OWNER ASSIGNMENT + REVIEW ENFORCEMENT
-// ══════════════════════════════════════════════════════════════
-app.patch('/api/agents/:id/owner', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { owner, reviewCadence } = req.body;
-    if (!owner) return res.status(400).json({ error: 'owner required' });
-    await db.query('UPDATE agents SET owner=$1, review_cadence=$2, updated_at=NOW() WHERE id=$3', [owner, reviewCadence||'90days', id]);
-    res.json({ success: true, owner });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-app.get('/api/agents/review/overdue', auth, async (req, res) => {
-  try {
-    const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-    const { rows } = await db.query(`
-      SELECT id,name,risk,owner,review_date,review_cadence,lifecycle_status FROM agents
-      WHERE (tenant_id=$1 OR tenant_id IS NULL)
-        AND (review_date IS NULL OR review_date < NOW() - INTERVAL '90 days')
-        AND lifecycle_status != 'retired'
-      ORDER BY risk DESC LIMIT 50`, [tId]);
-    res.json({ overdue: rows, count: rows.length });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// ══════════════════════════════════════════════════════════════
-// APPROVE / QUARANTINE
-// ══════════════════════════════════════════════════════════════
-app.post('/api/agents/:id/approve', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = req.user?.email || 'unknown';
-    await db.query('UPDATE agents SET approved_by=$1, approval_date=NOW(), lifecycle_status=$2, updated_at=NOW() WHERE id=$3', [user, 'approved', id]);
-    await db.query('INSERT INTO admin_audit_log (admin_id, admin_email, action, resource, details) VALUES ($1,$2,$3,$4,$5)',
-      [req.user?.id||'system', user, 'agent_approved', 'agents', JSON.stringify({agent_id:id})]).catch(()=>{});
-    res.json({ success: true, approved_by: user });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-app.post('/api/agents/:id/quarantine', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = req.user?.email || 'unknown';
-    await db.query('UPDATE agents SET quarantined=true, lifecycle_status=$1, updated_at=NOW() WHERE id=$2', ['retired', id]);
-    await db.query('INSERT INTO admin_audit_log (admin_id, admin_email, action, resource, details) VALUES ($1,$2,$3,$4,$5)',
-      [req.user?.id||'system', user, 'agent_quarantined', 'agents', JSON.stringify({agent_id:id})]).catch(()=>{});
-    res.json({ success: true });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// ══════════════════════════════════════════════════════════════
-// CISO REPORT
-// ══════════════════════════════════════════════════════════════
-app.get('/api/reports/ciso', auth, async (req, res) => {
-  try {
-    const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-    const { rows: agents } = await db.query('SELECT * FROM agents WHERE tenant_id=$1 OR tenant_id IS NULL', [tId]);
-    const shadow = agents.filter(a=>a.shadow);
-    const phi = agents.filter(a=>a.phi);
-    const critical = agents.filter(a=>a.risk==='critical');
-    const noOwner = agents.filter(a=>!a.owner);
-    const neverReviewed = agents.filter(a=>!a.review_date);
-    const fws = ['soc2','iso27001','gdpr','nist','euai','hipaa','hitrust','fda_samd'];
-    const fwScores = {};
-    fws.forEach(fw => {
-      const pass = agents.filter(a=>{ const ctrl=typeof a.controls==='string'?JSON.parse(a.controls||'{}'):(a.controls||{}); return ctrl[fw]==='pass'; }).length;
-      fwScores[fw] = agents.length ? Math.round(pass/agents.length*100) : 0;
-    });
-    res.json({
-      generated: new Date().toISOString(),
-      executive_summary: { total_agents:agents.length, shadow_ai:shadow.length, phi_exposure:phi.length, critical_risk:critical.length, no_owner:noOwner.length, never_reviewed:neverReviewed.length, overall_risk:critical.length>0?'CRITICAL':shadow.length>0?'HIGH':'MEDIUM' },
-      compliance: fwScores,
-      top_risks: critical.concat(shadow).slice(0,10).map(a=>({name:a.name,risk:a.risk,shadow:a.shadow,phi:a.phi,owner:a.owner,env:a.env})),
-      recommendations: [
-        ...(shadow.length?['Immediately review and approve/quarantine '+shadow.length+' shadow AI agents']:[]),
-        ...(phi.length&&fwScores.hipaa<80?['Enforce HIPAA BAA requirements for all PHI-processing agents']:[]),
-        ...(noOwner.length?['Assign owners to '+noOwner.length+' unowned agents']:[]),
-        ...(neverReviewed.length?['Conduct first review for '+neverReviewed.length+' agents never reviewed']:[]),
-        ...(fwScores.euai<70?['EU AI Act compliance requires immediate attention']:[])
-      ],
-      eu_ai_act: {
-        high_risk_agents: agents.filter(a=>a.phi||a.risk==='critical').length,
-        conformity_assessments_required: agents.filter(a=>a.phi).length,
-        prohibited_systems: 0,
-        transparency_compliant: agents.filter(a=>{ const ctrl=typeof a.controls==='string'?JSON.parse(a.controls||'{}'):(a.controls||{}); return ctrl.euai==='pass'; }).length
-      }
-    });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// ══════════════════════════════════════════════════════════════
-// BEHAVIORAL INTELLIGENCE
-// ══════════════════════════════════════════════════════════════
-app.get('/api/agents/:id/behavior', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { rows } = await db.query('SELECT * FROM agents WHERE id=$1', [id]);
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    const a = rows[0];
-    const ctrl = typeof a.controls==='string'?JSON.parse(a.controls||'{}'):(a.controls||{});
-    const anomalies = [];
-    if (!a.review_date) anomalies.push({ type:'never_reviewed', severity:'high', message:'Agent has never been reviewed' });
-    if (!a.owner) anomalies.push({ type:'no_owner', severity:'medium', message:'No owner assigned' });
-    if (a.shadow && !a.approved_by) anomalies.push({ type:'shadow_unapproved', severity:'critical', message:'Shadow AI operating without approval' });
-    if (a.phi && a.baa_status !== 'signed') anomalies.push({ type:'phi_no_baa', severity:'critical', message:'PHI access without signed BAA' });
-    const failures = Object.entries(ctrl).filter(([,v])=>v==='fail').map(([k])=>k);
-    if (failures.length>3) anomalies.push({ type:'compliance_failures', severity:'high', message:failures.length+' framework failures: '+failures.join(', ') });
-    const riskScore = anomalies.reduce((acc,a)=>acc+(a.severity==='critical'?30:a.severity==='high'?20:10), 0);
-    res.json({ agentId:id, agentName:a.name, anomalies, riskScore:Math.min(100,riskScore) });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-app.post('/api/agents/behavior/bulk', auth, async (req, res) => {
-  try {
-    const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-    const { rows } = await db.query('SELECT id,name,shadow,phi,baa_status,owner,review_date,approved_by,controls FROM agents WHERE tenant_id=$1 OR tenant_id IS NULL LIMIT 200', [tId]);
-    const alerts = [];
-    for (const a of rows) {
-      if (a.shadow && !a.approved_by) alerts.push({ agentId:a.id, agentName:a.name, type:'shadow_unapproved', severity:'critical' });
-      if (a.phi && a.baa_status!=='signed') alerts.push({ agentId:a.id, agentName:a.name, type:'phi_no_baa', severity:'critical' });
-      if (!a.owner) alerts.push({ agentId:a.id, agentName:a.name, type:'no_owner', severity:'medium' });
-    }
-    res.json({ scanned:rows.length, alerts, critical:alerts.filter(a=>a.severity==='critical').length, total:alerts.length });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// ══════════════════════════════════════════════════════════════
-// POLICY AUTO-RESPONSE
-// ══════════════════════════════════════════════════════════════
-app.post('/api/policy/auto-respond', auth, async (req, res) => {
-  try {
-    const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-    const { rows } = await db.query("SELECT * FROM agents WHERE (tenant_id=$1 OR tenant_id IS NULL) AND shadow=true AND approved_by IS NULL", [tId]);
-    let actioned = 0;
-    const actions = [];
-    for (const a of rows) {
-      await db.query("UPDATE agents SET lifecycle_status='under-review' WHERE id=$1", [a.id]).catch(()=>{});
-      actions.push({ agentId:a.id, agentName:a.name, action:'moved_to_under-review' });
-      actioned++;
-    }
-    res.json({ actioned, actions, message:'Auto-policy applied to '+actioned+' shadow agents' });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// ══════════════════════════════════════════════════════════════
-// SALESFORCE / SERVICENOW / SPLUNK / ZSCALER / NETSKOPE / GITHUB / M365
-// ══════════════════════════════════════════════════════════════
-app.post('/api/endpoint/scan/salesforce', auth, async (req, res) => {
-  const { instanceUrl, clientId, clientSecret } = req.body;
-  if (!instanceUrl) return res.status(400).json({ error: 'instanceUrl required' });
-  const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-  const agents = [
-    { name:'Salesforce Einstein Copilot', type:'copilot', env:'SaaS', risk:'high', shadow:false, phi:false, pii:true, protocols:['Salesforce API'], detect:'Salesforce scan', agent_category:'saas', notes:'Salesforce Einstein | Instance: '+instanceUrl, controls:{soc2:'pass',iso27001:'warn',gdpr:'warn',nist:'warn',euai:'fail',hipaa:'warn',hitrust:'warn',fda_samd:'warn'} },
-    { name:'Salesforce Agentforce', type:'autonomous', env:'SaaS', risk:'critical', shadow:false, phi:false, pii:true, protocols:['Salesforce API'], detect:'Salesforce scan', agent_category:'saas', notes:'Agentforce autonomous agent | Instance: '+instanceUrl, controls:{soc2:'pass',iso27001:'warn',gdpr:'warn',nist:'warn',euai:'fail',hipaa:'warn',hitrust:'warn',fda_samd:'warn'} }
-  ];
-  let saved = 0;
-  for (const a of agents) {
-    await db.query(`INSERT INTO agents (name,type,env,risk,shadow,phi,pii,protocols,detect,notes,controls,tenant_id,agent_category,lifecycle_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'active') ON CONFLICT (name) DO UPDATE SET last_seen=NOW()`,
-      [a.name,a.type,a.env,a.risk,a.shadow,a.phi,a.pii,JSON.stringify(a.protocols),a.detect,a.notes,JSON.stringify(a.controls),tId,a.agent_category]).then(()=>saved++).catch(()=>{});
-  }
-  res.json({ agentsFound:agents.length, saved, source:'salesforce' });
-});
-
-app.post('/api/endpoint/scan/servicenow', auth, async (req, res) => {
-  const { instanceUrl } = req.body;
-  if (!instanceUrl) return res.status(400).json({ error: 'instanceUrl required' });
-  const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-  const agents = [
-    { name:'ServiceNow Now Assist', type:'saas-agent', env:'SaaS', risk:'high', shadow:false, phi:false, pii:true, protocols:['ServiceNow REST API'], detect:'ServiceNow scan', agent_category:'saas', notes:'Now Assist | Instance: '+instanceUrl, controls:{soc2:'pass',iso27001:'warn',gdpr:'warn',nist:'warn',euai:'warn',hipaa:'warn',hitrust:'warn',fda_samd:'warn'} },
-    { name:'ServiceNow Virtual Agent', type:'saas-agent', env:'SaaS', risk:'medium', shadow:false, phi:false, pii:true, protocols:['ServiceNow REST API','NLU'], detect:'ServiceNow scan', agent_category:'saas', notes:'Virtual Agent | Instance: '+instanceUrl, controls:{soc2:'pass',iso27001:'warn',gdpr:'warn',nist:'warn',euai:'warn',hipaa:'warn',hitrust:'warn',fda_samd:'warn'} }
-  ];
-  let saved = 0;
-  for (const a of agents) {
-    await db.query(`INSERT INTO agents (name,type,env,risk,shadow,phi,pii,protocols,detect,notes,controls,tenant_id,agent_category,lifecycle_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'active') ON CONFLICT (name) DO UPDATE SET last_seen=NOW()`,
-      [a.name,a.type,a.env,a.risk,a.shadow,a.phi,a.pii,JSON.stringify(a.protocols),a.detect,a.notes,JSON.stringify(a.controls),tId,a.agent_category]).then(()=>saved++).catch(()=>{});
-  }
-  res.json({ agentsFound:agents.length, saved, source:'servicenow' });
-});
-
-app.post('/api/endpoint/scan/zscaler', auth, async (req, res) => {
-  const { cloudName, apiKey } = req.body;
-  if (!cloudName || !apiKey) return res.status(400).json({ error: 'cloudName and apiKey required' });
-  res.json({ agentsFound:0, saved:0, source:'zscaler', domains:[], message:'Zscaler scan requires live network access' });
-});
-
-app.post('/api/endpoint/scan/splunk', auth, async (req, res) => {
-  const { host, token } = req.body;
-  if (!host || !token) return res.status(400).json({ error: 'host and token required' });
-  res.json({ agentsFound:0, saved:0, source:'splunk', message:'Splunk scan initiated' });
-});
-
-app.post('/api/autodiscovery/start', auth, async (req, res) => {
-  const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-  const sessionId = require('crypto').randomUUID();
-  res.json({ sessionId, status:'started' });
-  (async()=>{
-    const allAgents = [];
-    try {
-      if (req.body.azure?.tenantId && req.body.azure?.clientId) {
-        const r = await discoverAzure(req.body.azure.tenantId,req.body.azure.clientId,req.body.azure.clientSecret,req.body.azure.subscriptionId||'').catch(()=>({agents:[]}));
-        allAgents.push(...(r.agents||[]));
-      }
-    } catch(e) {}
-    for (const agent of allAgents) {
-      await db.query(`INSERT INTO agents (name,type,env,risk,shadow,phi,pii,protocols,detect,notes,controls,tenant_id,agent_category,lifecycle_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'active') ON CONFLICT (name) DO UPDATE SET last_seen=NOW(), risk=$4`,
-        [agent.name,agent.type||'unknown',agent.env||'Cloud',agent.risk||'medium',agent.shadow||false,agent.phi||false,agent.pii||false,JSON.stringify(agent.protocols||[]),agent.detect||'Auto-discovery',agent.notes||'',JSON.stringify(agent.controls||{}),tId,agent.agent_category||'unknown']).catch(()=>{});
-    }
-  })();
-});
-
-app.get('/api/scan/background/status', auth, (req, res) => {
-  res.json({ status:'running', nextRunIn:'15 min', stats:{ runs:1, lastRun:new Date().toISOString() } });
-});
-
-app.post('/api/scan/background/trigger', auth, async (req, res) => {
-  res.json({ triggered:true, message:'Background scan triggered' });
-});
-
-app.post('/api/llm/proxy', auth, async (req, res) => {
-  const { message, context } = req.body;
-  try {
-    const https = require('https');
-    const payload = JSON.stringify({ contents:[{ parts:[{ text:(context||'')+'\n\nUser: '+message }] }] });
-    const options = { hostname:'generativelanguage.googleapis.com', path:'/v1beta/models/gemini-2.0-flash:generateContent?key='+(process.env.GEMINI_API_KEY||''), method:'POST', headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload)} };
-    const apiReq = https.request(options, apiRes => {
-      let data = '';
-      apiRes.on('data', chunk => data += chunk);
-      apiRes.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          const reply = parsed?.candidates?.[0]?.content?.parts?.[0]?.text || 'I can help with AI governance questions. What would you like to know?';
-          res.json({ reply });
-        } catch(e) { res.json({ reply:'AI service temporarily unavailable.' }); }
-      });
-    });
-    apiReq.on('error', () => res.json({ reply:'Unable to reach AI service.' }));
-    apiReq.write(payload);
-    apiReq.end();
-  } catch(e) { res.json({ reply:'Error: '+e.message }); }
-});
-
-
-// ══════════════════════════════════════════════════════════════
-// CENTRALIZED AI API KEY MANAGEMENT
-// ══════════════════════════════════════════════════════════════
-const _aiKeys = {
-  openai:    process.env.OPENAI_API_KEY    || null,
-  anthropic: process.env.ANTHROPIC_API_KEY || null,
-  gemini:    process.env.GEMINI_API_KEY    || null,
-  azure_oai: process.env.AZURE_OPENAI_KEY  || null,
-  cohere:    process.env.COHERE_API_KEY    || null,
-  mistral:   process.env.MISTRAL_API_KEY   || null,
-};
-
-function getAIKey(provider) { return _aiKeys[provider] || null; }
-function setAIKey(provider, key) { _aiKeys[provider] = key; }
-
-// GET /api/admin/ai-keys — list configured providers (masked)
-app.get('/api/admin/ai-keys', auth, async (req, res) => {
-  const result = {};
-  Object.keys(_aiKeys).forEach(k => {
-    const val = _aiKeys[k];
-    result[k] = { configured: !!val, masked: val ? val.slice(0,8)+'...'+val.slice(-4) : null };
-  });
-  res.json(result);
-});
-
-// POST /api/admin/ai-keys — set API key for a provider
-app.post('/api/admin/ai-keys', auth, async (req, res) => {
-  const { provider, key } = req.body;
-  const allowed = ['openai','anthropic','gemini','azure_oai','cohere','mistral'];
-  if (!provider || !allowed.includes(provider)) return res.status(400).json({ error: 'Invalid provider' });
-  if (!key) return res.status(400).json({ error: 'key required' });
-  setAIKey(provider, key);
-  // Also update env so it persists for this process lifetime
-  const envMap = { openai:'OPENAI_API_KEY', anthropic:'ANTHROPIC_API_KEY', gemini:'GEMINI_API_KEY', azure_oai:'AZURE_OPENAI_KEY', cohere:'COHERE_API_KEY', mistral:'MISTRAL_API_KEY' };
-  process.env[envMap[provider]] = key;
-  await db.query('INSERT INTO admin_audit_log (admin_id, admin_email, action, resource, details) VALUES ($1,$2,$3,$4,$5)',
-    ['system', req.user?.email||'system', 'ai_key_configured', 'ai-keys', JSON.stringify({provider, configured:true})]).catch(()=>{});
-  res.json({ success: true, provider, configured: true });
-});
-
-// DELETE /api/admin/ai-keys/:provider — remove key
-app.delete('/api/admin/ai-keys/:provider', auth, async (req, res) => {
-  setAIKey(req.params.provider, null);
-  res.json({ success: true, provider: req.params.provider, configured: false });
-});
-
-// POST /api/admin/ai-keys/test — test a provider key
-app.post('/api/admin/ai-keys/test', auth, async (req, res) => {
-  const { provider } = req.body;
-  const key = getAIKey(provider);
-  if (!key) return res.status(400).json({ error: 'No key configured for '+provider });
-  try {
-    let testResult = false;
-    if (provider === 'openai') {
-      const r = await fetch('https://api.openai.com/v1/models', { headers:{'Authorization':'Bearer '+key} }).then(r=>r.json()).catch(()=>null);
-      testResult = !!(r && r.data);
-    } else if (provider === 'anthropic') {
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
-        method:'POST', headers:{'x-api-key':key,'anthropic-version':'2023-06-01','Content-Type':'application/json'},
-        body: JSON.stringify({model:'claude-3-haiku-20240307',max_tokens:10,messages:[{role:'user',content:'hi'}]})
-      }).then(r=>r.json()).catch(()=>null);
-      testResult = !!(r && r.content);
-    } else if (provider === 'gemini') {
-      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key='+key).then(r=>r.json()).catch(()=>null);
-      testResult = !!(r && r.models);
-    }
-    res.json({ success: testResult, provider, message: testResult ? 'Connection successful' : 'Connection failed' });
-  } catch(e) { res.json({ success: false, provider, message: e.message }); }
-});
-
-
-
-// ══════════════════════════════════════════════════════════════
-// PLAYBOOK ENGINE
-// ══════════════════════════════════════════════════════════════
-
-// GET /api/playbooks — list all playbooks
-app.get('/api/playbooks', auth, async (req, res) => {
-  try {
-    const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-    const { rows } = await db.query(
-      'SELECT * FROM playbooks WHERE tenant_id=$1 OR tenant_id IS NULL ORDER BY severity DESC, created_at ASC',
-      [tId]
-    );
-    res.json(rows);
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// POST /api/playbooks — create playbook
-app.post('/api/playbooks', auth, async (req, res) => {
-  try {
-    const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-    const { name, description, trigger_type, trigger_condition, steps, severity, auto_execute, webhook_url, notify_email } = req.body;
-    if (!name || !trigger_type) return res.status(400).json({ error: 'name and trigger_type required' });
-    const { rows } = await db.query(
-      `INSERT INTO playbooks (name, description, trigger_type, trigger_condition, steps, severity, auto_execute, webhook_url, notify_email, created_by, tenant_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [name, description||'', trigger_type, JSON.stringify(trigger_condition||{}),
-       JSON.stringify(steps||[]), severity||'high', auto_execute||false,
-       webhook_url||null, notify_email||null, req.user?.email||'system', tId]
-    );
-    res.json(rows[0]);
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// PATCH /api/playbooks/:id — update playbook
-app.patch('/api/playbooks/:id', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, auto_execute, webhook_url, notify_email, steps } = req.body;
-    await db.query(
-      `UPDATE playbooks SET status=COALESCE($1,status), auto_execute=COALESCE($2,auto_execute),
-       webhook_url=COALESCE($3,webhook_url), notify_email=COALESCE($4,notify_email),
-       steps=COALESCE($5,steps), updated_at=NOW() WHERE id=$6`,
-      [status, auto_execute, webhook_url, notify_email, steps?JSON.stringify(steps):null, id]
-    );
-    res.json({ success: true });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// POST /api/playbooks/:id/execute — execute a playbook for an agent
-app.post('/api/playbooks/:id/execute', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { agentId, reason } = req.body;
-    const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-
-    const { rows: pbs } = await db.query('SELECT * FROM playbooks WHERE id=$1', [id]);
-    if (!pbs.length) return res.status(404).json({ error: 'Playbook not found' });
-    const pb = pbs[0];
-
-    let agentName = 'Unknown';
-    if (agentId) {
-      const { rows: ags } = await db.query('SELECT name FROM agents WHERE id=$1', [agentId]);
-      if (ags.length) agentName = ags[0].name;
-    }
-
-    // Create run record
-    const { rows: runs } = await db.query(
-      `INSERT INTO playbook_runs (playbook_id, agent_id, agent_name, trigger_reason, status, executed_by)
-       VALUES ($1,$2,$3,$4,'running',$5) RETURNING id`,
-      [id, agentId||null, agentName, reason||'Manual execution', req.user?.email||'system']
-    );
-    const runId = runs[0].id;
-
-    const steps = typeof pb.steps === 'string' ? JSON.parse(pb.steps) : (pb.steps || []);
-    const completedSteps = [];
-    const autoSteps = steps.filter(s => s.auto);
-
-    // Execute auto steps
-    for (const step of autoSteps) {
-      try {
-        if (step.action === 'set_lifecycle' && agentId) {
-          await db.query('UPDATE agents SET lifecycle_status=$1 WHERE id=$2', [step.value||'under-review', agentId]);
-          completedSteps.push({ step: step.step, name: step.name, status: 'completed', time: new Date().toISOString() });
-        } else if (step.action === 'set_risk' && agentId) {
-          await db.query('UPDATE agents SET risk=$1 WHERE id=$2', [step.value||'critical', agentId]);
-          completedSteps.push({ step: step.step, name: step.name, status: 'completed', time: new Date().toISOString() });
-        } else if (step.action === 'audit_log') {
-          await db.query(
-            'INSERT INTO admin_audit_log (admin_id, admin_email, action, resource, details) VALUES ($1,$2,$3,$4,$5)',
-            ['system', req.user?.email||'system', 'playbook_executed', 'agents',
-             JSON.stringify({ playbook: pb.name, agent: agentName, agentId, reason })]
-          );
-          completedSteps.push({ step: step.step, name: step.name, status: 'completed', time: new Date().toISOString() });
-        } else if (step.action === 'notify' && pb.webhook_url) {
-          // Fire webhook
-          await fetch(pb.webhook_url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              text: `AgentRadar Alert: ${pb.name} triggered`,
-              playbook: pb.name,
-              agent: agentName,
-              reason: reason,
-              severity: pb.severity,
-              timestamp: new Date().toISOString()
-            })
-          }).catch(() => {});
-          completedSteps.push({ step: step.step, name: step.name, status: 'completed', time: new Date().toISOString() });
-        } else if (step.action === 'risk_score' && agentId) {
-          const { rows: ags } = await db.query('SELECT * FROM agents WHERE id=$1', [agentId]);
-          if (ags.length) {
-            const a = ags[0];
-            const ctrl = typeof a.controls==='string'?JSON.parse(a.controls||'{}'):(a.controls||{});
-            let score = 0;
-            if (a.phi) score+=20; if (a.pii) score+=10; if (a.shadow) score+=25;
-            score += Math.min(20, Object.values(ctrl).filter(v=>v==='fail').length*3);
-            if (!a.owner) score+=10;
-            const risk = score>=70?'critical':score>=50?'high':score>=30?'medium':'low';
-            await db.query('UPDATE agents SET risk=$1 WHERE id=$2', [risk, agentId]);
-          }
-          completedSteps.push({ step: step.step, name: step.name, status: 'completed', time: new Date().toISOString() });
-        } else {
-          completedSteps.push({ step: step.step, name: step.name, status: 'skipped', time: new Date().toISOString() });
-        }
-      } catch(stepErr) {
-        completedSteps.push({ step: step.step, name: step.name, status: 'failed', error: stepErr.message });
-      }
-    }
-
-    // Update run and playbook
-    await db.query(
-      'UPDATE playbook_runs SET status=$1, steps_completed=$2 WHERE id=$3',
-      ['completed', JSON.stringify(completedSteps), runId]
-    );
-    await db.query(
-      'UPDATE playbooks SET executions=executions+1, last_executed=NOW() WHERE id=$1', [id]
-    );
-
-    res.json({ success: true, runId, stepsCompleted: completedSteps.length, autoSteps: autoSteps.length });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// GET /api/playbooks/:id/runs — get execution history
-app.get('/api/playbooks/:id/runs', auth, async (req, res) => {
-  try {
-    const { rows } = await db.query(
-      'SELECT * FROM playbook_runs WHERE playbook_id=$1 ORDER BY created_at DESC LIMIT 20',
-      [req.params.id]
-    );
-    res.json(rows);
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// POST /api/playbooks/auto-trigger — check conditions and auto-execute
-app.post('/api/playbooks/auto-trigger', auth, async (req, res) => {
-  try {
-    const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-    const { rows: pbs } = await db.query(
-      "SELECT * FROM playbooks WHERE auto_execute=true AND status='active' AND (tenant_id=$1 OR tenant_id IS NULL)",
-      [tId]
-    );
-    const triggered = [];
-
-    for (const pb of pbs) {
-      let agents = [];
-      if (pb.trigger_type === 'shadow_detected') {
-        const { rows } = await db.query("SELECT * FROM agents WHERE shadow=true AND approved_by IS NULL AND (tenant_id=$1 OR tenant_id IS NULL)", [tId]);
-        agents = rows;
-      } else if (pb.trigger_type === 'phi_no_baa') {
-        const { rows } = await db.query("SELECT * FROM agents WHERE phi=true AND (baa_status IS NULL OR baa_status!='signed') AND (tenant_id=$1 OR tenant_id IS NULL)", [tId]);
-        agents = rows;
-      } else if (pb.trigger_type === 'risk_threshold') {
-        const { rows } = await db.query("SELECT * FROM agents WHERE risk='critical' AND approved_by IS NULL AND (tenant_id=$1 OR tenant_id IS NULL)", [tId]);
-        agents = rows;
-      }
-
-      for (const agent of agents.slice(0,5)) {
-        // Check if already ran recently
-        const { rows: recent } = await db.query(
-          "SELECT id FROM playbook_runs WHERE playbook_id=$1 AND agent_id=$2 AND created_at > NOW() - INTERVAL '24 hours'",
-          [pb.id, agent.id]
-        );
-        if (recent.length === 0) {
-          triggered.push({ playbook: pb.name, agent: agent.name });
-        }
-      }
-    }
-
-    res.json({ checked: pbs.length, triggered: triggered.length, details: triggered });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-
-
-// ══════════════════════════════════════════════════════════════
-// BAA TRACKING
-// ══════════════════════════════════════════════════════════════
-app.patch('/api/agents/:id/baa', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { baa_status, baa_document_url, baa_signed_date, baa_expiry_date, baa_signed_by } = req.body;
-    await db.query(
-      `UPDATE agents SET 
-        baa_status=COALESCE($1,baa_status),
-        baa_document_url=COALESCE($2,baa_document_url),
-        baa_signed_date=COALESCE($3,baa_signed_date),
-        baa_expiry_date=COALESCE($4,baa_expiry_date),
-        baa_signed_by=COALESCE($5,baa_signed_by),
-        updated_at=NOW()
-       WHERE id=$6`,
-      [baa_status, baa_document_url, baa_signed_date, baa_expiry_date, baa_signed_by, id]
-    );
-    await db.query(
-      'INSERT INTO admin_audit_log (admin_id, admin_email, action, resource, details) VALUES ($1,$2,$3,$4,$5)',
-      ['system', req.user?.email||'system', 'baa_updated', 'agents',
-       JSON.stringify({ agent_id: id, baa_status, baa_signed_by })]
-    ).catch(()=>{});
-    res.json({ success: true });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// GET /api/agents/baa/summary — PHI agents BAA status summary
-app.get('/api/agents/baa/summary', auth, async (req, res) => {
-  try {
-    const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-    const { rows } = await db.query(`
-      SELECT 
-        COUNT(*) FILTER (WHERE phi=true) as phi_total,
-        COUNT(*) FILTER (WHERE phi=true AND baa_status='signed') as baa_signed,
-        COUNT(*) FILTER (WHERE phi=true AND (baa_status IS NULL OR baa_status='unknown')) as baa_missing,
-        COUNT(*) FILTER (WHERE phi=true AND baa_status='required') as baa_required,
-        COUNT(*) FILTER (WHERE phi=true AND baa_expiry_date < NOW() + INTERVAL '30 days' AND baa_expiry_date IS NOT NULL) as baa_expiring
-      FROM agents WHERE tenant_id=$1 OR tenant_id IS NULL`, [tId]);
-    const { rows: agentRows } = await db.query(`
-      SELECT id, name, baa_status, baa_document_url, baa_signed_date, baa_expiry_date, baa_signed_by, risk, env
-      FROM agents WHERE phi=true AND (tenant_id=$1 OR tenant_id IS NULL)
-      ORDER BY CASE baa_status WHEN 'signed' THEN 3 WHEN 'required' THEN 1 ELSE 2 END, name`, [tId]);
-    res.json({ summary: rows[0], agents: agentRows });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-
-// ══════════════════════════════════════════════════════════════
-// BAA TRACKING
-// ══════════════════════════════════════════════════════════════
-app.patch('/api/agents/:id/baa', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { baa_status, baa_document_url, baa_signed_date, baa_expiry_date, baa_signed_by } = req.body;
-    await db.query(
-      `UPDATE agents SET 
-        baa_status=COALESCE($1,baa_status),
-        baa_document_url=COALESCE($2,baa_document_url),
-        baa_signed_date=COALESCE($3,baa_signed_date),
-        baa_expiry_date=COALESCE($4,baa_expiry_date),
-        baa_signed_by=COALESCE($5,baa_signed_by),
-        updated_at=NOW()
-       WHERE id=$6`,
-      [baa_status, baa_document_url, baa_signed_date, baa_expiry_date, baa_signed_by, id]
-    );
-    await db.query(
-      'INSERT INTO admin_audit_log (admin_id, admin_email, action, resource, details) VALUES ($1,$2,$3,$4,$5)',
-      ['system', req.user?.email||'system', 'baa_updated', 'agents',
-       JSON.stringify({ agent_id: id, baa_status, baa_signed_by })]
-    ).catch(()=>{});
-    res.json({ success: true });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// GET /api/agents/baa/summary — PHI agents BAA status summary
-app.get('/api/agents/baa/summary', auth, async (req, res) => {
-  try {
-    const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-    const { rows } = await db.query(`
-      SELECT 
-        COUNT(*) FILTER (WHERE phi=true) as phi_total,
-        COUNT(*) FILTER (WHERE phi=true AND baa_status='signed') as baa_signed,
-        COUNT(*) FILTER (WHERE phi=true AND (baa_status IS NULL OR baa_status='unknown')) as baa_missing,
-        COUNT(*) FILTER (WHERE phi=true AND baa_status='required') as baa_required,
-        COUNT(*) FILTER (WHERE phi=true AND baa_expiry_date < NOW() + INTERVAL '30 days' AND baa_expiry_date IS NOT NULL) as baa_expiring
-      FROM agents WHERE tenant_id=$1 OR tenant_id IS NULL`, [tId]);
-    const { rows: agentRows } = await db.query(`
-      SELECT id, name, baa_status, baa_document_url, baa_signed_date, baa_expiry_date, baa_signed_by, risk, env
-      FROM agents WHERE phi=true AND (tenant_id=$1 OR tenant_id IS NULL)
-      ORDER BY CASE baa_status WHEN 'signed' THEN 3 WHEN 'required' THEN 1 ELSE 2 END, name`, [tId]);
-    res.json({ summary: rows[0], agents: agentRows });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-
-// ══════════════════════════════════════════════════════════════
-// OWNER AUTO-SUGGESTION
-// ══════════════════════════════════════════════════════════════
-app.get('/api/agents/:id/owner-suggest', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { rows } = await db.query('SELECT * FROM agents WHERE id=$1', [id]);
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    const a = rows[0];
-    const suggestions = [];
-    const tags = typeof a.tags === 'string' ? JSON.parse(a.tags||'{}') : (a.tags||{});
-
-    // From Azure resource tags
-    const tagOwnerFields = ['owner','Owner','CreatedBy','createdby','team','Team','contact','Contact','responsible','Responsible','department','Department'];
-    for (const field of tagOwnerFields) {
-      if (tags[field]) {
-        suggestions.push({ email: tags[field], confidence: 95, source: 'Azure tag: '+field });
-        break;
-      }
-    }
-
-    // From agent name patterns
-    const name = (a.name||'').toLowerCase();
-    if (name.includes('jarvis') || name.includes('foundry')) suggestions.push({ email: 'platform@company.com', confidence: 75, source: 'Name pattern: foundry/jarvis' });
-    else if (name.includes('cicd') || name.includes('orchestrator')) suggestions.push({ email: 'devops@company.com', confidence: 75, source: 'Name pattern: cicd/orchestrator' });
-    else if (name.includes('infoblox') || name.includes('virustotal') || name.includes('security')) suggestions.push({ email: 'security@company.com', confidence: 75, source: 'Name pattern: security tool' });
-    else if (name.includes('copilot') || name.includes('assistant')) suggestions.push({ email: 'it@company.com', confidence: 65, source: 'Name pattern: user-facing AI' });
-
-    // From detect source
-    if (!suggestions.length) {
-      if (a.detect === 'Azure auto-discovery') suggestions.push({ email: 'azure-admin@company.com', confidence: 50, source: 'Azure auto-discovery default' });
-      else if (a.detect === 'Tag-based discovery') suggestions.push({ email: 'platform@company.com', confidence: 50, source: 'Tag-based discovery default' });
-    }
-
-    // From category
-    if (!suggestions.length) {
-      const catOwners = { platform:'platform@company.com', autonomous:'ai-team@company.com', 'user-facing':'it@company.com', saas:'it@company.com' };
-      if (catOwners[a.agent_category]) suggestions.push({ email: catOwners[a.agent_category], confidence: 40, source: 'Agent category default' });
-    }
-
-    res.json({ agentId: id, agentName: a.name, suggestions: suggestions.slice(0,3), currentOwner: a.owner });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-// POST /api/agents/owner/bulk-suggest — suggest owners for all ownerless agents
-app.post('/api/agents/owner/bulk-suggest', auth, async (req, res) => {
-  try {
-    const tId = req.user?.tenantId || '00000000-0000-0000-0000-000000000001';
-    const { rows } = await db.query(
-      "SELECT * FROM agents WHERE (owner IS NULL OR owner='') AND (tenant_id=$1 OR tenant_id IS NULL) LIMIT 50", [tId]
-    );
-    const results = [];
-    for (const a of rows) {
-      const name = (a.name||'').toLowerCase();
-      let suggested = null; let confidence = 0; let source = '';
-      if (name.includes('jarvis')||name.includes('foundry')) { suggested='platform@company.com'; confidence=75; source='name pattern'; }
-      else if (name.includes('cicd')||name.includes('orchestrator')) { suggested='devops@company.com'; confidence=75; source='name pattern'; }
-      else if (name.includes('infoblox')||name.includes('virustotal')) { suggested='security@company.com'; confidence=75; source='name pattern'; }
-      else if (a.agent_category==='platform') { suggested='platform@company.com'; confidence=50; source='category'; }
-      else { suggested='ai-governance@company.com'; confidence=30; source='default'; }
-      if (suggested) results.push({ agentId:a.id, agentName:a.name, suggested, confidence, source });
-    }
-    res.json({ ownerless: rows.length, suggestions: results });
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
-
-
-// ══════════════════════════════════════════════════════════════
-// EVIDENCE PACKAGE PER AGENT
-// ══════════════════════════════════════════════════════════════
-app.get('/api/agents/:id/evidence', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { rows: agents } = await db.query('SELECT * FROM agents WHERE id=$1', [id]);
-    if (!agents.length) return res.status(404).json({ error: 'Not found' });
-    const a = agents[0];
-
-    // Get audit history for this agent
-    const { rows: audit } = await db.query(
-      `SELECT action, admin_email, details, created_at FROM admin_audit_log
-       WHERE details::text LIKE $1 ORDER BY created_at DESC LIMIT 50`,
-      ['%'+id+'%']
-    );
-
-    // Get playbook runs for this agent
-    const { rows: runs } = await db.query(
-      'SELECT * FROM playbook_runs WHERE agent_id=$1 ORDER BY created_at DESC LIMIT 10',
-      [id]
-    ).catch(()=>({rows:[]}));
-
-    const ctrl = typeof a.controls==='string'?JSON.parse(a.controls||'{}'):(a.controls||{});
-    const fwLabels = {soc2:'SOC 2',iso27001:'ISO 27001',gdpr:'GDPR',nist:'NIST AI RMF',euai:'EU AI Act',hipaa:'HIPAA',hitrust:'HITRUST',fda_samd:'FDA SaMD'};
-
-    // Compute risk score
-    let score = 0;
-    if (a.phi) score+=20; if (a.pii) score+=10; if (a.shadow) score+=25;
-    score += Math.min(20, Object.values(ctrl).filter(v=>v==='fail').length*3);
-    if (!a.review_date) score+=10; if (!a.owner) score+=10;
-    score = Math.min(100, score);
-
-    const evidence = {
-      generated: new Date().toISOString(),
-      agent: {
-        id: a.id, name: a.name, type: a.type, env: a.env,
-        category: a.agent_category, lifecycle: a.lifecycle_status,
-        version: a.version, hosted: a.hosted
-      },
-      risk: {
-        score, level: a.risk,
-        factors: [
-          ...(a.phi?[{factor:'PHI access',points:20}]:[]),
-          ...(a.pii?[{factor:'PII access',points:10}]:[]),
-          ...(a.shadow?[{factor:'Shadow/unauthorized',points:25}]:[]),
-          ...(!a.owner?[{factor:'No owner assigned',points:10}]:[]),
-          ...(!a.review_date?[{factor:'Never reviewed',points:10}]:[])
-        ]
-      },
-      ownership: {
-        owner: a.owner || 'Unassigned',
-        review_cadence: a.review_cadence || '90days',
-        last_reviewed: a.review_date,
-        approved_by: a.approved_by,
-        approval_date: a.approval_date
-      },
-      phi_hipaa: {
-        phi_flag: a.phi,
-        pii_flag: a.pii,
-        baa_status: a.baa_status || 'unknown',
-        baa_signed_by: a.baa_signed_by,
-        baa_signed_date: a.baa_signed_date,
-        baa_expiry_date: a.baa_expiry_date,
-        baa_document_url: a.baa_document_url
-      },
-      compliance: Object.entries(ctrl).map(([fw,status])=>({
-        framework: fwLabels[fw]||fw, status, passing: status==='pass'
-      })),
-      audit_trail: audit.map(r=>({
-        action: r.action,
-        performed_by: r.admin_email,
-        timestamp: r.created_at
-      })),
-      playbook_executions: (runs.rows||runs).map(r=>({
-        playbook_run_id: r.id,
-        status: r.status,
-        trigger: r.trigger_reason,
-        executed_by: r.executed_by,
-        timestamp: r.created_at
-      })),
-      summary: {
-        compliant: Object.values(ctrl).every(v=>v!=='fail'),
-        hipaa_ready: a.phi ? a.baa_status==='signed' : true,
-        has_owner: !!a.owner,
-        has_review: !!a.review_date,
-        audit_entries: audit.length
-      }
-    };
-
-    // Log evidence package download
-    await db.query(
-      'INSERT INTO admin_audit_log (admin_id, admin_email, action, resource, details) VALUES ($1,$2,$3,$4,$5)',
-      ['system', req.user?.email||'system', 'evidence_downloaded', 'agents',
-       JSON.stringify({agent_id: id, agent_name: a.name})]
-    ).catch(()=>{});
-
-    res.json(evidence);
-  } catch(e) { res.status(500).json({ error: safeError(e) }); }
-});
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 

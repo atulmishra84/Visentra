@@ -1,0 +1,125 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentradar-nginx-config
+  namespace: agentradar
+data:
+  default.conf: |
+    server {
+      listen 80;
+      server_name _;
+      root /usr/share/nginx/html;
+      index index.html;
+      gzip on;
+      gzip_types text/css application/javascript application/json;
+
+      location /health {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok";
+      }
+      location /api {
+        proxy_pass http://agentradar-api:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+      }
+      location = /app.js {
+        add_header Content-Type "application/javascript; charset=utf-8" always;
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+      }
+      location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://login.microsoftonline.com https://*.azure.com; frame-ancestors 'none'; base-uri 'self'; font-src 'self' https://fonts.gstatic.com;" always;
+      }
+      location ~ /\. { deny all; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentradar-frontend
+  namespace: agentradar
+  labels:
+    app: agentradar-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: agentradar-frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: agentradar-frontend
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+      containers:
+        - name: frontend
+          image: acragentradarprod.azurecr.io/agentradar-frontend:latest
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_BIND_SERVICE"]
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /var/run
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: agentradar-nginx-config
+        - name: cache
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentradar-frontend
+  namespace: agentradar
+spec:
+  selector:
+    app: agentradar-frontend
+  ports:
+    - port: 80
+      targetPort: 80
