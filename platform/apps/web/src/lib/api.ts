@@ -62,7 +62,7 @@ const TOKEN_KEY = "visentra.jwt";
 const LEGACY_TOKEN_KEY = "agentradar.jwt";
 
 export const API_BASE_URL = (
-  (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8080"
+  (import.meta.env.VITE_API_URL as string | undefined) ?? ""
 ).replace(/\/$/, "");
 
 export function getAuthToken(): string | null {
