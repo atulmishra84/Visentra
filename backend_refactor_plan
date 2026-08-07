@@ -1,0 +1,234 @@
+# API God File Refactor: Modular Architecture
+
+## Background
+
+The current `platform/apps/api/src/index.js` is **2,077 lines long**. It contains everything: DB initialization, middleware, auth helpers, query utilities, and 55+ route handlers — all in one file. This plan breaks it into a clean, industry-standard structure while making **zero functional changes** to any business logic or API contracts.
+
+---
+
+## Target Directory Structure
+
+After the refactor, `src/` will look like this:
+
+```
+src/
+├── index.js                    ← THIN entry point (~30 lines). Just boots the server.
+├── app.js                      ← NEW: Assembles Express app, registers all routers.
+├── config.js                   ← UNCHANGED
+├── migrate.js                  ← UNCHANGED
+├── meshConstants.js            ← UNCHANGED
+│
+├── db/
+│   ├── postgres.js             ← NEW: pg.Pool singleton
+│   └── neo4j.js                ← NEW: neo4j driver singleton + constraint init
+│
+├── middleware/
+│   ├── auth.js                 ← NEW: `auth()` and `requireRole()` middleware
+│   ├── headers.js              ← NEW: security headers + requestId middleware
+│   └── rateLimiter.js          ← NEW: `loginRateLimit` export
+│
+├── routes/                     ← THIN: only imports controller, maps URL → handler
+│   ├── health.js               ← GET /health, GET /ready
+│   ├── auth.js                 ← /api/auth/* (login, me, SSO flows)
+│   ├── agents.js               ← /api/agents, /api/agents/:id, anatomy, etc.
+│   ├── graph.js                ← /api/graph, /api/graph/seeds, /api/graph/stream
+│   ├── discovery.js            ← /api/discovery/jobs, /api/discovery/events
+│   ├── search.js               ← /api/search
+│   ├── shadowAi.js             ← /api/shadow-ai
+│   ├── dashboards.js           ← /api/dashboards/:name
+│   ├── usage.js                ← /api/usage/*, /api/coverage
+│   ├── aiBom.js                ← /api/ai-bom/*
+│   ├── audit.js                ← /api/audit
+│   ├── connectors.js           ← /api/connectors/*
+│   ├── sso.js                  ← /api/settings/sso/*
+│   ├── assets.js               ← /api/assets
+│   ├── mesh.js                 ← /api/mesh, /api/risk/paths
+│   └── export.js               ← /api/export/agents, /api/ai-bom/export
+│
+├── controllers/                ← Business logic extracted from route handlers
+│   ├── health.controller.js    ← DB ping logic for /health and /ready
+│   ├── auth.controller.js      ← login, me, SSO start/callback handlers
+│   ├── agents.controller.js    ← list, getById, anatomy handlers
+│   ├── graph.controller.js     ← graph, seeds, SSE stream handlers
+│   ├── discovery.controller.js ← listJobs, createJob, listEvents handlers
+│   ├── search.controller.js    ← full-text search handler
+│   ├── shadowAi.controller.js  ← shadow AI list + summary handler
+│   ├── dashboards.controller.js← dashboard data assembly handler
+│   ├── usage.controller.js     ← breakdown, export, providers, evidence, trends
+│   ├── aiBom.controller.js     ← bom, catalog, enrichments, snapshots handlers
+│   ├── audit.controller.js     ← listAuditEvents handler
+│   ├── connectors.controller.js← CRUD + test handlers
+│   ├── sso.controller.js       ← CRUD + test SSO provider handlers
+│   ├── assets.controller.js    ← list assets handler
+│   ├── mesh.controller.js      ← mesh + risk paths handlers
+│   └── export.controller.js    ← CSV/JSON agent export handlers
+│
+├── lib/
+│   ├── graphBuilder.js         ← NEW: `graphFromSql()`, `resolveSeedAgents()` helpers
+│   ├── sseManager.js           ← NEW: `broadcast()`, `sseClients` Map
+│   ├── agentFilters.js         ← NEW: `agentFilters()` query builder
+│   └── jwt.js                  ← NEW: `signToken()` helper
+│
+├── auth/                       ← UNCHANGED (entra.js, oidc.js)
+├── discovery/                  ← UNCHANGED (pipeline.js, collectors.js)
+├── services/                   ← UNCHANGED (all 8 service files)
+└── utils/                      ← UNCHANGED (crypto.js, http.js)
+```
+
+---
+
+## Dependency Flow (Clean MVC Architecture)
+
+```
+index.js (boot)
+  └── app.js (assemble Express)
+        ├── middleware/ (auth, headers, rateLimit)
+        └── routes/    (URL mapping only — no logic)
+              └── controllers/ (request/response handling)
+                    └── services/, lib/, db/ (pure business logic & data)
+```
+
+**Strict one-way dependency rule:**
+- `routes/` → only import from `controllers/` and `middleware/`
+- `controllers/` → only import from `services/`, `lib/`, and `db/`
+- `services/` → never import from `routes/` or `controllers/`
+
+This means any controller can be unit-tested by calling it directly without spinning up Express.
+
+---
+
+## Proposed Changes
+
+### Layer 1: Infrastructure (DB singletons)
+
+#### [NEW] [postgres.js](file:///d:/citius/Visentra/platform/apps/api/src/db/postgres.js)
+Extracts the `pg.Pool` initialization and boot-time Postgres retry loop out of `index.js`. Exports the `pool` singleton to be imported by routes and services.
+
+#### [NEW] [neo4j.js](file:///d:/citius/Visentra/platform/apps/api/src/db/neo4j.js)
+Extracts the Neo4j driver initialization (`neo4j.driver(...)`) and the `initNeo4jConstraints()` function. Exports `neo4jDriver`.
+
+---
+
+### Layer 2: Shared Utilities
+
+#### [NEW] [lib/jwt.js](file:///d:/citius/Visentra/platform/apps/api/src/lib/jwt.js)
+The `signToken()` helper currently at line 131. Imported by the auth router.
+
+#### [NEW] [lib/sseManager.js](file:///d:/citius/Visentra/platform/apps/api/src/lib/sseManager.js)
+The `sseClients` Map and `broadcast()` function (lines 116–129). Used by both the graph stream route and the discovery job route.
+
+#### [NEW] [lib/agentFilters.js](file:///d:/citius/Visentra/platform/apps/api/src/lib/agentFilters.js)
+The `agentFilters()` SQL query builder (lines 187–328) and `isUuid()` helper. Used by agents and export routes.
+
+#### [NEW] [lib/graphBuilder.js](file:///d:/citius/Visentra/platform/apps/api/src/lib/graphBuilder.js)
+The `resolveSeedAgents()` (lines 336–364) and `graphFromSql()` (lines 366–534) functions. Used by the graph router.
+
+---
+
+### Layer 3: Middleware
+
+#### [NEW] [middleware/auth.js](file:///d:/citius/Visentra/platform/apps/api/src/middleware/auth.js)
+The `auth()` middleware (lines 139–155) and `requireRole()` factory (lines 157–164).
+
+#### [NEW] [middleware/headers.js](file:///d:/citius/Visentra/platform/apps/api/src/middleware/headers.js)
+The security headers middleware (lines 562–569): `X-Request-Id`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`.
+
+#### [NEW] [middleware/rateLimiter.js](file:///d:/citius/Visentra/platform/apps/api/src/middleware/rateLimiter.js)
+The `loginRateLimit` instance (line 571), backed by `createRateLimiter` from `config.js`.
+
+---
+
+### Layer 4: Route Modules
+
+Each route file is intentionally **thin** — it only wires URL patterns to controller functions. Zero business logic lives here.
+
+**Example pattern (how every route file will look):**
+```js
+// routes/agents.js
+import { Router } from 'express';
+import { auth, requireRole } from '../middleware/auth.js';
+import * as agents from '../controllers/agents.controller.js';
+
+const router = Router();
+router.get('/',         auth, agents.list);
+router.get('/:id',      auth, agents.getById);
+router.get('/:id/anatomy', auth, agents.anatomy);
+export default router;
+```
+
+| Route File | URL Prefix | Corresponding Controller |
+|---|---|---|
+| `health.js` | `/health`, `/ready` | `health.controller.js` |
+| `auth.js` | `/api/auth/*` | `auth.controller.js` |
+| `sso.js` | `/api/settings/sso/*` | `sso.controller.js` |
+| `agents.js` | `/api/agents/*` | `agents.controller.js` |
+| `mesh.js` | `/api/mesh`, `/api/risk/paths` | `mesh.controller.js` |
+| `graph.js` | `/api/graph/*` | `graph.controller.js` |
+| `search.js` | `/api/search` | `search.controller.js` |
+| `discovery.js` | `/api/discovery/*` | `discovery.controller.js` |
+| `shadowAi.js` | `/api/shadow-ai` | `shadowAi.controller.js` |
+| `dashboards.js` | `/api/dashboards/:name` | `dashboards.controller.js` |
+| `usage.js` | `/api/usage/*`, `/api/coverage` | `usage.controller.js` |
+| `aiBom.js` | `/api/ai-bom/*` | `aiBom.controller.js` |
+| `audit.js` | `/api/audit` | `audit.controller.js` |
+| `connectors.js` | `/api/connectors/*` | `connectors.controller.js` |
+| `assets.js` | `/api/assets` | `assets.controller.js` |
+| `export.js` | `/api/export/agents` | `export.controller.js` |
+
+---
+
+### Layer 5: Controllers
+
+Each controller file contains the actual `async (req, res)` handler functions extracted from `index.js`. Controllers are the **only** layer that reads `req.*` and writes `res.*`.
+
+**Example pattern:**
+```js
+// controllers/agents.controller.js
+import { pool } from '../db/postgres.js';
+import { agentFilters } from '../lib/agentFilters.js';
+import { enrichAgentRow } from '../services/agentDepth.js';
+
+export async function list(req, res) {
+  const tenantId = req.tenantId;
+  const { clauses, params } = agentFilters(req.query);
+  // ... SQL query
+  res.json({ agents: rows, total });
+}
+
+export async function getById(req, res) { ... }
+export async function anatomy(req, res) { ... }
+```
+
+---
+
+### Layer 5: App Assembly
+
+#### [NEW] [app.js](file:///d:/citius/Visentra/platform/apps/api/src/app.js)
+Creates the Express app, registers all middleware, then mounts all routers using `app.use()`. Exports the configured `app`.
+
+#### [MODIFY] [index.js](file:///d:/citius/Visentra/platform/apps/api/src/index.js)
+Becomes a ~30 line thin entry point. Imports `app`, runs the boot sequence (Postgres wait loop, `migrate()`, `initNeo4jConstraints()`), then calls `app.listen()`.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+None exist yet. After refactor, the application should boot successfully and pass its own readiness probe:
+```bash
+curl http://localhost:8081/ready
+# Expected: {"status":"ready","postgres":true,"neo4j":true}
+```
+
+### Manual Verification
+- `docker compose up -d --build` must succeed with zero errors.
+- `GET /api/auth/login` (via Postman or curl) with correct credentials should return a JWT token.
+- The frontend at `http://localhost:5173` must load and be fully functional.
+
+---
+
+> [!IMPORTANT]
+> **Zero functional changes.** This is a pure structural refactor. No API endpoints, business logic, SQL queries, or response shapes will be modified. The existing service files (`services/`, `auth/`, `discovery/`, `utils/`) remain completely untouched.
+
+> [!WARNING]
+> **`purgeDemoInventory` and `purgeNonAiInventory`** are large inline functions currently in `index.js` (lines ~1870–2042). They will be moved to a new `lib/inventoryPurge.js` file and called from the boot sequence in the new thin `index.js`.

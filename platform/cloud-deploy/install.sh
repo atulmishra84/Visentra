@@ -178,7 +178,7 @@ fi
 echo "==> Creating resource group..."
 az group create --name "$RG" --location "$LOCATION" -o none
 
-echo "==> Deploying foundation (ACR, data plane, CAE, Redis, Neo4j)..."
+echo "==> Deploying foundation (ACR, data plane, CAE, Neo4j)..."
 DEPLOY_OUT=$(az deployment group create \
   --resource-group "$RG" \
   --template-file "$AZURE_DIR/main.bicep" \
@@ -270,7 +270,6 @@ az containerapp create \
     NEO4J_URI="bolt://neo4j-$NAME:7687" \
     NEO4J_USER=neo4j \
     NEO4J_PASSWORD=secretref:neo4j-password \
-    REDIS_URL="redis://redis-$NAME:6379" \
     JWT_SECRET=secretref:jwt-secret \
     ENCRYPTION_KEY=secretref:encryption-key \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
@@ -288,7 +287,6 @@ az containerapp update \
     NEO4J_URI="bolt://neo4j-$NAME:7687" \
     NEO4J_USER=neo4j \
     NEO4J_PASSWORD=secretref:neo4j-password \
-    REDIS_URL="redis://redis-$NAME:6379" \
     JWT_SECRET=secretref:jwt-secret \
     ENCRYPTION_KEY=secretref:encryption-key \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \

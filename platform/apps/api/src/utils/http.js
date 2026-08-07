@@ -204,15 +204,7 @@ export async function safeFetch(input, init = {}, policy) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    if (rest.skipTlsVerify) {
-      return await fetchWithHttpsRequest(url, { ...rest, signal: rest.signal ?? controller.signal }, timeoutMs);
-    }
-    const res = await fetch(url.href, {
-      ...rest,
-      redirect: rest.redirect ?? "error",
-      signal: rest.signal ?? controller.signal
-    });
-    return res;
+    return await fetchWithHttpsRequest(url, { ...rest, signal: rest.signal ?? controller.signal }, timeoutMs);
   } catch (err) {
     if (err?.name === "AbortError") {
       throw new Error(`Outbound request timed out after ${timeoutMs}ms (${url.hostname})`);
