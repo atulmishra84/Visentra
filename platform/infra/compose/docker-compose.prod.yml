@@ -10,14 +10,6 @@ services:
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
 
-  redis:
-    ports: []
-
-  nats:
-    ports: []
-
-  opensearch:
-    ports: []
 
   api:
     environment:
