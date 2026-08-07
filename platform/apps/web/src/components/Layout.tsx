@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { connectGraphStream } from "../lib/api";
 import { useAuth } from "../lib/auth";

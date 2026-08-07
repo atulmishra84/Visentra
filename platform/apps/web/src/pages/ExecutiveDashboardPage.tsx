@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { KpiCard } from "../components/KpiCard";
 import { apiRequest, listFromPayload, numberAt, valueAt } from "../lib/api";
 

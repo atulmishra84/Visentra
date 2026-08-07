@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Navigate, useLocation, useSearchParams } from "react-router-dom";
+import { Navigate, useLocation, useSearchParams } from "react-router";
 import { API_BASE_URL, apiRequest, setAuthToken } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { getPreferredTheme, toggleTheme, type ThemeMode } from "../lib/theme";

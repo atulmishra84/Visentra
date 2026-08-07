@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 import { apiRequest, listFromPayload, valueAt } from "../lib/api";
 
 export function SearchPage() {

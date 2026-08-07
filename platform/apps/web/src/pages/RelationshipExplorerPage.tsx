@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 import { AgentAnatomyPanel, type AgentAnatomy } from "../components/AgentAnatomyPanel";
 import { DetailDrawer } from "../components/DetailDrawer";
 import { GraphSeedBar, type GraphSeedOption } from "../components/GraphSeedBar";

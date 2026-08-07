@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 import { KpiCard } from "../components/KpiCard";
 import { apiRequest, compactDate, numberAt, type Agent, valueAt } from "../lib/api";
 
