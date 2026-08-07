@@ -334,9 +334,8 @@ body::before {
   box-sizing: border-box;
   animation: view-in 0.25s cubic-bezier(0.4,0,0.2,1);
 }
-.view.active { display: flex; }
-.view.active { display: flex; }
-.view.active { display: flex; }
+.view.active { display: flex; z-index: 1; }
+#view-integrations { padding: 0 !important; overflow: hidden !important; }
 @keyframes view-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 #view-discovery .tbl-wrap { max-height: calc(100vh - 260px); overflow-y: auto; }
@@ -2260,9 +2259,9 @@ input[type=checkbox]{accent-color:var(--brand)}
 #drawer .drw2-close:hover { background: rgba(200,210,240,0.6) !important; color: #0f1117 !important; }
 
 
-.view .card { overflow: visible !important; }
+.view .card { overflow: hidden; }
 .view .tbl-wrap { overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 280px); }
-#content { overflow-y: auto !important; overflow-x: hidden; }
+/* content overflow managed by views */
 
 /* Senior dev scroll fix — targeted, no !important needed */
 .card {
@@ -2635,6 +2634,18 @@ input[type=checkbox]{accent-color:var(--brand)}
     <div class="nav-item" id="nav-phi" onclick="go('phi')">
       <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1L3 4v3c0 2.5 1.7 4 4 4.5 2.3-.5 4-2 4-4.5V4L7 1z"/><path d="M5 7h4M7 5v4"/></svg>
       PHI Exposure <span class="nav-badge nb-red" id="nb-phi">0</span>
+    </div>
+    <div class="nav-item" id="nav-shadowdash" onclick="go('shadowdash')">
+      <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"/><path d="M4.5 9.5L7 4l2.5 5.5"/><line x1="5.5" y1="7.5" x2="8.5" y2="7.5"/></svg>
+      Shadow AI Hub <span class="nav-badge nb-red" id="nav-shadow-count">0</span>
+    </div>
+    <div class="nav-item" id="nav-coverage" onclick="go('coverage')">
+      <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="12" height="12" rx="2"/><path d="M4 7l2 2 4-4"/></svg>
+      Coverage Map
+    </div>
+    <div class="nav-item" id="nav-operations" onclick="go('operations')">
+      <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="5" height="8" rx="1"/><rect x="8" y="3" width="5" height="4" rx="1"/><rect x="8" y="9" width="5" height="2" rx="1"/></svg>
+      Operations <span class="nav-badge nb-amber" id="nav-ops-count">0</span>
     </div>
     <div class="nav-item" id="nav-models" onclick="go('models')">
       <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="12" height="8" rx="1.5"/><line x1="4" y1="6" x2="4" y2="8"/><line x1="7" y1="5" x2="7" y2="9"/><line x1="10" y1="6.5" x2="10" y2="8"/></svg>
@@ -3417,576 +3428,9 @@ input[type=checkbox]{accent-color:var(--brand)}
     </div>
 
     <!-- ══ INTEGRATIONS ══ -->
-    <div class="view" id="view-integrations" style="height:100%;overflow:hidden;padding:0 !important;display:flex;flex-direction:column">
+    <div class="view" id="view-integrations">
 
-<style>
-#view-integrations { padding: 0 !important; }
-.ih-wrap { display: flex; flex-direction: column; height: 100%; }
-.ih-topbar { display: flex; align-items: center; gap: 0; padding: 14px 20px; border-bottom: 1px solid var(--glass-border-dim); background: var(--glass-white); flex-shrink: 0; }
-.ih-title { font-size: 16px; font-weight: 700; font-family: var(--font-display); color: var(--text-primary); margin-right: 20px; }
-.ih-stats { display: flex; gap: 8px; flex: 1; }
-.ih-stat { display: flex; align-items: center; gap: 6px; padding: 5px 12px; background: var(--bg-secondary); border: 1px solid var(--glass-border-dim); border-radius: 99px; }
-.ih-stat-dot { width: 7px; height: 7px; border-radius: 50%; }
-.ih-stat-val { font-size: 12px; font-weight: 700; color: var(--text-primary); }
-.ih-stat-lbl { font-size: 11px; color: var(--text-muted); }
-.ih-run-all { padding: 7px 16px; background: var(--brand); color: #fff; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 12px; }
-.ih-run-all:hover { opacity: .88; }
-.ih-main { display: flex; flex: 1; overflow: hidden; }
-.ih-sidebar { width: 234px; flex-shrink: 0; border-right: 1px solid var(--glass-border-dim); display: flex; flex-direction: column; background: var(--glass-white); overflow: hidden; }
-.ih-search-wrap { padding: 10px 12px; border-bottom: 1px solid var(--glass-border-dim); }
-.ih-search { width: 100%; padding: 7px 10px; border: 1px solid var(--glass-border-dim); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); font-size: 12px; box-sizing: border-box; }
-.ih-search:focus { outline: none; border-color: var(--brand); }
-.ih-filters { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--glass-border-dim); flex-wrap: wrap; }
-.ih-filter { padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid var(--glass-border-dim); background: transparent; color: var(--text-muted); transition: all .12s; }
-.ih-filter.on { background: var(--brand-bg); color: var(--brand); border-color: var(--brand-border); }
-.ih-list { flex: 1; overflow-y: auto; }
-.ih-section { padding: 8px 12px 4px; font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
-.ih-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; position: relative; transition: background .1s; }
-.ih-row:hover { background: var(--bg-secondary); }
-.ih-row:hover .ih-quick-btn { opacity: 1; }
-.ih-row.active { background: var(--brand-bg); }
-.ih-prov-logo { width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
-.ih-prov-info { flex: 1; min-width: 0; }
-.ih-prov-name { font-size: 12px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ih-row.active .ih-prov-name { color: var(--brand); }
-.ih-prov-sub { font-size: 10px; color: var(--text-muted); }
-.ih-status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.isd-on { background: #10b981; }
-.isd-off { background: var(--glass-border-dim); }
-.isd-err { background: #ef4444; }
-.ih-quick-btn { opacity: 0; font-size: 10px; padding: 2px 7px; border-radius: 99px; background: var(--brand); color: #fff; border: none; cursor: pointer; position: absolute; right: 8px; transition: opacity .12s; }
-.ih-detail { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-secondary); }
-.ih-dhead { padding: 16px 22px 0; border-bottom: 1px solid var(--glass-border-dim); background: var(--glass-white); flex-shrink: 0; }
-.ih-prow { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
-.ih-dlogo { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
-.ih-dname { font-size: 16px; font-weight: 700; color: var(--text-primary); font-family: var(--font-display); }
-.ih-ddesc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-.ih-dbadges { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
-.ih-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--glass-border-dim); background: var(--bg-secondary); color: var(--text-muted); }
-.ih-badge-green { background: var(--green-bg); color: var(--green-text); border-color: var(--green-border); }
-.ih-badge-amber { background: var(--amber-bg); color: var(--amber-text); border-color: var(--amber-border); }
-.ih-dtabs { display: flex; gap: 0; margin-top: 4px; }
-.ih-dtab { font-size: 12px; font-weight: 600; padding: 8px 16px; border-bottom: 2px solid transparent; color: var(--text-muted); cursor: pointer; transition: all .12s; white-space: nowrap; }
-.ih-dtab.on { color: var(--brand); border-bottom-color: var(--brand); }
-.ih-dtab:hover:not(.on) { color: var(--text-secondary); }
-.ih-dbody { flex: 1; overflow-y: auto; padding: 20px 22px; }
-.ih-scan-prog { display: none; align-items: center; gap: 12px; background: var(--brand-bg); border: 1px solid var(--brand-border); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; }
-.ih-sp-bar { flex: 1; height: 4px; background: var(--bg-secondary); border-radius: 2px; overflow: hidden; }
-.ih-sp-fill { height: 100%; background: var(--brand); border-radius: 2px; animation: ihScan 2.5s ease-in-out infinite alternate; }
-@keyframes ihScan { from{width:15%} to{width:90%} }
-.ih-sp-lbl { font-size: 11px; font-weight: 700; color: var(--brand); white-space: nowrap; }
-.ih-section-lbl { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 10px; margin-top: 16px; }
-.ih-section-lbl:first-child { margin-top: 0; }
-.ih-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
-.ih-field { display: flex; flex-direction: column; gap: 4px; }
-.ih-field.full { grid-column: 1 / -1; }
-.ih-flbl { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
-.ih-finp { width: 100%; padding: 8px 11px; border: 1px solid var(--glass-border-dim); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); font-size: 12px; font-family: var(--font-mono); box-sizing: border-box; transition: border-color .12s; }
-.ih-finp:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-bg); }
-.ih-finp-hint { font-size: 10px; color: var(--text-muted); line-height: 1.4; }
-.ih-finp-warn { font-size: 10px; color: var(--amber-text); }
-.ih-perm-box { background: var(--glass-white); border: 1px solid var(--glass-border-dim); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
-.ih-perm-title { font-size: 11px; font-weight: 700; color: var(--text-secondary); margin-bottom: 8px; }
-.ih-perm-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 11px; color: var(--text-secondary); }
-.ih-perm-icon { width: 16px; height: 16px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; flex-shrink: 0; background: var(--green-bg); color: var(--green-text); }
-.ih-agents-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; }
-.ih-agent-card { background: var(--glass-white); border: 1px solid var(--glass-border-dim); border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: border-color .12s; }
-.ih-agent-card:hover { border-color: var(--brand-border); }
-.ih-ac-name { font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
-.ih-ac-meta { font-size: 10px; color: var(--text-muted); }
-.ih-ac-risk { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 99px; margin-top: 6px; display: inline-block; }
-.risk-h { background: var(--red-bg); color: var(--red-text); }
-.risk-m { background: var(--amber-bg); color: var(--amber-text); }
-.risk-l { background: var(--green-bg); color: var(--green-text); }
-.ih-hist-row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--glass-border-dim); font-size: 12px; }
-.ih-hist-row:last-child { border-bottom: none; }
-.ih-hdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.ih-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 220px; gap: 6px; }
-.ih-empty-icon { font-size: 36px; margin-bottom: 6px; }
-.ih-empty-title { font-size: 14px; font-weight: 700; color: var(--text-primary); }
-.ih-empty-sub { font-size: 12px; color: var(--text-muted); text-align: center; max-width: 240px; line-height: 1.6; }
-.ih-empty-btn { margin-top: 10px; padding: 8px 20px; background: var(--brand); color: #fff; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }
-.ih-dfooter { padding: 12px 22px; border-top: 1px solid var(--glass-border-dim); display: flex; gap: 8px; align-items: center; background: var(--glass-white); flex-shrink: 0; }
-.ih-btn-p { padding: 8px 18px; background: var(--brand); color: #fff; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }
-.ih-btn-p:hover { opacity: .88; }
-.ih-btn-s { padding: 8px 14px; background: transparent; color: var(--text-secondary); border: 1px solid var(--glass-border-dim); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
-.ih-btn-s:hover { background: var(--bg-secondary); }
-.ih-btn-d { padding: 8px 14px; background: transparent; color: var(--red-text); border: 1px solid var(--red-border); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
-.ih-health { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 11px; font-weight: 700; color: var(--green-text); }
-.ih-hdot2 { width: 7px; height: 7px; border-radius: 50%; background: #10b981; }
-</style>
-
-<div class="ih-wrap">
-
-  <!-- Top stats bar -->
-  <div class="ih-topbar">
-    <div class="ih-title">Integrations</div>
-    <div class="ih-stats">
-      <div class="ih-stat"><div class="ih-stat-dot" style="background:#10b981"></div><span class="ih-stat-val" id="ih-cnt-connected">3</span><span class="ih-stat-lbl">connected</span></div>
-      <div class="ih-stat"><div class="ih-stat-dot" style="background:var(--glass-border-dim)"></div><span class="ih-stat-val">9</span><span class="ih-stat-lbl">available</span></div>
-      <div class="ih-stat"><div class="ih-stat-dot" style="background:#3b82f6"></div><span class="ih-stat-val" id="ih-cnt-agents">61</span><span class="ih-stat-lbl">agents discovered</span></div>
-      <div class="ih-stat"><div class="ih-stat-dot" style="background:#f59e0b"></div><span class="ih-stat-val" id="ih-last-scan">2h ago</span><span class="ih-stat-lbl">last scan</span></div>
-    </div>
-    <button class="ih-run-all" onclick="ihRunAll()">⚡ Run all scans</button>
-  </div>
-
-  <div class="ih-main">
-
-    <!-- Sidebar -->
-    <div class="ih-sidebar">
-      <div class="ih-search-wrap">
-        <input class="ih-search" placeholder="Search providers..." oninput="ihFilter(this.value)" />
-      </div>
-      <div class="ih-filters">
-        <span class="ih-filter on" onclick="ihCat('all',this)">All</span>
-        <span class="ih-filter" onclick="ihCat('cloud',this)">Cloud</span>
-        <span class="ih-filter" onclick="ihCat('security',this)">Security</span>
-        <span class="ih-filter" onclick="ihCat('siem',this)">SIEM</span>
-        <span class="ih-filter" onclick="ihCat('health',this)">Healthcare</span>
-      </div>
-      <div class="ih-list" id="ih-list">
-
-        <div class="ih-section" data-cat="cloud">Cloud</div>
-        <div class="ih-row active" data-cat="cloud" onclick="ihSelect('azure',this)">
-          <div class="ih-prov-logo" style="background:#e8f0fe">🔷</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">Microsoft Azure</div>
-            <div class="ih-prov-sub">18 agents found</div>
-          </div>
-          <div class="ih-status-dot isd-on"></div>
-          <button class="ih-quick-btn" onclick="event.stopPropagation();ihScan()">▶</button>
-        </div>
-        <div class="ih-row" data-cat="cloud" onclick="ihSelect('aws',this)">
-          <div class="ih-prov-logo" style="background:#fff3e0">🟠</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">Amazon AWS</div>
-            <div class="ih-prov-sub">Not connected</div>
-          </div>
-          <div class="ih-status-dot isd-off"></div>
-        </div>
-        <div class="ih-row" data-cat="cloud" onclick="ihSelect('gcp',this)">
-          <div class="ih-prov-logo" style="background:#e8f5e9">🟢</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">Google Cloud</div>
-            <div class="ih-prov-sub">Not connected</div>
-          </div>
-          <div class="ih-status-dot isd-off"></div>
-        </div>
-
-        <div class="ih-section" data-cat="security">Security</div>
-        <div class="ih-row" data-cat="security" onclick="ihSelect('crowdstrike',this)">
-          <div class="ih-prov-logo" style="background:#fce4ec">🔴</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">CrowdStrike</div>
-            <div class="ih-prov-sub">Not connected</div>
-          </div>
-          <div class="ih-status-dot isd-off"></div>
-        </div>
-        <div class="ih-row" data-cat="security" onclick="ihSelect('netskope',this)">
-          <div class="ih-prov-logo" style="background:#e8eaf6">🟣</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">Netskope</div>
-            <div class="ih-prov-sub">24 agents found</div>
-          </div>
-          <div class="ih-status-dot isd-on"></div>
-          <button class="ih-quick-btn" onclick="event.stopPropagation();ihScan()">▶</button>
-        </div>
-        <div class="ih-row" data-cat="security" onclick="ihSelect('intune',this)">
-          <div class="ih-prov-logo" style="background:#e3f2fd">💻</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">MS Intune</div>
-            <div class="ih-prov-sub">Not connected</div>
-          </div>
-          <div class="ih-status-dot isd-off"></div>
-        </div>
-        <div class="ih-row" data-cat="security" onclick="ihSelect('cortex',this)">
-          <div class="ih-prov-logo" style="background:#fce4ec">🦅</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">Cortex XDR</div>
-            <div class="ih-prov-sub">Not connected</div>
-          </div>
-          <div class="ih-status-dot isd-off"></div>
-        </div>
-
-        <div class="ih-section" data-cat="siem">SIEM</div>
-        <div class="ih-row" data-cat="siem" onclick="ihSelect('splunk',this)">
-          <div class="ih-prov-logo" style="background:#fff8e1">🟡</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">Splunk</div>
-            <div class="ih-prov-sub">Not connected</div>
-          </div>
-          <div class="ih-status-dot isd-off"></div>
-        </div>
-        <div class="ih-row" data-cat="siem" onclick="ihSelect('sentinel',this)">
-          <div class="ih-prov-logo" style="background:#e3f2fd">🔵</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">MS Sentinel</div>
-            <div class="ih-prov-sub">19 agents found</div>
-          </div>
-          <div class="ih-status-dot isd-on"></div>
-          <button class="ih-quick-btn" onclick="event.stopPropagation();ihScan()">▶</button>
-        </div>
-        <div class="ih-row" data-cat="siem" onclick="ihSelect('qradar',this)">
-          <div class="ih-prov-logo" style="background:#e8eaf6">🔷</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">IBM QRadar</div>
-            <div class="ih-prov-sub">Not connected</div>
-          </div>
-          <div class="ih-status-dot isd-off"></div>
-        </div>
-        <div class="ih-row" data-cat="siem" onclick="ihSelect('elastic',this)">
-          <div class="ih-prov-logo" style="background:#fff8e1">🟡</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">Elastic SIEM</div>
-            <div class="ih-prov-sub">Not connected</div>
-          </div>
-          <div class="ih-status-dot isd-off"></div>
-        </div>
-
-        <div class="ih-section" data-cat="health">Healthcare</div>
-        <div class="ih-row" data-cat="health" onclick="ihSelect('epic',this)">
-          <div class="ih-prov-logo" style="background:#e8f5e9">🏥</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">Epic EHR</div>
-            <div class="ih-prov-sub">Not connected</div>
-          </div>
-          <div class="ih-status-dot isd-off"></div>
-        </div>
-        <div class="ih-row" data-cat="health" onclick="ihSelect('cerner',this)">
-          <div class="ih-prov-logo" style="background:#e8f0fe">💊</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">Cerner / Oracle</div>
-            <div class="ih-prov-sub">Not connected</div>
-          </div>
-          <div class="ih-status-dot isd-off"></div>
-        </div>
-        <div class="ih-row" data-cat="health" onclick="ihSelect('nuance',this)">
-          <div class="ih-prov-logo" style="background:#fce4ec">🎙</div>
-          <div class="ih-prov-info">
-            <div class="ih-prov-name">Nuance DAX</div>
-            <div class="ih-prov-sub">Not connected</div>
-          </div>
-          <div class="ih-status-dot isd-off"></div>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- Detail panel -->
-    <div class="ih-detail">
-      <div class="ih-dhead">
-        <div class="ih-prow">
-          <div class="ih-dlogo" id="ih-dlogo" style="background:#e8f0fe">🔷</div>
-          <div>
-            <div class="ih-dname" id="ih-dname">Microsoft Azure + M365</div>
-            <div class="ih-ddesc" id="ih-ddesc">Discover AI agents across Azure OpenAI, AKS, Copilot Studio and Entra ID</div>
-            <div class="ih-dbadges" id="ih-dbadges">
-              <span class="ih-badge ih-badge-green">Connected</span>
-              <span class="ih-badge">Read-only</span>
-              <span class="ih-badge">Last scan 2h ago</span>
-              <span class="ih-badge">18 agents</span>
-            </div>
-          </div>
-        </div>
-        <div class="ih-dtabs">
-          <div class="ih-dtab on" onclick="ihTab('creds',this)">Credentials</div>
-          <div class="ih-dtab" onclick="ihTab('perms',this)">Permissions</div>
-          <div class="ih-dtab" onclick="ihTab('history',this)">Scan history</div>
-          <div class="ih-dtab" id="ih-agents-tab" onclick="ihTab('agents',this)">Agents (18)</div>
-        </div>
-      </div>
-
-      <div class="ih-dbody" id="ih-dbody">
-
-        <!-- CREDS TAB -->
-        <div id="ih-tab-creds">
-          <div class="ih-scan-prog" id="ih-scan-prog">
-            <div class="ih-sp-bar"><div class="ih-sp-fill"></div></div>
-            <span class="ih-sp-lbl" id="ih-sp-lbl">Scanning Azure environment...</span>
-          </div>
-          <div class="ih-section-lbl">Authentication</div>
-          <div class="ih-2col">
-            <div class="ih-field">
-              <div class="ih-flbl">Tenant ID</div>
-              <input class="ih-finp" id="ih-az-tenant" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-              <div class="ih-finp-hint">Azure Active Directory tenant</div>
-            </div>
-            <div class="ih-field">
-              <div class="ih-flbl">Subscription ID</div>
-              <input class="ih-finp" id="ih-az-sub" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-              <div class="ih-finp-hint">Target subscription to scan</div>
-            </div>
-            <div class="ih-field">
-              <div class="ih-flbl">Client ID</div>
-              <input class="ih-finp" id="ih-az-client" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-              <div class="ih-finp-hint">App registration client ID</div>
-            </div>
-            <div class="ih-field">
-              <div class="ih-flbl">Client Secret</div>
-              <input class="ih-finp" id="ih-az-secret" type="password" placeholder="•••••••••••••••••••••" />
-              <div class="ih-finp-warn" id="ih-secret-warn" style="display:none">⚠ Expires in 14 days — rotate soon</div>
-            </div>
-          </div>
-          <div class="ih-section-lbl">Scan scope</div>
-          <div class="ih-2col">
-            <div class="ih-field">
-              <div class="ih-flbl">Services to scan</div>
-              <select class="ih-finp" style="font-family:var(--font-body)">
-                <option>All services (recommended)</option>
-                <option>Azure OpenAI only</option>
-                <option>AKS + Copilot Studio</option>
-                <option>Machine Learning only</option>
-              </select>
-            </div>
-            <div class="ih-field">
-              <div class="ih-flbl">Scan depth</div>
-              <select class="ih-finp" style="font-family:var(--font-body)">
-                <option>Standard (recommended)</option>
-                <option>Deep (slower, more thorough)</option>
-                <option>Quick overview</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <!-- PERMS TAB -->
-        <div id="ih-tab-perms" style="display:none">
-          <div class="ih-perm-box">
-            <div class="ih-perm-title">Required Azure permissions</div>
-            <div class="ih-perm-row"><div class="ih-perm-icon">✓</div>Reader role on subscription</div>
-            <div class="ih-perm-row"><div class="ih-perm-icon">✓</div>Microsoft Graph — Application.Read.All</div>
-            <div class="ih-perm-row"><div class="ih-perm-icon">✓</div>CognitiveServices.Reader</div>
-            <div class="ih-perm-row"><div class="ih-perm-icon">✓</div>ContainerService.Reader (for AKS)</div>
-            <div class="ih-perm-row"><div class="ih-perm-icon">✓</div>MachineLearningServices.Reader</div>
-          </div>
-          <div class="ih-perm-box">
-            <div class="ih-perm-title">Setup guide</div>
-            <div style="font-size:12px;color:var(--text-secondary);line-height:1.8">
-              1. Azure Portal → App registrations → New registration<br>
-              2. Name it <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-secondary);padding:1px 5px;border-radius:4px">AgentRadar-Scanner</code> and register<br>
-              3. Certificates &amp; secrets → New client secret → copy value<br>
-              4. Subscriptions → IAM → Add role assignment → Reader<br>
-              5. Paste Tenant ID, Client ID, Subscription ID and secret above
-            </div>
-          </div>
-        </div>
-
-        <!-- HISTORY TAB -->
-        <div id="ih-tab-history" style="display:none">
-          <div class="ih-hist-row"><div class="ih-hdot" style="background:#10b981"></div><span style="flex:1">Full scan — 18 agents discovered</span><span style="color:var(--text-muted);font-size:11px">2h ago</span></div>
-          <div class="ih-hist-row"><div class="ih-hdot" style="background:#10b981"></div><span style="flex:1">Full scan — 16 agents discovered</span><span style="color:var(--text-muted);font-size:11px">Yesterday 09:14</span></div>
-          <div class="ih-hist-row"><div class="ih-hdot" style="background:#f59e0b"></div><span style="flex:1">Partial scan — AKS timeout, 12 agents</span><span style="color:var(--text-muted);font-size:11px">2d ago</span></div>
-          <div class="ih-hist-row"><div class="ih-hdot" style="background:#10b981"></div><span style="flex:1">Full scan — 14 agents discovered</span><span style="color:var(--text-muted);font-size:11px">3d ago</span></div>
-          <div class="ih-hist-row"><div class="ih-hdot" style="background:#ef4444"></div><span style="flex:1">Scan failed — invalid credentials</span><span style="color:var(--text-muted);font-size:11px">5d ago</span></div>
-          <div class="ih-hist-row"><div class="ih-hdot" style="background:#10b981"></div><span style="flex:1">Full scan — 11 agents discovered</span><span style="color:var(--text-muted);font-size:11px">6d ago</span></div>
-        </div>
-
-        <!-- AGENTS TAB -->
-        <div id="ih-tab-agents" style="display:none">
-          <div class="ih-agents-grid">
-            <div class="ih-agent-card" onclick="go&&go('discovery')"><div class="ih-ac-name">Azure OpenAI GPT-4o</div><div class="ih-ac-meta">Cognitive Services · Cloud</div><span class="ih-ac-risk risk-h">High risk</span></div>
-            <div class="ih-agent-card" onclick="go&&go('discovery')"><div class="ih-ac-name">Copilot Studio Bot</div><div class="ih-ac-meta">Power Platform · Cloud</div><span class="ih-ac-risk risk-m">Medium</span></div>
-            <div class="ih-agent-card" onclick="go&&go('discovery')"><div class="ih-ac-name">AKS ML Inference Pod</div><div class="ih-ac-meta">Kubernetes · Cloud</div><span class="ih-ac-risk risk-m">Medium</span></div>
-            <div class="ih-agent-card" onclick="go&&go('discovery')"><div class="ih-ac-name">Logic App AI Workflow</div><div class="ih-ac-meta">Integration · Cloud</div><span class="ih-ac-risk risk-l">Low</span></div>
-            <div class="ih-agent-card" onclick="go&&go('discovery')"><div class="ih-ac-name">Azure ML Endpoint</div><div class="ih-ac-meta">Machine Learning · Cloud</div><span class="ih-ac-risk risk-h">High risk</span></div>
-            <div class="ih-agent-card" onclick="go&&go('discovery')"><div class="ih-ac-name">Document Intelligence</div><div class="ih-ac-meta">Cognitive Services · Cloud</div><span class="ih-ac-risk risk-l">Low</span></div>
-            <div class="ih-agent-card" onclick="go&&go('discovery')"><div class="ih-ac-name">Azure Bot Service</div><div class="ih-ac-meta">Bot Framework · Cloud</div><span class="ih-ac-risk risk-m">Medium</span></div>
-            <div class="ih-agent-card" onclick="go&&go('discovery')"><div class="ih-ac-name">Content Safety API</div><div class="ih-ac-meta">Cognitive Services · Cloud</div><span class="ih-ac-risk risk-l">Low</span></div>
-          </div>
-          <div style="margin-top:12px;font-size:11px;color:var(--text-muted);text-align:center">Showing 8 of 18 agents — <a href="#" onclick="go&&go('discovery');return false" style="color:var(--brand)">view all in inventory →</a></div>
-        </div>
-
-        <!-- EMPTY STATE (for unconnected providers) -->
-        <div id="ih-tab-empty" style="display:none">
-          <div class="ih-empty">
-            <div class="ih-empty-icon" id="ih-empty-icon">🔷</div>
-            <div class="ih-empty-title" id="ih-empty-title">Connect this provider</div>
-            <div class="ih-empty-sub" id="ih-empty-sub">Add your credentials to start discovering AI agents in this environment.</div>
-            <button class="ih-empty-btn" onclick="ihTab('creds');document.querySelector('.ih-dtab').classList.add('on')">Enter credentials →</button>
-          </div>
-        </div>
-
-      </div>
-
-      <div class="ih-dfooter">
-        <button class="ih-btn-p" onclick="ihScan()" id="ih-scan-btn">▶ Run scan</button>
-        <button class="ih-btn-s" onclick="ihTest()">Test connection</button>
-        <button class="ih-btn-s" onclick="ihSave()">Save</button>
-        <button class="ih-btn-d" id="ih-disconnect-btn" style="display:none" onclick="ihDisconnect()">Disconnect</button>
-        <div class="ih-health" id="ih-health" style="display:none">
-          <div class="ih-hdot2"></div>
-          <span id="ih-health-txt">18 agents discovered</span>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</div>
-
-<script>
-(function(){
-var IH_PROVIDERS = {
-  azure:{logo:'🔷',bg:'#e8f0fe',name:'Microsoft Azure + M365',desc:'Discover AI agents across Azure OpenAI, AKS, Copilot Studio and Entra ID',connected:true,agents:18,warn:true},
-  aws:{logo:'🟠',bg:'#fff3e0',name:'Amazon Web Services',desc:'Discover AI agents across Bedrock, SageMaker, EKS and Lambda AI',connected:false,agents:0},
-  gcp:{logo:'🟢',bg:'#e8f5e9',name:'Google Cloud Platform',desc:'Discover AI agents across Vertex AI, Gemini, GKE and BigQuery ML',connected:false,agents:0},
-  crowdstrike:{logo:'🔴',bg:'#fce4ec',name:'CrowdStrike Falcon',desc:'Discover AI-powered endpoint agents and XDR automated response actions',connected:false,agents:0},
-  netskope:{logo:'🟣',bg:'#e8eaf6',name:'Netskope CASB',desc:'Discover AI agents traversing your cloud and web traffic',connected:true,agents:24},
-  intune:{logo:'💻',bg:'#e3f2fd',name:'Microsoft Intune',desc:'Discover AI agents deployed to managed endpoints and mobile devices',connected:false,agents:0},
-  cortex:{logo:'🦅',bg:'#fce4ec',name:'Palo Alto Cortex XDR',desc:'Discover AI agents from Cortex XDR endpoint telemetry',connected:false,agents:0},
-  splunk:{logo:'🟡',bg:'#fff8e1',name:'Splunk SIEM',desc:'Correlate AI agent activity from Splunk log data and dashboards',connected:false,agents:0},
-  sentinel:{logo:'🔵',bg:'#e3f2fd',name:'Microsoft Sentinel',desc:'Azure-native SIEM and SOAR — detect AI threats at cloud scale',connected:true,agents:19},
-  qradar:{logo:'🔷',bg:'#e8eaf6',name:'IBM QRadar',desc:'Discover AI agents from QRadar SIEM log sources and offenses',connected:false,agents:0},
-  elastic:{logo:'🟡',bg:'#fff8e1',name:'Elastic SIEM',desc:'Discover AI agents from Elastic Security telemetry and alerts',connected:false,agents:0},
-  epic:{logo:'🏥',bg:'#e8f5e9',name:'Epic EHR',desc:'Discover AI agents processing PHI in Epic healthcare workflows (FHIR/HL7)',connected:false,agents:0},
-  cerner:{logo:'💊',bg:'#e8f0fe',name:'Cerner / Oracle Health',desc:'Discover AI agents in Cerner clinical and administrative workflows',connected:false,agents:0},
-  nuance:{logo:'🎙',bg:'#fce4ec',name:'Nuance DAX (Microsoft)',desc:'Discover clinical AI agents using Nuance ambient documentation',connected:false,agents:0},
-};
-
-var _current = 'azure';
-
-function ihSelect(id, row) {
-  document.querySelectorAll('.ih-row').forEach(function(r){r.classList.remove('active');});
-  row.classList.add('active');
-  _current = id;
-  var p = IH_PROVIDERS[id];
-  if (!p) return;
-  document.getElementById('ih-dlogo').textContent = p.logo;
-  document.getElementById('ih-dlogo').style.background = p.bg;
-  document.getElementById('ih-dname').textContent = p.name;
-  document.getElementById('ih-ddesc').textContent = p.desc;
-  var badges = '';
-  if (p.connected) {
-    badges += '<span class="ih-badge ih-badge-green">Connected</span>';
-    badges += '<span class="ih-badge">Read-only</span>';
-    badges += '<span class="ih-badge">Last scan 2h ago</span>';
-    badges += '<span class="ih-badge">' + p.agents + ' agents</span>';
-  } else {
-    badges = '<span class="ih-badge" style="background:var(--red-bg);color:var(--red-text);border-color:var(--red-border)">Not connected</span>';
-  }
-  document.getElementById('ih-dbadges').innerHTML = badges;
-  document.getElementById('ih-agents-tab').textContent = p.connected ? 'Agents (' + p.agents + ')' : 'Agents';
-  document.getElementById('ih-health').style.display = p.connected ? 'flex' : 'none';
-  document.getElementById('ih-health-txt').textContent = p.agents + ' agents discovered';
-  document.getElementById('ih-disconnect-btn').style.display = p.connected ? 'inline-block' : 'none';
-  if (p.warn) document.getElementById('ih-secret-warn').style.display='block';
-  else document.getElementById('ih-secret-warn').style.display='none';
-  document.getElementById('ih-scan-prog').style.display = 'none';
-  ihTab(p.connected ? 'creds' : 'empty');
-  document.querySelectorAll('.ih-dtab').forEach(function(t,i){t.classList.toggle('on',i===0);});
-  document.getElementById('ih-empty-icon').textContent = p.logo;
-  document.getElementById('ih-empty-title').textContent = 'Connect ' + p.name;
-}
-window.ihSelect = ihSelect;
-
-function ihTab(tab, el) {
-  ['creds','perms','history','agents','empty'].forEach(function(t){
-    var el2 = document.getElementById('ih-tab-' + t);
-    if (el2) el2.style.display = t === tab ? 'block' : 'none';
-  });
-  if (el) {
-    document.querySelectorAll('.ih-dtab').forEach(function(t){t.classList.remove('on');});
-    el.classList.add('on');
-  }
-}
-window.ihTab = ihTab;
-
-function ihScan() {
-  var prog = document.getElementById('ih-scan-prog');
-  var p = IH_PROVIDERS[_current] || {};
-  document.getElementById('ih-sp-lbl').textContent = 'Scanning ' + (p.name||'environment') + '...';
-  prog.style.display = 'flex';
-  ihTab('creds');
-  setTimeout(function(){prog.style.display='none';}, 4000);
-}
-window.ihScan = ihScan;
-window.ihRunAll = ihScan;
-
-function ihTest() {
-  var b = document.getElementById('ih-dbadges');
-  var orig = b.innerHTML;
-  b.innerHTML = '<span class="ih-badge" style="background:var(--brand-bg);color:var(--brand);border-color:var(--brand-border)">Testing connection...</span>';
-  setTimeout(function(){b.innerHTML=orig;}, 2000);
-}
-window.ihTest = ihTest;
-
-function ihSave() {
-  var b = document.getElementById('ih-dbadges');
-  var orig = b.innerHTML;
-  b.innerHTML = '<span class="ih-badge" style="background:var(--green-bg);color:var(--green-text);border-color:var(--green-border)">✓ Saved</span>';
-  setTimeout(function(){b.innerHTML=orig;}, 1500);
-}
-window.ihSave = ihSave;
-
-function ihDisconnect() {
-  if (!confirm('Disconnect this integration? Saved credentials will be removed.')) return;
-  var p = IH_PROVIDERS[_current];
-  if (p) { p.connected = false; p.agents = 0; }
-  ihSelect(_current, document.querySelector('.ih-row.active'));
-}
-window.ihDisconnect = ihDisconnect;
-
-function ihCat(cat, el) {
-  document.querySelectorAll('.ih-filter').forEach(function(f){f.classList.remove('on');});
-  el.classList.add('on');
-  document.querySelectorAll('#ih-list .ih-row, #ih-list .ih-section').forEach(function(row){
-    if (cat === 'all') row.style.display = '';
-    else row.style.display = row.dataset.cat === cat ? '' : 'none';
-  });
-}
-window.ihCat = ihCat;
-
-function ihFilter(q) {
-  q = q.toLowerCase();
-  document.querySelectorAll('#ih-list .ih-row').forEach(function(row){
-    var name = row.querySelector('.ih-prov-name');
-    if (!name) return;
-    row.style.display = name.textContent.toLowerCase().includes(q) ? '' : 'none';
-  });
-}
-window.ihFilter = ihFilter;
-
-})();
-</script>
-
-</div>
-
-    <div class="view" id="view-ciso">
-      <div id="ciso-alerts"></div>
-      <div class="main-side-w">
-        <div class="col">
-          <div class="card">
-            <div class="card-head"><span class="card-title">AI-Generated Executive Summary</span><span class="tier-badge t5">✦ AI Narration</span></div>
-            <div class="ai-panel"><div class="ai-header"><div class="ai-orb"></div><span class="ai-label">AgentRadar Intelligence</span></div><div class="ai-text" id="ciso-ai">Loading analysis…</div></div>
-          </div>
-          <div class="card"><div class="card-head"><span class="card-title">Recommended Actions</span></div><div style="padding:14px;display:flex;flex-direction:column;gap:8px" id="ciso-recs"></div></div>
-        </div>
-        <div class="col">
-          <div class="card">
-            <div class="card-head"><span class="card-title">Posture Score</span></div>
-            <div class="posture-wrap">
-              <div class="posture-ring">
-                <svg class="posture-svg" width="130" height="130" viewBox="0 0 130 130">
-                  <circle cx="65" cy="65" r="54" fill="none" stroke="rgba(200,210,240,0.4)" stroke-width="10"/>
-                  <circle id="posture-arc" cx="65" cy="65" r="54" fill="none" stroke="var(--amber)" stroke-width="10" stroke-linecap="round" stroke-dasharray="339" stroke-dashoffset="100"/>
-                </svg>
-                <div class="posture-num" id="posture-num" style="color:var(--amber-text)">--</div>
-              </div>
-              <div class="posture-sub">/ 100 — higher is riskier</div>
-            </div>
-          </div>
-          <div class="card"><div class="card-head"><span class="card-title">Frameworks</span></div><div style="padding:14px;display:flex;flex-direction:column;gap:8px" id="ciso-fw"></div></div>
-          <div class="card"><div class="card-head"><span class="card-title">Actions</span></div>
-            <div style="padding:14px;display:flex;flex-direction:column;gap:8px">
-              <button class="btn" onclick="alert('PDF download would trigger in production.')">↓ Download PDF</button>
-              <button class="btn" onclick="alert('Pushed to #security-alerts (simulated).')">→ Push to Slack</button>
-              <button class="btn ai" onclick="runAI()">✦ Regenerate Briefing</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ══ BENCHMARK ══ -->
+<!-- ══ BENCHMARK ══ -->
     
 
     <!-- ══ NOTIFICATIONS ══ -->
@@ -4609,7 +4053,75 @@ window.ihFilter = ihFilter;
   </div>
 </div>
 
-<script src="/app.js?v=1786044407"></script>
+<script src="/app.js?v=1786081804"></script>
+
+<script>
+// Force hide all views except active on load
+document.querySelectorAll('.view').forEach(function(v){
+});
+</script>
+<script>document.querySelectorAll(".view").forEach(function(v){if(v.classList.contains("active")){v.style.display="flex";}else{v.style.display="none";}});</script>
+    <!-- ══ COVERAGE MAP ══ -->
+    <div class="view" id="view-coverage">
+      <div class="stat-grid-4">
+        <div class="stat-card green"><div class="stat-glow"></div><div class="stat-lbl">Sources Connected</div><div class="stat-val green" id="cov-connected">0</div></div>
+        <div class="stat-card amber"><div class="stat-glow"></div><div class="stat-lbl">Partial Coverage</div><div class="stat-val amber" id="cov-partial">0</div></div>
+        <div class="stat-card red"><div class="stat-glow"></div><div class="stat-lbl">Blind Spots</div><div class="stat-val red" id="cov-blind">0</div></div>
+        <div class="stat-card"><div class="stat-glow"></div><div class="stat-lbl">Coverage %</div><div class="stat-val" id="cov-pct">0%</div></div>
+      </div>
+      <div class="main-side">
+        <div class="card" style="flex:1.5">
+          <div class="card-head"><span class="card-title">Coverage Map</span><span class="tier-badge t1">Discovery</span></div>
+          <div id="coverage-map" style="padding:16px"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Blind Spots</span></div>
+          <div id="coverage-blindspots" style="padding:16px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ OPERATIONS WORKBENCH ══ -->
+    <div class="view" id="view-operations">
+      <div class="stat-grid-4">
+        <div class="stat-card red"><div class="stat-glow"></div><div class="stat-lbl">New Agents (24h)</div><div class="stat-val red" id="ops-new">0</div></div>
+        <div class="stat-card amber"><div class="stat-glow"></div><div class="stat-lbl">Gone Dark</div><div class="stat-val amber" id="ops-dark">0</div></div>
+        <div class="stat-card purple"><div class="stat-glow"></div><div class="stat-lbl">Risk Changes</div><div class="stat-val purple" id="ops-risk">0</div></div>
+        <div class="stat-card amber"><div class="stat-glow"></div><div class="stat-lbl">Review Due</div><div class="stat-val amber" id="ops-review">0</div></div>
+      </div>
+      <div class="main-side">
+        <div class="card" style="flex:1.5">
+          <div class="card-head"><span class="card-title">Work Queue</span><span class="tier-badge t2">Operations</span></div>
+          <div id="ops-queue" style="padding:0"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Discovery Events</span></div>
+          <div id="ops-events" style="padding:0;max-height:500px;overflow-y:auto"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ SHADOW AI DASHBOARD ══ -->
+    <div class="view" id="view-shadowdash">
+      <div class="stat-grid-4">
+        <div class="stat-card red"><div class="stat-glow"></div><div class="stat-lbl">Shadow Agents</div><div class="stat-val red" id="sh-total">0</div></div>
+        <div class="stat-card red"><div class="stat-glow"></div><div class="stat-lbl">Critical Risk</div><div class="stat-val red" id="sh-crit">0</div></div>
+        <div class="stat-card amber"><div class="stat-glow"></div><div class="stat-lbl">PHI Exposure</div><div class="stat-val amber" id="sh-phi">0</div></div>
+        <div class="stat-card green"><div class="stat-glow"></div><div class="stat-lbl">Resolved Today</div><div class="stat-val green" id="sh-resolved">0</div></div>
+      </div>
+      <div class="main-side">
+        <div class="card" style="flex:1.5">
+          <div class="card-head"><span class="card-title">Shadow AI Agents</span><span class="tier-badge t1">Unauthorized</span><button class="btn sm" onclick="runPolicyAutoResponse()" style="margin-left:auto">Auto-remediate all</button></div>
+          <div id="shadow-agent-list" style="padding:0"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Detection Sources</span></div>
+          <div id="shadow-sources" style="padding:16px"></div>
+          <div class="card-head" style="margin-top:8px"><span class="card-title">Trend (30 days)</span></div>
+          <div id="shadow-trend" style="padding:16px"></div>
+        </div>
+      </div>
+    </div>
 
 </body>
 </html>

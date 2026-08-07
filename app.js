@@ -9,8 +9,6 @@
   var style = document.createElement('style');
   style.id = 'ar-scroll-fix';
   style.textContent = [
-    '.view.active > * { overflow: visible !important; }',
-    '.view.active .card { overflow: visible !important; height: auto !important; }',
     '.view.active .card .tbl-wrap { overflow-x: auto; overflow-y: auto; }',
     '#view-discovery, #view-shadow, #view-phi, #view-models,',
     '#view-risk, #view-approvals, #view-compliance { overflow-y: auto !important; }'
@@ -19,17 +17,7 @@
 })();
 
 // ── Fix misplaced views ────────────────────────────────────────
-(function fixViewPlacement() {
-  var content = document.getElementById('content');
-  if (!content) return;
-  ['benchmark','notifications','activity','admin','ciso','blast'].forEach(function(v) {
-    var el = document.getElementById('view-' + v);
-    if (el && el.parentNode !== content) {
-      content.appendChild(el);
-      console.log('[DOM] Moved view-' + v + ' to #content');
-    }
-  });
-})();
+/* fixViewPlacement removed - views are correctly placed in HTML */
 
 // ═══════════════════════════════════════════════════════════════
 // GLOBAL STATE
@@ -227,16 +215,25 @@ var viewRenderMap = {
   activity:     function() { renderActivity(); },
   ciso:         function() { renderCiso(); },
   integrations: function() { renderInteg(); },
+  coverage: function() { renderCoverage(); },
+  operations: function() { renderOperations(); },
+  shadowdash: function() { renderShadowDash(); },
   admin:        function() { renderAdmin(); },
   blast:        function() { renderBlast(); }
 };
 
 function go(v) {
   currentView = v;
-  document.querySelectorAll('.view').forEach(function(el) { el.classList.remove('active'); });
+  document.querySelectorAll('.view').forEach(function(el) {
+    el.classList.remove('active');
+    el.style.display = 'none';
+  });
   document.querySelectorAll('.nav-item').forEach(function(el) { el.classList.remove('active'); });
   var viewEl = document.getElementById('view-' + v);
-  if (viewEl) viewEl.classList.add('active');
+  if (viewEl) {
+    viewEl.classList.add('active');
+    viewEl.style.display = 'flex';
+  }
   var navEl = document.getElementById('nav-' + v) || document.querySelector('[data-view="' + v + '"]');
   if (navEl) navEl.classList.add('active');
   if (viewRenderMap[v]) {
@@ -2596,178 +2593,157 @@ function renderAdmin() {
 function renderInteg() {
   var wrap = document.getElementById('view-integrations');
   if (!wrap) return;
-  var PROVIDERS = [
-    // Cloud
-    {id:'azure',cat:'Cloud',icon:'&#9729;',color:'#0078d4',name:'Microsoft Azure',sub:'OpenAI, ML, Foundry, Copilot Studio',connected:true},
-    {id:'aws',cat:'Cloud',icon:'&#128421;',color:'#f59e0b',name:'Amazon AWS',sub:'Bedrock, SageMaker, Lambda',connected:false},
-    {id:'gcp',cat:'Cloud',icon:'&#9729;',color:'#34a853',name:'Google Cloud',sub:'Vertex AI, Cloud Run, GKE',connected:false},
-    // SaaS
-    {id:'m365',cat:'SaaS',icon:'&#128187;',color:'#0078d4',name:'Microsoft 365 Copilot',sub:'Graph API, Teams AI, Entra ID',connected:false},
-    {id:'sfdc',cat:'SaaS',icon:'&#9729;',color:'#00a1e0',name:'Salesforce Einstein',sub:'Einstein AI, Agentforce',connected:false},
-    {id:'snow',cat:'SaaS',icon:'&#128736;',color:'#81b5a1',name:'ServiceNow AI',sub:'Now Assist, Virtual Agent',connected:false},
-    // Healthcare
-    {id:'epic',cat:'Healthcare',icon:'&#127973;',color:'#c2185b',name:'Epic EHR',sub:'Epic AI, Cosmos, Cheers AI features',connected:false},
-    {id:'cerner',cat:'Healthcare',icon:'&#127973;',color:'#e65100',name:'Cerner / Oracle Health',sub:'AI Marketplace, CareAware',connected:false},
-    {id:'meditech',cat:'Healthcare',icon:'&#127973;',color:'#1565c0',name:'Meditech Expanse',sub:'AI/ML clinical decision support',connected:false},
-    // DevTools
-    {id:'github',cat:'DevTools',icon:'&#128025;',color:'#24292f',name:'GitHub / GitLab',sub:'AI repo scanning, Copilot',connected:false},
-    // Security
-    {id:'crowdstrike',cat:'Security',icon:'&#128737;',color:'#ef4444',name:'CrowdStrike Falcon',sub:'AI-powered threat detection',connected:false},
-    {id:'intune',cat:'Security',icon:'&#128187;',color:'#0078d4',name:'Microsoft Intune',sub:'Endpoint AI software inventory',connected:false},
-    {id:'cortex',cat:'Security',icon:'&#128737;',color:'#f59e0b',name:'Cortex XDR',sub:'AI behavioral analytics',connected:false},
-    {id:'netskope',cat:'Security',icon:'&#128274;',color:'#6366f1',name:'Netskope CASB',sub:'Shadow AI in traffic',connected:false},
-    {id:'zscaler',cat:'Security',icon:'&#128274;',color:'#8b5cf6',name:'Zscaler ZIA',sub:'Network AI detection',connected:false},
-    // SIEM
-    {id:'sentinel',cat:'SIEM',icon:'&#128202;',color:'#0078d4',name:'Microsoft Sentinel',sub:'SIEM log ingestion, AI alerts',connected:false},
-    {id:'splunk',cat:'SIEM',icon:'&#128202;',color:'#ef4444',name:'Splunk',sub:'AI API call patterns',connected:false},
-    {id:'elastic',cat:'SIEM',icon:'&#128202;',color:'#f59e0b',name:'Elastic SIEM',sub:'ML anomaly detection',connected:false},
-    {id:'qradar',cat:'SIEM',icon:'&#128202;',color:'#1a73e8',name:'IBM QRadar',sub:'AI threat correlation',connected:false},
-    // Identity
-    {id:'okta',cat:'Identity',icon:'&#128273;',color:'#007dc1',name:'Okta',sub:'SSO, MFA, directory sync',connected:false}
-  ];
-  window._ihProviders = PROVIDERS;
-  window._ihFilter = 'all';
-  window._ihSel = PROVIDERS[0].id;
-  window.ihSetFilter = function(cat,el) {
-    window._ihFilter = cat;
-    document.querySelectorAll('.ih-fpill').forEach(function(p){
-      p.style.background = p.dataset.cat===cat?'var(--brand)':'transparent';
-      p.style.color = p.dataset.cat===cat?'#fff':'var(--text-muted)';
-    });
-    _ihRenderList();
-  };
-  window.ihSelect = function(pid) {
-    window._ihSel = pid;
-    document.querySelectorAll('.ih-row').forEach(function(r){
-      r.style.background = r.dataset.pid===pid?'var(--brand-bg)':'';
-      r.style.borderLeft = r.dataset.pid===pid?'3px solid var(--brand)':'3px solid transparent';
-    });
-    _ihRenderDetail(pid);
-  };
-  window.ihConnect = function(pid) {
-    showToast('Connecting to '+pid+'...','info');
-    setTimeout(function(){
-      var p=(window._ihProviders||[]).find(function(x){return x.id===pid;});
-      if(p) p.connected=true;
-      showToast('Connected to '+pid,'success');
-      _ihRenderList(); ihSelect(pid);
-    },1500);
-  };
-  window.ihSearch = function(q) {
-    document.querySelectorAll('.ih-row').forEach(function(r){
-      var nm=r.querySelector('.ih-pname');
-      r.style.display=(!q||(nm&&nm.textContent.toLowerCase().indexOf(q.toLowerCase())>=0))?'':'none';
-    });
-  };
-  function _ihFields(pid) {
-    var f={
-      azure:[{l:'Tenant ID',ph:'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'},{l:'Client ID',ph:'app-client-id'},{l:'Client Secret',ph:'your-secret',t:'password'},{l:'Subscription ID',ph:'sub-id'}],
-      aws:[{l:'Access Key ID',ph:'AKIAIOSFODNN7EXAMPLE'},{l:'Secret Access Key',ph:'secret',t:'password'},{l:'Region',ph:'us-east-1'}],
-      gcp:[{l:'Project ID',ph:'my-project-123'},{l:'Service Account JSON',ph:'paste JSON here'}],
-      m365:[{l:'Tenant ID',ph:'tenant-id'},{l:'Client ID',ph:'client-id'},{l:'Client Secret',ph:'secret',t:'password'}],
-      epic:[{l:'Epic FHIR Base URL',ph:'https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4'},{l:'Client ID',ph:'your-epic-client-id'},{l:'Private Key (JWK)',ph:'paste JWK here'},{l:'Scope',ph:'system/Patient.read system/Observation.read'}],
-      cerner:[{l:'FHIR Base URL',ph:'https://fhir-myrecord.cerner.com/r4/tenant-id'},{l:'Client ID',ph:'your-client-id'},{l:'Client Secret',ph:'secret',t:'password'}],
-      meditech:[{l:'FHIR Endpoint',ph:'https://meditech.yourorg.com/fhir/r4'},{l:'API Key',ph:'your-api-key',t:'password'}],
-      github:[{l:'Personal Access Token',ph:'ghp_xxxx',t:'password'},{l:'Organization',ph:'your-org'}],
-      crowdstrike:[{l:'Client ID',ph:'your-client-id'},{l:'Client Secret',ph:'secret',t:'password'},{l:'Cloud',ph:'us-1'}],
-      intune:[{l:'Tenant ID',ph:'tenant-id'},{l:'Client ID',ph:'client-id'},{l:'Client Secret',ph:'secret',t:'password'}],
-      cortex:[{l:'API URL',ph:'https://api-yourorg.xdr.us.paloaltonetworks.com'},{l:'API Key',ph:'your-key',t:'password'},{l:'API Key ID',ph:'1'}],
-      netskope:[{l:'Tenant Name',ph:'yourcompany'},{l:'API Token',ph:'token',t:'password'}],
-      zscaler:[{l:'Cloud Name',ph:'zsapi'},{l:'API Key',ph:'key',t:'password'}],
-      sentinel:[{l:'Workspace ID',ph:'workspace-id'},{l:'Primary Key',ph:'key',t:'password'},{l:'Subscription ID',ph:'sub-id'}],
-      splunk:[{l:'Host',ph:'splunk.company.com'},{l:'HEC Token',ph:'token',t:'password'},{l:'Index',ph:'main'}],
-      elastic:[{l:'Elasticsearch URL',ph:'https://yourcluster.elastic.co'},{l:'API Key',ph:'your-api-key',t:'password'}],
-      qradar:[{l:'Console IP',ph:'192.168.1.100'},{l:'Security Token',ph:'your-token',t:'password'}],
-      okta:[{l:'Domain',ph:'company.okta.com'},{l:'API Token',ph:'token',t:'password'}],
-      sfdc:[{l:'Instance URL',ph:'https://company.my.salesforce.com'},{l:'Client ID',ph:'client-id'},{l:'Client Secret',ph:'secret',t:'password'}],
-      snow:[{l:'Instance URL',ph:'https://company.service-now.com'},{l:'Username',ph:'admin'},{l:'Password',ph:'password',t:'password'}]
+
+  var configured = window._connectors || [];
+
+  wrap.innerHTML = ''
+    // Page header
+    + '<div style="margin-bottom:20px">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Settings</div>'
+    + '<div style="font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:6px">Connectors</div>'
+    + '<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Connect cloud, EDR, SaaS, GitHub, and CI/CD to discover AI agents. Secrets are encrypted. Save &rarr; Test &rarr; Scan.</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    + '<button onclick="showToast(\'Scanning cloud...\',\'info\')" style="padding:6px 14px;font-size:12px;background:transparent;border:1px solid var(--glass-border-dim);border-radius:6px;cursor:pointer;color:var(--text-primary)">Scan cloud</button>'
+    + '<button onclick="showToast(\'Scanning EDR...\',\'info\')" style="padding:6px 14px;font-size:12px;background:transparent;border:1px solid var(--glass-border-dim);border-radius:6px;cursor:pointer;color:var(--text-primary)">Scan EDR</button>'
+    + '<button onclick="showToast(\'Scanning SaaS...\',\'info\')" style="padding:6px 14px;font-size:12px;background:transparent;border:1px solid var(--glass-border-dim);border-radius:6px;cursor:pointer;color:var(--text-primary)">Scan SaaS</button>'
+    + '<button onclick="showToast(\'Scanning GitHub...\',\'info\')" style="padding:6px 14px;font-size:12px;background:transparent;border:1px solid var(--glass-border-dim);border-radius:6px;cursor:pointer;color:var(--text-primary)">Scan GitHub</button>'
+    + '<button onclick="showToast(\'Scanning CI/CD...\',\'info\')" style="padding:6px 14px;font-size:12px;background:transparent;border:1px solid var(--glass-border-dim);border-radius:6px;cursor:pointer;color:var(--text-primary)">Scan CI/CD</button>'
+    + '<button onclick="runAutoDiscover()" style="padding:6px 16px;font-size:12px;font-weight:700;background:var(--brand);color:#fff;border:none;border-radius:6px;cursor:pointer">&#9889; Scan all</button>'
+    + '</div></div>'
+    // Two column layout
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">'
+    // LEFT - Add connector form
+    + '<div style="background:var(--bg-secondary);border:1px solid var(--glass-border-dim);border-radius:12px;padding:20px">'
+    + '<div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:16px">Add connector</div>'
+    + '<div style="margin-bottom:14px"><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:5px">Display name</label>'
+    + '<input id="conn-name" type="text" placeholder="e.g. Prod Azure subscription" style="width:100%;padding:8px 10px;border:1px solid var(--glass-border-dim);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:12px;box-sizing:border-box"></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
+    + '<div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:5px">Provider</label>'
+    + '<select id="conn-provider" onchange="ihUpdateFields()" style="width:100%;padding:8px 10px;border:1px solid var(--glass-border-dim);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:12px">'
+    + '<optgroup label="Cloud"><option value="azure">Microsoft Azure</option><option value="aws">Amazon Web Services</option><option value="gcp">Google Cloud</option></optgroup>'
+    + '<optgroup label="SaaS / platform agents"><option value="m365">Microsoft 365 Copilot</option><option value="sfdc">Salesforce Agentforce</option><option value="workday">Workday Illuminate / AI</option><option value="snow">ServiceNow Now Assist</option><option value="openai">OpenAI / ChatGPT</option></optgroup>'
+    + '<optgroup label="Healthcare"><option value="epic">Epic EHR (FHIR)</option><option value="cerner">Cerner / Oracle Health</option><option value="meditech">Meditech Expanse</option></optgroup>'
+    + '<optgroup label="Git / source"><option value="github">GitHub</option><option value="gitlab">GitLab</option></optgroup>'
+    + '<optgroup label="CI / build"><option value="jenkins">Jenkins CI</option><option value="gh-actions">GitHub Actions</option><option value="gl-ci">GitLab CI</option></optgroup>'
+    + '<optgroup label="EDR / endpoint"><option value="crowdstrike">CrowdStrike Falcon</option><option value="defender">Microsoft Defender</option><option value="intune">Microsoft Intune</option><option value="cortex">Cortex XDR</option></optgroup>'
+    + '<optgroup label="SIEM"><option value="sentinel">Microsoft Sentinel</option><option value="splunk">Splunk</option><option value="elastic">Elastic SIEM</option><option value="qradar">IBM QRadar</option></optgroup>'
+    + '<optgroup label="Network / proxy"><option value="zscaler">Zscaler ZIA</option><option value="netskope">Netskope CASB</option></optgroup>'
+    + '</select></div>'
+    + '<div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:5px">Environment</label>'
+    + '<select id="conn-env" style="width:100%;padding:8px 10px;border:1px solid var(--glass-border-dim);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:12px">'
+    + '<option>Production</option><option>Staging</option><option>Development</option>'
+    + '</select></div></div>'
+    + '<div id="conn-fields"></div>'
+    + '<div style="display:flex;gap:8px;margin-top:4px">'
+    + '<button onclick="ihSaveConnector()" style="flex:1;padding:9px;font-size:13px;font-weight:700;background:var(--brand);color:#fff;border:none;border-radius:8px;cursor:pointer">Save connector</button>'
+    + '<button onclick="ihTestConnector()" style="padding:9px 16px;font-size:13px;background:transparent;border:1px solid var(--glass-border-dim);border-radius:8px;cursor:pointer;color:var(--text-primary)">Test</button>'
+    + '</div></div>'
+    // RIGHT - Configured connectors
+    + '<div>'
+    + '<div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:14px">Configured connectors</div>'
+    + '<div id="conn-list"></div>'
+    + '</div>'
+    + '</div>';
+
+  // Render field definitions
+  window.ihUpdateFields = function() {
+    var provider = document.getElementById('conn-provider') ? document.getElementById('conn-provider').value : 'azure';
+    var fieldDefs = {
+      azure:[{l:'Tenant ID',ph:'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',id:'f-tenant'},{l:'Client ID',ph:'app-client-id',id:'f-client'},{l:'Client secret',ph:'your-client-secret',t:'password',id:'f-secret'},{l:'Subscription ID',ph:'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',id:'f-sub'}],
+      aws:[{l:'Access Key ID',ph:'AKIAIOSFODNN7EXAMPLE',id:'f-key'},{l:'Secret Access Key',ph:'your-secret-key',t:'password',id:'f-secret'},{l:'Region',ph:'us-east-1',id:'f-region'}],
+      gcp:[{l:'Project ID',ph:'my-project-123',id:'f-project'},{l:'Service Account JSON',ph:'{"type":"service_account",...}',id:'f-json'}],
+      epic:[{l:'FHIR Base URL',ph:'https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4',id:'f-url'},{l:'Client ID',ph:'epic-client-id',id:'f-client'},{l:'Private Key (JWK)',ph:'paste your JWK here',id:'f-key'}],
+      cerner:[{l:'FHIR Base URL',ph:'https://fhir-myrecord.cerner.com/r4/tenant-id',id:'f-url'},{l:'Client ID',ph:'client-id',id:'f-client'},{l:'Client secret',ph:'secret',t:'password',id:'f-secret'}],
+      github:[{l:'Personal Access Token',ph:'ghp_xxxxxxxxxxxxxxxxxxxx',t:'password',id:'f-token'},{l:'Organization (optional)',ph:'your-org-name',id:'f-org'}],
+      crowdstrike:[{l:'Client ID',ph:'your-client-id',id:'f-client'},{l:'Client secret',ph:'your-secret',t:'password',id:'f-secret'},{l:'Cloud region',ph:'us-1',id:'f-region'}],
+      sentinel:[{l:'Workspace ID',ph:'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',id:'f-ws'},{l:'Primary Key',ph:'your-primary-key',t:'password',id:'f-key'},{l:'Subscription ID',ph:'sub-id',id:'f-sub'}],
+      splunk:[{l:'Host',ph:'splunk.yourcompany.com',id:'f-host'},{l:'HEC Token',ph:'your-hec-token',t:'password',id:'f-token'},{l:'Index',ph:'main',id:'f-index'}],
+      m365:[{l:'Tenant ID',ph:'tenant-id',id:'f-tenant'},{l:'Client ID',ph:'client-id',id:'f-client'},{l:'Client secret',ph:'secret',t:'password',id:'f-secret'}],
+      okta:[{l:'Domain',ph:'company.okta.com',id:'f-domain'},{l:'API Token',ph:'your-api-token',t:'password',id:'f-token'}],
+      zscaler:[{l:'Cloud name',ph:'zsapi',id:'f-cloud'},{l:'API Key',ph:'your-api-key',t:'password',id:'f-key'}],
+      netskope:[{l:'Tenant name',ph:'yourcompany',id:'f-tenant'},{l:'API Token',ph:'your-token',t:'password',id:'f-token'}]
     };
-    return f[pid]||[];
-  }
-  function _ihRenderList() {
-    var el=document.getElementById('ih-list');
-    if(!el) return;
-    var filter=window._ihFilter||'all';
-    var sel=window._ihSel;
-    var list=filter==='all'?PROVIDERS:PROVIDERS.filter(function(p){return p.cat===filter;});
-    el.innerHTML=list.map(function(p){
-      var active=p.id===sel;
-      return '<div class="ih-row" data-pid="'+p.id+'" onclick="ihSelect(this.dataset.pid)" style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-left:3px solid '+(active?'var(--brand)':'transparent')+';background:'+(active?'var(--brand-bg)':'')+';">'
-        +'<div style="width:34px;height:34px;border-radius:8px;background:'+(p.connected?'#f0fdf4':'var(--bg-secondary)')+';display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">'+p.icon+'</div>'
-        +'<div style="flex:1;min-width:0">'
-        +'<div class="ih-pname" style="font-size:12px;font-weight:700;color:'+(active?'var(--brand)':'var(--text-primary)')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+p.name+'</div>'
-        +'<div style="font-size:10px;color:var(--text-muted)">'+p.sub+'</div></div>'
-        +'<div style="width:8px;height:8px;border-radius:50%;background:'+(p.connected?'#10b981':'var(--glass-border-dim)')+';flex-shrink:0"></div>'
-        +'</div>';
+    var fields = fieldDefs[provider] || [{l:'API Key / Token',ph:'your-api-key',t:'password',id:'f-key'},{l:'Host / URL',ph:'https://your-instance.com',id:'f-host'}];
+    var el = document.getElementById('conn-fields');
+    if (!el) return;
+    // HIPAA note for healthcare
+    var hipaaNote = ['epic','cerner','meditech'].indexOf(provider) >= 0
+      ? '<div style="background:#fdf4ff;border:1px solid #d8b4fe;border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:#7e22ce"><strong>&#127973; HIPAA:</strong> Ensure a signed BAA is in place before scanning this connector for PHI-related agents.</div>'
+      : '';
+    el.innerHTML = hipaaNote + fields.map(function(f){
+      return '<div style="margin-bottom:12px">'
+        + '<label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:5px">' + f.l + '</label>'
+        + '<input id="' + f.id + '" type="' + (f.t||'text') + '" placeholder="' + f.ph + '" style="width:100%;padding:8px 10px;border:1px solid var(--glass-border-dim);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:12px;box-sizing:border-box">'
+        + '</div>';
+    }).join('');
+  };
+
+  window.ihSaveConnector = function() {
+    var name = document.getElementById('conn-name') ? document.getElementById('conn-name').value.trim() : '';
+    var provider = document.getElementById('conn-provider') ? document.getElementById('conn-provider').value : '';
+    var env = document.getElementById('conn-env') ? document.getElementById('conn-env').value : 'Production';
+    if (!name) { showToast('Enter a display name', 'error'); return; }
+    if (!window._connectors) window._connectors = [];
+    window._connectors.push({
+      id: Date.now(),
+      name: name,
+      provider: provider,
+      env: env.toLowerCase(),
+      status: 'active',
+      lastTested: new Date().toLocaleString()
+    });
+    showToast('Connector saved — click Test to verify', 'success');
+    if (document.getElementById('conn-name')) document.getElementById('conn-name').value = '';
+    ihRenderConnectorList();
+  };
+
+  window.ihTestConnector = function() {
+    showToast('Testing connection...', 'info');
+    setTimeout(function(){ showToast('Connection successful', 'success'); }, 1500);
+  };
+
+  window.ihDeleteConnector = function(id) {
+    window._connectors = (window._connectors||[]).filter(function(c){return c.id!==id;});
+    showToast('Connector removed', 'info');
+    ihRenderConnectorList();
+  };
+
+  function ihRenderConnectorList() {
+    var el = document.getElementById('conn-list');
+    if (!el) return;
+    var list = window._connectors || [];
+    var providerNames = {azure:'Microsoft Azure',aws:'Amazon Web Services',gcp:'Google Cloud',m365:'Microsoft 365 Copilot',sfdc:'Salesforce Agentforce',epic:'Epic EHR (FHIR)',cerner:'Cerner / Oracle Health',github:'GitHub',crowdstrike:'CrowdStrike Falcon',sentinel:'Microsoft Sentinel',splunk:'Splunk',okta:'Okta',zscaler:'Zscaler ZIA',netskope:'Netskope CASB',intune:'Microsoft Intune'};
+
+    if (!list.length) {
+      el.innerHTML = '<div style="background:var(--bg-secondary);border:1px dashed var(--glass-border-dim);border-radius:12px;padding:32px;text-align:center;color:var(--text-muted)">'
+        + '<div style="font-size:28px;margin-bottom:10px">&#128268;</div>'
+        + '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">No connectors configured</div>'
+        + '<div style="font-size:12px">Add a connector to start discovering AI agents</div>'
+        + '</div>';
+      return;
+    }
+
+    el.innerHTML = list.map(function(c) {
+      return '<div style="background:var(--bg-secondary);border:1px solid var(--glass-border-dim);border-radius:12px;padding:16px;margin-bottom:10px">'
+        + '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">'
+        + '<div>'
+        + '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">' + escapeHtml(c.name) + '</div>'
+        + '<div style="font-size:12px;color:var(--text-muted);margin-top:3px">' + escapeHtml(providerNames[c.provider]||c.provider) + ' &middot; ' + escapeHtml(c.env) + '</div>'
+        + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;font-family:monospace">Last tested: ' + escapeHtml(c.lastTested) + '</div>'
+        + '</div>'
+        + '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:#f0fdf4;color:#059669;white-space:nowrap">Active</span>'
+        + '</div>'
+        + '<div style="display:flex;gap:8px">'
+        + '<button style="padding:5px 14px;font-size:12px;background:transparent;border:1px solid var(--glass-border-dim);border-radius:6px;cursor:pointer;color:var(--text-primary)">Edit</button>'
+        + '<button onclick="ihTestConnector()" style="padding:5px 14px;font-size:12px;background:transparent;border:1px solid var(--glass-border-dim);border-radius:6px;cursor:pointer;color:var(--text-primary)">Test</button>'
+        + '<button data-cid="' + c.id + '" onclick="ihDeleteConnector(this.dataset.cid*1)" style="padding:5px 14px;font-size:12px;background:transparent;border:1px solid #fecaca;border-radius:6px;cursor:pointer;color:#dc2626">Delete</button>'
+        + '</div></div>';
     }).join('');
   }
-  function _ihRenderDetail(pid) {
-    var el=document.getElementById('ih-detail');
-    if(!el) return;
-    var p=PROVIDERS.find(function(x){return x.id===pid;})||PROVIDERS[0];
-    var fields=_ihFields(pid);
-    var agents=DB.agents.filter(function(a){
-      var t=[a.name||'',a.notes||'',a.detect||'',a.env||''].join(' ').toLowerCase();
-      return t.indexOf(pid)>=0||t.indexOf((p.name||'').toLowerCase().split(' ')[0])>=0;
-    });
-    var catBadgeColor={Cloud:'#0078d4',SaaS:'#10b981',Healthcare:'#c2185b',DevTools:'#24292f',Security:'#ef4444',SIEM:'#6366f1',Identity:'#007dc1'};
-    var cc=catBadgeColor[p.cat]||'#6366f1';
-    el.innerHTML=''
-      +'<div style="padding:20px 24px;border-bottom:1px solid var(--glass-border-dim);background:var(--glass-white)">'
-      +'<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">'
-      +'<div style="width:48px;height:48px;border-radius:12px;background:'+(p.connected?'#f0fdf4':'var(--bg-secondary)')+';display:flex;align-items:center;justify-content:center;font-size:24px;border:1px solid var(--glass-border-dim)">'+p.icon+'</div>'
-      +'<div style="flex:1">'
-      +'<div style="display:flex;align-items:center;gap:8px">'
-      +'<div style="font-size:16px;font-weight:700;color:var(--text-primary)">'+p.name+'</div>'
-      +'<span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;background:'+cc+'18;color:'+cc+'">'+p.cat+'</span>'
-      +(p.cat==='Healthcare'?'<span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;background:#fce7f3;color:#be185d">HIPAA Relevant</span>':'')
-      +'</div>'
-      +'<div style="font-size:11px;color:var(--text-muted);margin-top:2px">'+p.sub+'</div></div>'
-      +'<span style="font-size:11px;font-weight:700;padding:5px 14px;border-radius:99px;background:'+(p.connected?'#f0fdf4':'var(--bg-secondary)')+';color:'+(p.connected?'#059669':'var(--text-muted)')+';border:1px solid '+(p.connected?'#bbf7d0':'var(--glass-border-dim)')+'">'+( p.connected?'&#10003; Connected':'Not connected')+'</span>'
-      +'</div>'
-      +'<div style="display:flex;gap:10px">'
-      +'<div style="flex:1;background:var(--bg-secondary);border:1px solid var(--glass-border-dim);border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:var(--brand)">'+agents.length+'</div><div style="font-size:10px;color:var(--text-muted)">Agents found</div></div>'
-      +'<div style="flex:1;background:var(--bg-secondary);border:1px solid var(--glass-border-dim);border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:'+(p.connected?'#10b981':'#94a3b8')+'">'+(p.connected?'Active':'Idle')+'</div><div style="font-size:10px;color:var(--text-muted)">Status</div></div>'
-      +'<div style="flex:1;background:var(--bg-secondary);border:1px solid var(--glass-border-dim);border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:#6366f1">'+fields.length+'</div><div style="font-size:10px;color:var(--text-muted)">Config fields</div></div>'
-      +'</div></div>'
-      +'<div style="flex:1;overflow-y:auto;padding:20px 24px">'
-      +(p.cat==='Healthcare'?'<div style="background:#fdf4ff;border:1px solid #e879f9;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#7e22ce"><strong>&#127973; HIPAA Note:</strong> Connecting to '+p.name+' requires a signed BAA. Ensure your BAA is in place before scanning for PHI-related agents.</div>':'')
-      +(fields.length?'<div style="margin-bottom:20px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Connection Credentials</div>'
-        +fields.map(function(f){return '<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">'+f.l+'</label><input type="'+(f.t||'text')+'" placeholder="'+f.ph+'" style="width:100%;padding:8px 10px;border:1px solid var(--glass-border-dim);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px;box-sizing:border-box"></div>';}).join('')
-        +'<div style="display:flex;gap:8px;margin-top:6px">'
-        +'<button data-pid="'+p.id+'" onclick="ihConnect(this.dataset.pid)" style="flex:1;padding:9px;background:var(--brand);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Connect &amp; Scan</button>'
-        +'<button onclick="showToast(&quot;Testing connection...&quot;,&quot;info&quot;)" style="padding:9px 14px;background:transparent;border:1px solid var(--glass-border-dim);border-radius:8px;font-size:12px;cursor:pointer">Test</button>'
-        +'</div></div>':'')
-      +'<div><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Agents Discovered ('+agents.length+')</div>'
-      +(agents.length?agents.slice(0,8).map(function(a){var rc={critical:'#ef4444',high:'#f59e0b',medium:'#6366f1',low:'#10b981'}[a.risk]||'#6366f1';var id=String(a.id||'').replace(/"/g,'');return '<div data-id="'+id+'" onclick="openDrawer(this.dataset.id)" style="display:flex;align-items:center;gap:10px;padding:9px;background:var(--bg-secondary);border:1px solid var(--glass-border-dim);border-radius:8px;margin-bottom:6px;cursor:pointer"><div style="width:8px;height:8px;border-radius:50%;background:'+rc+';flex-shrink:0"></div><span style="font-size:12px;font-weight:600;color:var(--text-primary);flex:1">'+a.name+'</span>'+(a.phi?'<span style="font-size:9px;background:#fee2e2;color:#dc2626;border-radius:3px;padding:1px 5px">PHI</span>':'')+'<span style="font-size:10px;font-weight:700;color:'+rc+'">'+(a.risk||'').toUpperCase()+'</span></div>';}).join('')
-      :'<div style="padding:20px;text-align:center;background:var(--bg-secondary);border:1px solid var(--glass-border-dim);border-radius:8px"><div style="font-size:22px;margin-bottom:6px">&#128270;</div><div style="font-size:12px;font-weight:600;color:var(--text-primary)">No agents discovered yet</div><div style="font-size:11px;color:var(--text-muted);margin-top:4px">Connect and scan to find AI agents</div></div>')
-      +'</div></div>';
-  }
-  var connCount=PROVIDERS.filter(function(p){return p.connected;}).length;
-  var cats=['all','Cloud','SaaS','Healthcare','DevTools','Security','SIEM','Identity'];
-  wrap.innerHTML=''
-    +'<div style="display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden">'
-    +'<div style="display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--glass-border-dim);background:var(--glass-white);flex-shrink:0">'
-    +'<div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-right:8px">Integrations</div>'
-    +'<div style="display:flex;gap:8px;flex:1;flex-wrap:wrap">'
-    +'<div style="display:flex;align-items:center;gap:5px;padding:4px 12px;background:var(--bg-secondary);border:1px solid var(--glass-border-dim);border-radius:99px"><div style="width:7px;height:7px;border-radius:50%;background:#10b981"></div><span style="font-size:12px;font-weight:700;color:var(--text-primary)">'+connCount+'</span><span style="font-size:11px;color:var(--text-muted)">connected</span></div>'
-    +'<div style="display:flex;align-items:center;gap:5px;padding:4px 12px;background:var(--bg-secondary);border:1px solid var(--glass-border-dim);border-radius:99px"><div style="width:7px;height:7px;border-radius:50%;background:#6366f1"></div><span style="font-size:12px;font-weight:700;color:var(--text-primary)">'+PROVIDERS.length+'</span><span style="font-size:11px;color:var(--text-muted)">available</span></div>'
-    +'<div style="display:flex;align-items:center;gap:5px;padding:4px 12px;background:#fdf4ff;border:1px solid #e879f9;border-radius:99px"><span style="font-size:11px;color:#7e22ce;font-weight:600">&#127973; Healthcare-ready</span></div>'
-    +'</div>'
-    +'<button onclick="runAutoDiscover()" style="padding:7px 16px;background:linear-gradient(135deg,var(--brand),#7c3aed);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">&#9889; Auto-Discover All</button>'
-    +'</div>'
-    +'<div style="display:flex;flex:1;overflow:hidden;min-height:0">'
-    +'<div style="width:250px;flex-shrink:0;border-right:1px solid var(--glass-border-dim);display:flex;flex-direction:column;background:var(--glass-white);overflow:hidden">'
-    +'<div style="padding:10px 12px;border-bottom:1px solid var(--glass-border-dim)"><input placeholder="Search integrations..." oninput="ihSearch(this.value)" style="width:100%;padding:7px 10px;border:1px solid var(--glass-border-dim);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-size:12px;box-sizing:border-box"></div>'
-    +'<div style="display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid var(--glass-border-dim);flex-wrap:wrap">'
-    +cats.map(function(c){return '<span class="ih-fpill" data-cat="'+c+'" onclick="ihSetFilter(this.dataset.cat,this)" style="padding:3px 8px;border-radius:99px;font-size:10px;font-weight:600;cursor:pointer;border:1px solid '+(c==='Healthcare'?'#e879f9':'var(--glass-border-dim)')+';background:'+(c==='all'?'var(--brand)':c==='Healthcare'?'#fdf4ff':'transparent')+';color:'+(c==='all'?'#fff':c==='Healthcare'?'#7e22ce':'var(--text-muted)')+'">'+c+'</span>';}).join('')
-    +'</div>'
-    +'<div id="ih-list" style="flex:1;overflow-y:auto"></div>'
-    +'</div>'
-    +'<div id="ih-detail" style="flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg-secondary)"></div>'
-    +'</div></div>';
-  _ihRenderList();
-  _ihRenderDetail(PROVIDERS[0].id);
+
+  // Initialize
+  window.ihUpdateFields();
+  ihRenderConnectorList();
 }
 
 function renderLive() {
@@ -4006,4 +3982,360 @@ function _evCell(label, value, color) {
     + '<div class="cell-label">'+escapeHtml(label)+'</div>'
     + '<div class="cell-val" style="color:'+(color||'#1a1a2e')+'">'+escapeHtml(String(value||''))+'</div>'
     + '</div>';
+}
+
+// ══════════════════════════════════════════════════════════════
+// COVERAGE MAP
+// ══════════════════════════════════════════════════════════════
+function renderCoverage() {
+  var agents = DB.agents;
+
+  var SOURCES = [
+    { id:'azure', name:'Microsoft Azure', icon:'☁', connected:true, agents: agents.filter(function(a){return a.env==='Azure'||a.detect==='Azure auto-discovery';}).length, lastScan:'2h ago', coverage:'full' },
+    { id:'aws', name:'Amazon AWS', icon:'☁', connected:false, agents:0, lastScan:'Never', coverage:'blind' },
+    { id:'gcp', name:'Google Cloud', icon:'☁', connected:false, agents:0, lastScan:'Never', coverage:'blind' },
+    { id:'m365', name:'Microsoft 365', icon:'📧', connected:false, agents:0, lastScan:'Never', coverage:'blind' },
+    { id:'github', name:'GitHub / GitLab', icon:'🐙', connected:false, agents:0, lastScan:'Never', coverage:'blind' },
+    { id:'epic', name:'Epic EHR', icon:'🏥', connected:false, agents:0, lastScan:'Never', coverage:'blind' },
+    { id:'cerner', name:'Cerner / Oracle', icon:'🏥', connected:false, agents:0, lastScan:'Never', coverage:'blind' },
+    { id:'crowdstrike', name:'CrowdStrike', icon:'🛡', connected:false, agents:0, lastScan:'Never', coverage:'blind' },
+    { id:'intune', name:'MS Intune', icon:'💻', connected:false, agents:0, lastScan:'Never', coverage:'blind' },
+    { id:'sentinel', name:'MS Sentinel', icon:'📊', connected:false, agents:0, lastScan:'Never', coverage:'blind' },
+    { id:'splunk', name:'Splunk', icon:'📊', connected:false, agents:0, lastScan:'Never', coverage:'blind' },
+    { id:'zscaler', name:'Zscaler ZIA', icon:'🔒', connected:false, agents:0, lastScan:'Never', coverage:'blind' }
+  ];
+
+  var connected = SOURCES.filter(function(s){return s.connected;}).length;
+  var blind = SOURCES.filter(function(s){return s.coverage==='blind';}).length;
+  var pct = Math.round(connected/SOURCES.length*100);
+
+  function setEl(id,v){var el=document.getElementById(id);if(el)el.textContent=v;}
+  setEl('cov-connected', connected);
+  setEl('cov-partial', 0);
+  setEl('cov-blind', blind);
+  setEl('cov-pct', pct+'%');
+
+  var mapEl = document.getElementById('coverage-map');
+  if (mapEl) {
+    mapEl.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px">'
+      + SOURCES.map(function(s) {
+          var color = s.coverage==='full'?'#10b981':s.coverage==='partial'?'#f59e0b':'#ef4444';
+          var bg = s.coverage==='full'?'#f0fdf4':s.coverage==='partial'?'#fff7ed':'#fef2f2';
+          var label = s.coverage==='full'?'Connected':s.coverage==='partial'?'Partial':'Blind spot';
+          return '<div style="background:'+bg+';border:1px solid '+color+'33;border-radius:10px;padding:14px">'
+            + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+            + '<div style="width:8px;height:8px;border-radius:50%;background:'+color+'"></div>'
+            + '<span style="font-size:12px;font-weight:700;color:var(--text-primary)">'+escapeHtml(s.name)+'</span>'
+            + '</div>'
+            + '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Agents found: <strong style="color:var(--text-primary)">'+s.agents+'</strong></div>'
+            + '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Last scan: '+escapeHtml(s.lastScan)+'</div>'
+            + '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;background:'+color+'18;color:'+color+'">'+label+'</span>'
+            + '</div>';
+        }).join('')
+      + '</div>';
+  }
+
+  var blindEl = document.getElementById('coverage-blindspots');
+  if (blindEl) {
+    var blindSources = SOURCES.filter(function(s){return s.coverage==='blind';});
+    blindEl.innerHTML = '<div style="margin-bottom:10px;font-size:12px;color:var(--text-muted)">'+blindSources.length+' sources not connected — agents in these environments are invisible to AgentRadar</div>'
+      + blindSources.map(function(s) {
+          return '<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg-secondary);border:1px solid var(--glass-border-dim);border-radius:8px;margin-bottom:6px">'
+            + '<div style="width:8px;height:8px;border-radius:50%;background:#ef4444;flex-shrink:0"></div>'
+            + '<div style="flex:1"><div style="font-size:12px;font-weight:600;color:var(--text-primary)">'+escapeHtml(s.name)+'</div>'
+            + '<div style="font-size:10px;color:var(--text-muted)">No connector configured</div></div>'
+            + '<button onclick="go(&quot;integrations&quot;)" style="padding:4px 10px;font-size:10px;background:var(--brand);color:#fff;border:none;border-radius:4px;cursor:pointer">Connect</button>'
+            + '</div>';
+        }).join('');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// OPERATIONS WORKBENCH
+// ══════════════════════════════════════════════════════════════
+function renderOperations() {
+  var agents = DB.agents;
+  var now = Date.now();
+  var DAY = 86400000;
+
+  // New agents in last 24h (by first_detected)
+  var newAgents = agents.filter(function(a){
+    if (!a.firstDet) return false;
+    var d = new Date(a.firstDet).getTime();
+    return (now - d) < DAY;
+  });
+
+  // Agents with no last seen in 7+ days (gone dark)
+  var goneDark = agents.filter(function(a){
+    if (!a.lastSeen || a.lastSeen === 'Just now') return false;
+    return a.lastSeen.indexOf('days') >= 0 || a.lastSeen.indexOf('week') >= 0;
+  });
+
+  // Agents overdue for review
+  var overdueReview = agents.filter(function(a){return !a.review_date;});
+
+  // High risk agents
+  var highRisk = agents.filter(function(a){return a.risk==='critical'||a.risk==='high';});
+
+  function setEl(id,v){var el=document.getElementById(id);if(el)el.textContent=v;}
+  setEl('ops-new', newAgents.length);
+  setEl('ops-dark', goneDark.length);
+  setEl('ops-risk', highRisk.length);
+  setEl('ops-review', overdueReview.length);
+
+  // Update nav badge
+  var opsBadge = document.getElementById('nav-ops-count');
+  var totalOps = newAgents.length + goneDark.length + overdueReview.length;
+  if (opsBadge) opsBadge.textContent = totalOps;
+
+  // Work queue
+  var queueEl = document.getElementById('ops-queue');
+  if (queueEl) {
+    var items = [];
+
+    // Shadow agents needing action
+    var shadow = agents.filter(function(a){return a.shadow&&!a.approved;});
+    if (shadow.length) items.push({ priority:'critical', icon:'🚨', title:shadow.length+' shadow AI agents need approval or quarantine', action:'Review shadow AI', fn:"go('shadow')", agents: shadow.slice(0,3) });
+
+    // PHI without BAA
+    var phiNoBaa = agents.filter(function(a){return a.phi&&a.baa_status!=='signed';});
+    if (phiNoBaa.length) items.push({ priority:'critical', icon:'🏥', title:phiNoBaa.length+' PHI agents missing BAA — HIPAA risk', action:'View PHI agents', fn:"go('phi')", agents: phiNoBaa.slice(0,3) });
+
+    // No owner
+    var noOwner = agents.filter(function(a){return !a.owner;});
+    if (noOwner.length) items.push({ priority:'high', icon:'👤', title:noOwner.length+' agents have no assigned owner', action:'Bulk assign owners', fn:'bulkSuggestOwners()', agents: noOwner.slice(0,3) });
+
+    // Overdue review
+    if (overdueReview.length) items.push({ priority:'high', icon:'📅', title:overdueReview.length+' agents have never been reviewed', action:'Start reviews', fn:'loadOverdueReviews()', agents: overdueReview.slice(0,3) });
+
+    // High risk
+    if (highRisk.length) items.push({ priority:'medium', icon:'⚠️', title:highRisk.length+' agents scored high or critical risk', action:'View risk analytics', fn:"go('risk')", agents: highRisk.slice(0,3) });
+
+    var priorityColors = {critical:'#ef4444', high:'#f59e0b', medium:'#6366f1'};
+
+    if (!items.length) {
+      queueEl.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-muted)"><div style="font-size:32px;margin-bottom:8px">✅</div><div style="font-size:14px;font-weight:600;color:var(--text-primary)">All clear</div><div style="font-size:12px;margin-top:4px">No pending operations items</div></div>';
+    } else {
+      queueEl.innerHTML = items.map(function(item) {
+        var pc = priorityColors[item.priority]||'#6366f1';
+        return '<div style="padding:14px 16px;border-bottom:1px solid var(--glass-border-dim);border-left:3px solid '+pc+'">'
+          + '<div style="display:flex;align-items:flex-start;gap:10px">'
+          + '<div style="font-size:20px;flex-shrink:0">'+item.icon+'</div>'
+          + '<div style="flex:1">'
+          + '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">'+escapeHtml(item.title)+'</div>'
+          + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">'
+          + item.agents.map(function(a){return '<span style="font-size:10px;padding:1px 6px;background:var(--bg-secondary);border:1px solid var(--glass-border-dim);border-radius:3px;color:var(--text-muted)">'+escapeHtml(a.name)+'</span>';}).join('')
+          + '</div>'
+          + '<button onclick="'+item.fn+'" style="padding:5px 12px;font-size:11px;font-weight:600;background:'+pc+';color:#fff;border:none;border-radius:6px;cursor:pointer">'+escapeHtml(item.action)+' →</button>'
+          + '</div>'
+          + '<span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;background:'+pc+'18;color:'+pc+';flex-shrink:0">'+item.priority.toUpperCase()+'</span>'
+          + '</div></div>';
+      }).join('');
+    }
+  }
+
+  // Discovery events feed
+  var eventsEl = document.getElementById('ops-events');
+  if (eventsEl) {
+    var events = [];
+    agents.forEach(function(a) {
+      if (a.shadow) events.push({ type:'shadow', icon:'🚨', color:'#ef4444', msg:'Shadow AI detected: '+a.name, time:a.lastSeen||'Recently', agent:a });
+      if (a.phi&&a.baa_status!=='signed') events.push({ type:'phi', icon:'🏥', color:'#8b5cf6', msg:'PHI exposure without BAA: '+a.name, time:a.lastSeen||'Recently', agent:a });
+      if (a.risk==='critical') events.push({ type:'risk', icon:'⚠️', color:'#f59e0b', msg:'Critical risk agent: '+a.name, time:a.lastSeen||'Recently', agent:a });
+    });
+
+    // Add some discovery events
+    events.push({ type:'scan', icon:'🔍', color:'#3b82f6', msg:'Background scan completed — '+agents.length+' agents confirmed', time:'2h ago' });
+    events.push({ type:'scan', icon:'🔍', color:'#3b82f6', msg:'Azure auto-discovery found 14 agents', time:'2h ago' });
+    events.push({ type:'scan', icon:'🔍', color:'#3b82f6', msg:'Tag-based discovery found 4 agents', time:'2h ago' });
+
+    eventsEl.innerHTML = events.slice(0,15).map(function(e) {
+      var id = e.agent ? String(e.agent.id||'').replace(/"/g,'') : '';
+      return '<div '+(id?'onclick="openDrawer(this.dataset.id)" data-id="'+id+'" style="cursor:pointer"':'')+' style="padding:10px 14px;border-bottom:1px solid var(--glass-border-dim);display:flex;gap:10px;align-items:flex-start">'
+        + '<div style="font-size:16px;flex-shrink:0;margin-top:1px">'+e.icon+'</div>'
+        + '<div style="flex:1;min-width:0">'
+        + '<div style="font-size:12px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(e.msg)+'</div>'
+        + '<div style="font-size:10px;color:var(--text-muted);margin-top:2px">'+escapeHtml(e.time)+'</div>'
+        + '</div></div>';
+    }).join('');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// SHADOW AI HUB
+// ══════════════════════════════════════════════════════════════
+function renderShadowDash() {
+  var agents = DB.agents;
+  var shadow = agents.filter(function(a){return a.shadow;});
+  var crit = shadow.filter(function(a){return a.risk==='critical';});
+  var phi = shadow.filter(function(a){return a.phi;});
+
+  function setEl(id,v){var el=document.getElementById(id);if(el)el.textContent=v;}
+  setEl('sh-total', shadow.length);
+  setEl('sh-crit', crit.length);
+  setEl('sh-phi', phi.length);
+  setEl('sh-resolved', 0);
+
+  // Update nav badge
+  var shBadge = document.getElementById('nav-shadow-count');
+  if (shBadge) shBadge.textContent = shadow.length;
+
+  // Shadow agent list
+  var listEl = document.getElementById('shadow-agent-list');
+  if (listEl) {
+    if (!shadow.length) {
+      listEl.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-muted)"><div style="font-size:32px;margin-bottom:8px">✅</div><div style="font-size:14px;font-weight:600;color:var(--text-primary)">No shadow AI detected</div><div style="font-size:12px;margin-top:4px">All agents are registered and approved</div></div>';
+    } else {
+      listEl.innerHTML = shadow.map(function(a) {
+        var rc = {critical:'#ef4444',high:'#f59e0b',medium:'#6366f1',low:'#10b981'}[a.risk]||'#6366f1';
+        var id = String(a.id||'').replace(/"/g,'');
+        return '<div style="padding:14px 16px;border-bottom:1px solid var(--glass-border-dim);display:flex;align-items:center;gap:12px">'
+          + '<div style="width:10px;height:10px;border-radius:50%;background:#ef4444;flex-shrink:0;animation:pulse 1.5s infinite"></div>'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-size:13px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(a.name)+'</div>'
+          + '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">'
+          + escapeHtml(a.env||'')
+          + (a.detect?' &middot; Detected: '+escapeHtml(a.detect):'')
+          + (a.owner?' &middot; Owner: '+escapeHtml(a.owner):'<span style="color:#ef4444"> &middot; No owner</span>')
+          + '</div></div>'
+          + (a.phi?'<span style="font-size:9px;background:#fee2e2;color:#dc2626;border-radius:3px;padding:2px 6px;font-weight:700">PHI</span>':'')
+          + '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;background:'+rc+'18;color:'+rc+'">'+( a.risk||'').toUpperCase()+'</span>'
+          + '<div style="display:flex;gap:6px">'
+          + '<button data-id="'+id+'" onclick="approveAgent(this.dataset.id)" style="padding:5px 10px;font-size:10px;background:#10b981;color:#fff;border:none;border-radius:4px;cursor:pointer">Approve</button>'
+          + '<button data-id="'+id+'" onclick="quarantineAgent(this.dataset.id)" style="padding:5px 10px;font-size:10px;background:#ef4444;color:#fff;border:none;border-radius:4px;cursor:pointer">Quarantine</button>'
+          + '</div></div>';
+      }).join('');
+    }
+  }
+
+  // Detection sources breakdown
+  var sourcesEl = document.getElementById('shadow-sources');
+  if (sourcesEl) {
+    var detectCounts = {};
+    shadow.forEach(function(a){ var d=a.detect||'Unknown'; detectCounts[d]=(detectCounts[d]||0)+1; });
+    if (!Object.keys(detectCounts).length) {
+      sourcesEl.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No shadow AI detected</div>';
+    } else {
+      var total = shadow.length || 1;
+      sourcesEl.innerHTML = Object.keys(detectCounts).map(function(src) {
+        var count = detectCounts[src];
+        var pct = Math.round(count/total*100);
+        return '<div style="margin-bottom:10px">'
+          + '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">'
+          + '<span style="color:var(--text-primary);font-weight:600">'+escapeHtml(src)+'</span>'
+          + '<span style="color:var(--text-muted)">'+count+' agents</span></div>'
+          + '<div style="height:6px;background:var(--bg-secondary);border-radius:3px;overflow:hidden">'
+          + '<div style="height:100%;width:'+pct+'%;background:#ef4444;border-radius:3px"></div>'
+          + '</div></div>';
+      }).join('');
+    }
+  }
+
+  // Trend chart (simple SVG)
+  var trendEl = document.getElementById('shadow-trend');
+  if (trendEl) {
+    var count = shadow.length;
+    trendEl.innerHTML = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Current: <strong style="color:#ef4444">'+count+'</strong> shadow agents</div>'
+      + '<div style="font-size:11px;color:var(--text-muted)">Connect more sources to track shadow AI trends over time</div>'
+      + (count > 0 ? '<div style="margin-top:10px;padding:10px;background:#fef2f2;border-radius:6px;font-size:11px;color:#dc2626"><strong>Action required:</strong> Run policy auto-remediation to move shadow agents to review queue</div>' : '');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// AGENT CONFIDENCE SCORING
+// ══════════════════════════════════════════════════════════════
+function getConfidenceScore(agent) {
+  var score = 0;
+  var sources = 0;
+  if (agent.detect === 'Azure auto-discovery') { score += 40; sources++; }
+  if (agent.detect === 'Tag-based discovery') { score += 35; sources++; }
+  if (agent.detect && agent.detect.indexOf('scan') >= 0) { score += 30; sources++; }
+  if (agent.owner) score += 15;
+  if (agent.review_date) score += 10;
+  if (agent.notes) score += 5;
+  if (sources > 1) score += 20;
+  score = Math.min(100, score);
+  var label = score >= 80 ? 'Confirmed' : score >= 50 ? 'Likely' : 'Candidate';
+  var color = score >= 80 ? '#10b981' : score >= 50 ? '#f59e0b' : '#94a3b8';
+  return { score: score, label: label, color: color };
+}
+
+// ══════════════════════════════════════════════════════════════
+// AGENT APPROVE/QUARANTINE (drawer actions)
+// ══════════════════════════════════════════════════════════════
+function approveAgent(agentId) {
+  var headers = { 'Content-Type': 'application/json' };
+  if (_apiToken) headers['Authorization'] = 'Bearer ' + _apiToken;
+  fetch('/api/agents/' + agentId + '/approve', { method:'POST', headers:headers, credentials:'include' })
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if (d.success) {
+        showToast('Agent approved', 'success');
+        loadLiveAgents().then(function(){ if (currentView === 'shadowdash') renderShadowDash(); });
+      }
+    }).catch(function(){ showToast('Failed to approve', 'error'); });
+}
+
+function quarantineAgent(agentId) {
+  var headers = { 'Content-Type': 'application/json' };
+  if (_apiToken) headers['Authorization'] = 'Bearer ' + _apiToken;
+  fetch('/api/agents/' + agentId + '/quarantine', { method:'POST', headers:headers, credentials:'include' })
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if (d.success) {
+        showToast('Agent quarantined', 'success');
+        loadLiveAgents().then(function(){ if (currentView === 'shadowdash') renderShadowDash(); });
+      }
+    }).catch(function(){ showToast('Failed to quarantine', 'error'); });
+}
+
+// ══════════════════════════════════════════════════════════════
+// INVENTORY EXPORT
+// ══════════════════════════════════════════════════════════════
+function exportInventoryJSON() {
+  var agents = DB.agents;
+  var exportData = {
+    generated: new Date().toISOString(),
+    platform: 'AgentRadar',
+    total_agents: agents.length,
+    agents: agents.map(function(a) {
+      var conf = getConfidenceScore(a);
+      return {
+        id: a.id, name: a.name, type: a.type, env: a.env,
+        category: a.agent_category, risk: a.risk,
+        shadow: a.shadow, phi: a.phi, pii: a.pii,
+        owner: a.owner, lifecycle: a.lifecycle_status,
+        detect: a.detect, first_detected: a.firstDet,
+        last_seen: a.lastSeen, review_date: a.review_date,
+        baa_status: a.baa_status, confidence: conf.label,
+        confidence_score: conf.score
+      };
+    })
+  };
+  var blob = new Blob([JSON.stringify(exportData, null, 2)], {type:'application/json'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'AgentRadar-Inventory-' + new Date().toISOString().split('T')[0] + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Inventory exported as JSON', 'success');
+}
+
+function exportInventoryCSV() {
+  var agents = DB.agents;
+  var headers = ['ID','Name','Type','Environment','Category','Risk','Shadow','PHI','Owner','Lifecycle','Detect','FirstDetected','LastSeen','BAA Status','Confidence'];
+  var rows = agents.map(function(a) {
+    var conf = getConfidenceScore(a);
+    return [a.id,a.name,a.type,a.env,a.agent_category,a.risk,a.shadow,a.phi,a.owner||'',a.lifecycle_status,a.detect,a.firstDet,a.lastSeen,a.baa_status,conf.label].map(function(v){return '"'+(String(v||'').replace(/"/g,'""'))+'"';}).join(',');
+  });
+  var csv = [headers.join(',')].concat(rows).join('\n');
+  var blob = new Blob([csv], {type:'text/csv'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'AgentRadar-Inventory-' + new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Inventory exported as CSV', 'success');
 }

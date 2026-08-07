@@ -70,8 +70,7 @@ services:
     ports: ["80:80", "443:443"]
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./index.html:/usr/share/nginx/html/index.html:ro
-      - ./app.js:/usr/share/nginx/html/app.js:ro
+      - ./frontend-dist:/usr/share/nginx/html:ro
       - ./certs:/etc/nginx/certs:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost/health || curl -fs http://localhost/ -o /dev/null || exit 1"]

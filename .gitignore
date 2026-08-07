@@ -1,14 +1,11 @@
-# Secrets - never commit
-.env
-docker-compose.yml
-*.key
-*.pem
-*.p12
-app.js.broken.bak
 
-# Logs
-*.log
-logs/
+*.bak
 
-# Node
 node_modules/
+
+*.log
+
+.env
+
+/tmp/
+
