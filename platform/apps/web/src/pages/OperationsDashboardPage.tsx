@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { DataTable, type Column } from "../components/DataTable";
 import { DetailDrawer } from "../components/DetailDrawer";
 import { KpiCard } from "../components/KpiCard";

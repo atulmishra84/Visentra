@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { apiRequest, numberAt, valueAt } from "../lib/api";
 
 type MeshNode = {

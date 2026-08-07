@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { DetailDrawer } from "../components/DetailDrawer";
 import { GraphSeedBar, type GraphSeedOption } from "../components/GraphSeedBar";
 import { TopologyGraph } from "../components/TopologyGraph";
