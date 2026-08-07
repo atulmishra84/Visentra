@@ -60,7 +60,7 @@ POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -base64 24 | tr -d '/+=' 
 echo "==> Resource group: $RG ($LOCATION) dataPlane=$DATA_PLANE_MODE mode=$([[ "$EXISTING_DEPLOY" == "true" ]] && echo upgrade || echo fresh)"
 az group create --name "$RG" --location "$LOCATION" -o none
 
-echo "==> Deploying infra (ACR, data plane, CAE, Redis, Neo4j)..."
+echo "==> Deploying infra (ACR, data plane, CAE, Neo4j)..."
 DEPLOY_OUT=$(az deployment group create \
   --resource-group "$RG" \
   --template-file "$AZURE_DIR/main.bicep" \
@@ -175,7 +175,6 @@ az containerapp create \
     NEO4J_URI="bolt://neo4j-$NAME:7687" \
     NEO4J_USER=neo4j \
     NEO4J_PASSWORD=secretref:neo4j-password \
-    REDIS_URL="redis://redis-$NAME:6379" \
     JWT_SECRET=secretref:jwt-secret \
     ENCRYPTION_KEY=secretref:encryption-key \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
@@ -198,7 +197,6 @@ az containerapp update \
     NEO4J_URI="bolt://neo4j-$NAME:7687" \
     NEO4J_USER=neo4j \
     NEO4J_PASSWORD=secretref:neo4j-password \
-    REDIS_URL="redis://redis-$NAME:6379" \
     JWT_SECRET=secretref:jwt-secret \
     ENCRYPTION_KEY=secretref:encryption-key \
     BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \

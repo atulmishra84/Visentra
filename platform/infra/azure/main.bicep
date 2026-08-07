@@ -194,31 +194,6 @@ resource neo4jStorage 'Microsoft.App/managedEnvironments/storages@2024-03-01' = 
   ]
 }
 
-resource redis 'Microsoft.App/containerApps@2024-03-01' = {
-  name: 'redis-${name}'
-  location: location
-  properties: {
-    managedEnvironmentId: cae.id
-    configuration: {
-      activeRevisionsMode: 'Single'
-      ingress: {
-        external: false
-        targetPort: 6379
-        transport: 'tcp'
-      }
-    }
-    template: {
-      containers: [
-        {
-          name: 'redis'
-          image: 'redis:7-alpine'
-          resources: { cpu: json('0.25'), memory: '0.5Gi' }
-        }
-      ]
-      scale: { minReplicas: 1, maxReplicas: 1 }
-    }
-  }
-}
 
 resource neo4j 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'neo4j-${name}'
@@ -290,7 +265,7 @@ output postgresDbName string = 'agentradar'
 output dataPlaneMode string = dataPlaneMode
 output keyVaultName string = isProduction ? kvName : ''
 output keyVaultUri string = isProduction ? 'https://${kvName}${environment().suffixes.keyvaultDns}/' : ''
-output redisAppName string = redis.name
+
 output neo4jAppName string = neo4j.name
 output neo4jPassword string = neo4jPassword
 output namePrefix string = name
