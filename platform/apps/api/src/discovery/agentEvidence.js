@@ -37,7 +37,9 @@ const CONFIDENCE = {
   identity_candidate: 0.6
 };
 
+/** Cloud types that ARE agent entities themselves (not merely AI platforms/runtimes). */
 const STRONG_CLOUD_AGENT_TYPES = /^(BedrockAgent|DialogflowCxAgent|VertexReasoningEngine)$/i;
+/** Azure types that ARE agent entities themselves (not merely AI platforms). */
 const STRONG_AZURE_AGENT_TYPES = /Microsoft\.BotService\//i;
 const OFFICIAL_AGENT_METHODS =
   /^(azure_foundry_api|azure_assistants_api|azure_bot_service_arm|bedrock_agents_api|dialogflow_cx_api|vertex_reasoning_engine_api|platform_api)$/i;
@@ -141,7 +143,7 @@ export function classifyAgentEvidence(obs = {}) {
     };
   }
 
-  // Explicit non-agent AI resources (OpenAI account, SageMaker endpoint, Vertex model, etc.).
+  // Explicit non-agent AI resources (Azure OpenAI, SageMaker endpoint, Vertex model, etc.).
   const agentDetectedFlag =
     obs.agent && typeof obs.agent === "object"
       ? obs.agent.detected
@@ -172,7 +174,7 @@ export function classifyAgentEvidence(obs = {}) {
         STRONG_CLOUD_AGENT_TYPES.test(gcpType) ||
         STRONG_CLOUD_AGENT_TYPES.test(framework) ||
         /bedrock-agent/i.test(model);
-      // Heuristic compute (Lambda/ECS/Cloud Run) stays candidate — never auto-confirmed by type alone.
+      // Heuristic compute (ACA/AKS/Lambda/ECS/Cloud Run) stays candidate — never auto-confirmed by type alone.
       agentStatus = strong ? "confirmed" : "candidate";
     } else if (evidenceClass === "ide_agent") {
       agentStatus = mcpCount > 0 || inventoryClass === "mcp_server" ? "confirmed" : "candidate";
