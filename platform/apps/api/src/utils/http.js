@@ -16,6 +16,19 @@ export const ALLOW = {
   azureArm: {
     allowHosts: ["management.azure.com"]
   },
+  /** Azure AI Foundry / AI Services data plane (Agents API). */
+  azureAiServices: {
+    allowHostSuffixes: [".services.ai.azure.com", ".cognitiveservices.azure.com"]
+  },
+  /** Azure OpenAI Assistants API hosts. */
+  azureOpenAi: {
+    allowHostSuffixes: [".openai.azure.com"]
+  },
+  /** AKS managed cluster API servers. */
+  azureAks: {
+    allowHostSuffixes: [".azmk8s.io", ".privatelink.azmk8s.io"],
+    allowPrivate: false
+  },
   aws: {
     allowHostSuffixes: [".amazonaws.com"]
   },

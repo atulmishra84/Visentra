@@ -37,9 +37,11 @@ const CONFIDENCE = {
   identity_candidate: 0.6
 };
 
-const STRONG_CLOUD_TYPES = /BedrockAgent|BedrockKnowledgeBase|SageMakerEndpoint|BotService|CognitiveServices|MachineLearning|OpenAI|Vertex|Foundry|Dialogflow|ReasoningEngine/i;
-const STRONG_AZURE_TYPES =
-  /Microsoft\.(CognitiveServices|MachineLearningServices|BotService|Search)\//i;
+const STRONG_CLOUD_TYPES = /BedrockAgent|BedrockKnowledgeBase|SageMakerEndpoint|BotService|Vertex|Dialogflow|ReasoningEngine/i;
+/** Azure types that ARE agent entities themselves (not merely AI platforms). */
+const STRONG_AZURE_AGENT_TYPES = /Microsoft\.BotService\//i;
+const OFFICIAL_AGENT_METHODS =
+  /^(azure_foundry_api|azure_assistants_api|azure_bot_service_arm|bedrock_agents_api|platform_api)$/i;
 
 /**
  * Derive evidenceClass + agentStatus + confidence from an observation.
@@ -140,18 +142,38 @@ export function classifyAgentEvidence(obs = {}) {
     };
   }
 
+  // Explicit non-agent AI resources (e.g. Azure OpenAI account without Agents API hits).
+  const agentDetectedFlag =
+    obs.agent && typeof obs.agent === "object"
+      ? obs.agent.detected
+      : meta.agentDetected;
+  if (agentDetectedFlag === false && inventoryClass === "ai_cloud_resource") {
+    return {
+      evidenceClass: null,
+      agentStatus: null,
+      confidence_score: confidence ?? Number(obs.confidence_score) ?? 0.85,
+      ingestible: true,
+      reason: "ai_cloud_resource_only"
+    };
+  }
+
   // --- status ---
   if (!agentStatus) {
     if (evidenceClass === "platform_agent") {
       agentStatus = "confirmed";
     } else if (evidenceClass === "cloud_ai_runtime") {
+      const detectionMethod = String(
+        obs.agent?.detectionMethod || meta.agentDetectionMethod || ""
+      );
       const strong =
+        meta.managedCloudAgent === true ||
+        agentDetectedFlag === true && OFFICIAL_AGENT_METHODS.test(detectionMethod) ||
+        STRONG_AZURE_AGENT_TYPES.test(azureType) ||
         STRONG_CLOUD_TYPES.test(awsType) ||
         STRONG_CLOUD_TYPES.test(gcpType) ||
         STRONG_CLOUD_TYPES.test(framework) ||
-        STRONG_AZURE_TYPES.test(azureType) ||
-        /bedrock-agent|sagemaker|openai|bot/i.test(model) ||
-        meta.managedCloudAgent === true;
+        /bedrock-agent/i.test(model);
+      // Heuristic Azure compute (ACA/AKS/Functions) stays candidate — never auto-confirmed.
       agentStatus = strong ? "confirmed" : "candidate";
     } else if (evidenceClass === "ide_agent") {
       agentStatus = mcpCount > 0 || inventoryClass === "mcp_server" ? "confirmed" : "candidate";
