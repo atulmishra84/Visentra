@@ -682,7 +682,7 @@ export const collectors = {
                  VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
                 [
                   ctx.tenantId,
-                  `EDR connector "${conn.name}" (${label}) scanned ${stats.devices || 0} endpoints — ingested ${stats.aiAgents || 0} AI agent hosts — ${stats.message || "ok"}`,
+                  `EDR connector "${conn.name}" (${label}) scanned ${stats.devices || 0} endpoints — ingested ${stats.endpointsIngested || stats.aiAgents || 0} AI assets (${stats.agentsDiscovered || 0} agents, ${stats.confirmedAgents || 0} confirmed, ${stats.heuristicAgents || 0} heuristic, ${stats.runtimesDiscovered || 0} host runtimes${stats.discoveryErrors ? `, ${stats.discoveryErrors} discovery errors` : ""}) — ${stats.message || "ok"}`,
                   JSON.stringify({
                     connectorId: conn.id,
                     provider: conn.provider,
