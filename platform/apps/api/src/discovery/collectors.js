@@ -363,7 +363,7 @@ export const collectors = {
                      VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
                     [
                       ctx.tenantId,
-                      `${label} connector "${conn.name}" scanned ${stats.totalResourcesScanned || 0} resources — ingested ${stats.cloudResourcesIngested || 0} AI assets (${stats.aiRelevantResources || 0} AI-relevant${stats.nonAiResourcesSkipped != null ? `, skipped ${stats.nonAiResourcesSkipped} non-AI` : ""})`,
+                      `${label} connector "${conn.name}" scanned ${stats.totalResourcesScanned || 0} resources — ingested ${stats.cloudResourcesIngested || 0} AI assets (${stats.aiRelevantResources || 0} AI-relevant, ${stats.agentsDiscovered || 0} agents, ${stats.runtimesDiscovered || 0} runtimes${stats.nonAiResourcesSkipped != null ? `, skipped ${stats.nonAiResourcesSkipped} non-AI` : ""}${stats.discoveryErrors ? `, ${stats.discoveryErrors} discovery errors` : ""})`,
                       JSON.stringify({
                         connectorId: conn.id,
                         provider: conn.provider,

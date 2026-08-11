@@ -118,3 +118,233 @@ export function shouldIngestAiOnly(aiRelevant) {
   if (!DISCOVERY_AI_ONLY) return true;
   return Boolean(aiRelevant);
 }
+
+/**
+ * Structured AWS resource classification.
+ * @returns {{ aiRelevant: boolean, category: string, confidence: number, evidence: string[], layer: string }}
+ */
+export function classifyAwsResource(resource = {}) {
+  const awsType = String(resource.awsType || resource.type || "");
+  const name = String(resource.name || "");
+  const service = String(resource.service || "");
+  const tags = resource.tags || {};
+  const tagBlob = Array.isArray(tags)
+    ? tags.map((t) => `${t.key || t.Key || ""}:${t.value || t.Value || ""}`).join(" ")
+    : Object.entries(tags)
+        .flatMap(([k, v]) => [k, v])
+        .join(" ");
+  const evidence = [];
+
+  if (/^BedrockAgent$/i.test(awsType) || (/bedrock/i.test(service) && /agent/i.test(awsType))) {
+    evidence.push("AWS Bedrock Agent entity");
+    return {
+      aiRelevant: true,
+      category: "bedrock_agent",
+      confidence: 0.98,
+      evidence,
+      layer: "agent"
+    };
+  }
+  if (/BedrockKnowledgeBase/i.test(awsType)) {
+    evidence.push("Bedrock Knowledge Base is an AI resource, not an agent by itself");
+    return {
+      aiRelevant: true,
+      category: "bedrock_knowledge_base",
+      confidence: 0.95,
+      evidence,
+      layer: "ai_resource"
+    };
+  }
+  if (/SageMakerEndpoint/i.test(awsType)) {
+    evidence.push("SageMaker endpoint is an AI model runtime, not automatically an agent");
+    return {
+      aiRelevant: true,
+      category: "sagemaker_endpoint",
+      confidence: 0.94,
+      evidence,
+      layer: "ai_resource"
+    };
+  }
+  if (/LambdaFunction/i.test(awsType) || service === "lambda") {
+    const signal = isAiRelevantText(name, tagBlob, resource.description, resource.runtime);
+    if (signal) {
+      evidence.push("Lambda matched AI workload name/description/runtime/env-name signals");
+      return {
+        aiRelevant: true,
+        category: "lambda",
+        confidence: 0.72,
+        evidence,
+        layer: "compute_candidate"
+      };
+    }
+    return {
+      aiRelevant: false,
+      category: "non_ai",
+      confidence: 0.9,
+      evidence: ["Lambda without AI signals"],
+      layer: "non_ai"
+    };
+  }
+  if (/EcsService/i.test(awsType) || service === "ecs") {
+    const signal = isAiRelevantText(name, tagBlob, resource.taskDefinition);
+    if (signal) {
+      evidence.push("ECS service matched AI workload heuristics");
+      return {
+        aiRelevant: true,
+        category: "ecs_service",
+        confidence: 0.7,
+        evidence,
+        layer: "compute_candidate"
+      };
+    }
+    return {
+      aiRelevant: false,
+      category: "non_ai",
+      confidence: 0.9,
+      evidence: ["ECS service without AI signals"],
+      layer: "non_ai"
+    };
+  }
+
+  if (isAiRelevantText(awsType, name, service, tagBlob)) {
+    evidence.push("AWS resource matched AI text signals");
+    return {
+      aiRelevant: true,
+      category: "unknown_ai_resource",
+      confidence: 0.65,
+      evidence,
+      layer: "compute_candidate"
+    };
+  }
+
+  return {
+    aiRelevant: false,
+    category: "non_ai",
+    confidence: 0.99,
+    evidence: ["No AWS AI type or text signals"],
+    layer: "non_ai"
+  };
+}
+
+/**
+ * Structured GCP resource classification.
+ * @returns {{ aiRelevant: boolean, category: string, confidence: number, evidence: string[], layer: string }}
+ */
+export function classifyGcpResource(resource = {}) {
+  const gcpType = String(resource.gcpType || resource.type || "");
+  const name = String(resource.name || "");
+  const service = String(resource.service || "");
+  const labels = resource.labels || resource.extra?.labels || {};
+  const labelBlob = Object.entries(labels)
+    .flatMap(([k, v]) => [k, v])
+    .join(" ");
+  const evidence = [];
+
+  if (/DialogflowCxAgent/i.test(gcpType) || (/dialogflow/i.test(service) && /agent/i.test(gcpType))) {
+    evidence.push("Dialogflow CX agent entity from official API");
+    return {
+      aiRelevant: true,
+      category: "dialogflow_cx_agent",
+      confidence: 0.97,
+      evidence,
+      layer: "agent"
+    };
+  }
+  if (/VertexReasoningEngine/i.test(gcpType) || /reasoning.?engine/i.test(gcpType)) {
+    evidence.push("Vertex AI Reasoning Engine (Agent Engine) from official API");
+    return {
+      aiRelevant: true,
+      category: "vertex_reasoning_engine",
+      confidence: 0.96,
+      evidence,
+      layer: "agent"
+    };
+  }
+  if (/VertexAIEndpoint/i.test(gcpType)) {
+    evidence.push("Vertex AI endpoint is an AI model serving resource, not automatically an agent");
+    return {
+      aiRelevant: true,
+      category: "vertex_endpoint",
+      confidence: 0.93,
+      evidence,
+      layer: "ai_resource"
+    };
+  }
+  if (/VertexAIModel|AIPlatformModel/i.test(gcpType)) {
+    evidence.push("Vertex/AI Platform model registry entry is an AI resource");
+    return {
+      aiRelevant: true,
+      category: "vertex_model",
+      confidence: 0.92,
+      evidence,
+      layer: "ai_resource"
+    };
+  }
+  if (/DiscoveryEngine/i.test(gcpType)) {
+    evidence.push("Discovery Engine is an AI search/app resource, not an agent by itself");
+    return {
+      aiRelevant: true,
+      category: "discovery_engine",
+      confidence: 0.9,
+      evidence,
+      layer: "ai_resource"
+    };
+  }
+  if (/CloudRunService/i.test(gcpType) || service === "run") {
+    const images = (resource.extra?.images || resource.images || []).join(" ");
+    if (isAiRelevantText(name, labelBlob, images, resource.description)) {
+      evidence.push("Cloud Run service matched AI workload heuristics");
+      return {
+        aiRelevant: true,
+        category: "cloud_run",
+        confidence: 0.7,
+        evidence,
+        layer: "compute_candidate"
+      };
+    }
+    return {
+      aiRelevant: false,
+      category: "non_ai",
+      confidence: 0.9,
+      evidence: ["Cloud Run without AI signals"],
+      layer: "non_ai"
+    };
+  }
+  if (/EnabledApi/i.test(gcpType)) {
+    evidence.push("Enabled AI-related Google API (capability signal, not an agent)");
+    return {
+      aiRelevant: true,
+      category: "enabled_ai_api",
+      confidence: 0.6,
+      evidence,
+      layer: "ai_resource"
+    };
+  }
+
+  if (isAiRelevantText(gcpType, name, service, labelBlob)) {
+    evidence.push("GCP resource matched AI text signals");
+    return {
+      aiRelevant: true,
+      category: "unknown_ai_resource",
+      confidence: 0.65,
+      evidence,
+      layer: "compute_candidate"
+    };
+  }
+
+  return {
+    aiRelevant: false,
+    category: "non_ai",
+    confidence: 0.99,
+    evidence: ["No GCP AI type or text signals"],
+    layer: "non_ai"
+  };
+}
+
+export function isAwsAiResource(resource) {
+  return classifyAwsResource(resource).aiRelevant === true;
+}
+
+export function isGcpAiResource(resource) {
+  return classifyGcpResource(resource).aiRelevant === true;
+}
