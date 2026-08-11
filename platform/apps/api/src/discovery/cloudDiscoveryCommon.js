@@ -121,7 +121,7 @@ export function emptyDiscoveryStats() {
 }
 
 export function tallyDiscoveryObservation(stats, obs) {
-  if (obs.metadata?.inventoryClass === "connector_scan") return;
+  if (/^(connector_scan|edr_connector)$/.test(String(obs.metadata?.inventoryClass || ""))) return;
   stats.cloudResourcesIngested += 1;
   if (obs.agent?.detected) {
     stats.agentsDiscovered += 1;
