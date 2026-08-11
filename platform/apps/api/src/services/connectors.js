@@ -424,7 +424,9 @@ export async function testConnector(pool, tenantId, id) {
 
   try {
     if (row.provider === "azure") {
-      const { validateAzureConnector } = await import("../discovery/azureArm.js");
+      const { validateAzureConnector, validateAzureConnectorCapabilities } = await import(
+        "../discovery/azureArm.js"
+      );
       const result = await validateAzureConnector({
         id: row.id,
         name: row.name,
@@ -433,6 +435,19 @@ export async function testConnector(pool, tenantId, id) {
       });
       ok = result.ok;
       message = result.message;
+      try {
+        const caps = await validateAzureConnectorCapabilities({
+          id: row.id,
+          name: row.name,
+          config,
+          secrets
+        });
+        if (caps?.capabilities) {
+          message = `${message} Capabilities: ${JSON.stringify(caps.capabilities)}`;
+        }
+      } catch {
+        /* capability probe is optional */
+      }
     } else if (EDR_PROVIDERS.includes(row.provider)) {
       const { EDR_VALIDATORS } = await import("../discovery/edrIntegrations.js");
       const validator = EDR_VALIDATORS[row.provider];
