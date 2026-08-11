@@ -10,7 +10,7 @@
     "dev": "node --watch src/server.js",
     "migrate": "node src/migrate.js",
     "test": "node --test src/discovery/__tests__/*.test.js",
-    "lint": "node --check src/discovery/azureArm.js && node --check src/discovery/azureDeepScan.js && node --check src/discovery/aiRelevance.js && node --check src/discovery/agentEvidence.js && node --check src/utils/http.js",
+    "lint": "node --check src/discovery/azureArm.js && node --check src/discovery/azureDeepScan.js && node --check src/discovery/awsCloud.js && node --check src/discovery/gcpCloud.js && node --check src/discovery/aiRelevance.js && node --check src/discovery/agentEvidence.js && node --check src/discovery/cloudDiscoveryCommon.js && node --check src/utils/http.js && node --check src/services/connectors.js",
     "validate:env": "node -e \"import('./src/config.js').then(m=>m.assertProductionConfig()).then(()=>console.log('ok')).catch(e=>{console.error(e.message);process.exit(1)})\""
   },
   "engines": {

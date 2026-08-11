@@ -37,11 +37,12 @@ const CONFIDENCE = {
   identity_candidate: 0.6
 };
 
-const STRONG_CLOUD_TYPES = /BedrockAgent|BedrockKnowledgeBase|SageMakerEndpoint|BotService|Vertex|Dialogflow|ReasoningEngine/i;
+/** Cloud types that ARE agent entities themselves (not merely AI platforms/runtimes). */
+const STRONG_CLOUD_AGENT_TYPES = /^(BedrockAgent|DialogflowCxAgent|VertexReasoningEngine)$/i;
 /** Azure types that ARE agent entities themselves (not merely AI platforms). */
 const STRONG_AZURE_AGENT_TYPES = /Microsoft\.BotService\//i;
 const OFFICIAL_AGENT_METHODS =
-  /^(azure_foundry_api|azure_assistants_api|azure_bot_service_arm|bedrock_agents_api|platform_api)$/i;
+  /^(azure_foundry_api|azure_assistants_api|azure_bot_service_arm|bedrock_agents_api|dialogflow_cx_api|vertex_reasoning_engine_api|platform_api)$/i;
 
 /**
  * Derive evidenceClass + agentStatus + confidence from an observation.
@@ -142,7 +143,7 @@ export function classifyAgentEvidence(obs = {}) {
     };
   }
 
-  // Explicit non-agent AI resources (e.g. Azure OpenAI account without Agents API hits).
+  // Explicit non-agent AI resources (Azure OpenAI, SageMaker endpoint, Vertex model, etc.).
   const agentDetectedFlag =
     obs.agent && typeof obs.agent === "object"
       ? obs.agent.detected
@@ -167,13 +168,13 @@ export function classifyAgentEvidence(obs = {}) {
       );
       const strong =
         meta.managedCloudAgent === true ||
-        agentDetectedFlag === true && OFFICIAL_AGENT_METHODS.test(detectionMethod) ||
+        (agentDetectedFlag === true && OFFICIAL_AGENT_METHODS.test(detectionMethod)) ||
         STRONG_AZURE_AGENT_TYPES.test(azureType) ||
-        STRONG_CLOUD_TYPES.test(awsType) ||
-        STRONG_CLOUD_TYPES.test(gcpType) ||
-        STRONG_CLOUD_TYPES.test(framework) ||
+        STRONG_CLOUD_AGENT_TYPES.test(awsType) ||
+        STRONG_CLOUD_AGENT_TYPES.test(gcpType) ||
+        STRONG_CLOUD_AGENT_TYPES.test(framework) ||
         /bedrock-agent/i.test(model);
-      // Heuristic Azure compute (ACA/AKS/Functions) stays candidate — never auto-confirmed.
+      // Heuristic compute (ACA/AKS/Lambda/ECS/Cloud Run) stays candidate — never auto-confirmed by type alone.
       agentStatus = strong ? "confirmed" : "candidate";
     } else if (evidenceClass === "ide_agent") {
       agentStatus = mcpCount > 0 || inventoryClass === "mcp_server" ? "confirmed" : "candidate";
