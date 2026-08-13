@@ -560,6 +560,10 @@ function textBlob(obs = {}, meta = {}) {
 /**
  * Normalize deployment plane + environment lane for Global Agent Mesh.
  * Shadow AI is an overlay, not a plane.
+ *
+ * Cloud AI (AWS Bedrock/SageMaker, Azure, GCP) must never land on the EDR
+ * "endpoint" plane just because a resource name contains "endpoint"
+ * (e.g. SageMakerEndpoint).
  */
 export function buildAgentMeshPlacement(obs = {}) {
   const meta = obs.metadata && typeof obs.metadata === "object" ? obs.metadata : {};
@@ -567,11 +571,32 @@ export function buildAgentMeshPlacement(obs = {}) {
   const blob = textBlob(obs, meta);
   const category = String(obs.category || meta.inventoryClass || "").toLowerCase();
   const deployment = String(obs.deployment_type || meta.deploymentType || "").toLowerCase();
+  const collector = String(obs.collector_id || meta.collectorId || "").toLowerCase();
+  const cloudProvider = String(obs.cloud_provider || meta.cloudProvider || "").toLowerCase();
+  const provider = String(obs.provider || "").toLowerCase();
+  const awsType = String(meta.awsType || "").toLowerCase();
+  const azureType = String(meta.azureType || "").toLowerCase();
+  const gcpType = String(meta.gcpType || meta.service || "").toLowerCase();
+
+  const isCloudAsset =
+    category === "cloud" ||
+    deployment === "cloud" ||
+    collector.startsWith("cloud_") ||
+    ["aws", "azure", "gcp"].includes(cloudProvider) ||
+    ["aws", "azure", "gcp"].includes(provider) ||
+    Boolean(awsType || azureType || gcpType) ||
+    /bedrock|sagemaker|vertex|dialogflow/.test(blob);
 
   let agentPlane =
     existing.agentPlane ||
     meta.agentPlane ||
     null;
+
+  // Fix prior misclassification: SageMakerEndpoint / cloud AI matched /endpoint/ in blob
+  // and were pinned on the EDR endpoint plane. Recompute for cloud assets.
+  if (agentPlane === "endpoint" && isCloudAsset) {
+    agentPlane = null;
+  }
 
   if (!agentPlane) {
     if (
@@ -580,15 +605,38 @@ export function buildAgentMeshPlacement(obs = {}) {
       /m365|copilot|salesforce|workday|servicenow|slack|chatgpt|openai enterprise/.test(blob)
     ) {
       agentPlane = "saas_third_party";
+    } else if (isCloudAsset) {
+      // Managed cloud AI → SaaS plane; Lambda → serverless; ECS/K8s → containerized.
+      // Never treat SageMaker "endpoint" / Bedrock as EDR endpoint devices.
+      if (
+        /lambda|serverless/.test(blob) ||
+        /lambda/i.test(awsType) ||
+        deployment === "serverless"
+      ) {
+        agentPlane = "serverless";
+      } else if (
+        /ecs|eks|aks|gke|kubernetes|k8s|container|docker|pod/.test(blob) ||
+        /ecs/i.test(awsType) ||
+        deployment === "container" ||
+        Boolean(obs.container)
+      ) {
+        agentPlane = "containerized";
+      } else {
+        agentPlane = "saas_third_party";
+      }
     } else if (
-      /ide|local_llm|browser/.test(category) ||
+      category === "endpoint" ||
+      category === "edr" ||
+      deployment === "endpoint" ||
+      collector === "edr" ||
+      /ide|local_llm/.test(category) ||
       /ide|local|desktop/.test(deployment) ||
       Boolean(obs.ide) ||
-      /cursor|ollama|laptop|endpoint|edr/.test(blob)
+      /\b(cursor|ollama|laptop|edr|crowdstrike|defender|intune|cortex|netskope)\b/.test(blob)
     ) {
       agentPlane = "endpoint";
     } else if (
-      /serverless|function|lambda|cloud.run|bedrock agent/.test(blob) ||
+      /serverless|function|lambda|cloud\.run|bedrock/.test(blob) ||
       deployment === "serverless"
     ) {
       agentPlane = "serverless";
@@ -596,7 +644,6 @@ export function buildAgentMeshPlacement(obs = {}) {
       /container|k8s|kubernetes|eks|aks|gke|pod|docker/.test(blob) ||
       deployment === "container" ||
       Boolean(obs.container) ||
-      category === "cloud" ||
       category === "framework" ||
       category === "autonomous" ||
       category === "mcp"
@@ -610,6 +657,10 @@ export function buildAgentMeshPlacement(obs = {}) {
   if (!AGENT_PLANES.includes(agentPlane)) agentPlane = "endpoint";
 
   let environmentLane = existing.environmentLane || meta.environmentLane || null;
+  // Cloud assets previously forced onto endpoints lane — allow recompute to SaaS.
+  if (environmentLane === "endpoints" && isCloudAsset) {
+    environmentLane = null;
+  }
   const envHint = String(meta.environment || meta.env || meta.stage || obs.environment || "").toLowerCase();
 
   if (!environmentLane) {
