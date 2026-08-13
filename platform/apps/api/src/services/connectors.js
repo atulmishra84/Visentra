@@ -424,7 +424,9 @@ export async function testConnector(pool, tenantId, id) {
 
   try {
     if (row.provider === "azure") {
-      const { validateAzureConnector } = await import("../discovery/azureArm.js");
+      const { validateAzureConnector, validateAzureConnectorCapabilities } = await import(
+        "../discovery/azureArm.js"
+      );
       const result = await validateAzureConnector({
         id: row.id,
         name: row.name,
@@ -433,6 +435,19 @@ export async function testConnector(pool, tenantId, id) {
       });
       ok = result.ok;
       message = result.message;
+      try {
+        const caps = await validateAzureConnectorCapabilities({
+          id: row.id,
+          name: row.name,
+          config,
+          secrets
+        });
+        if (caps?.capabilities) {
+          message = `${message} Capabilities: ${JSON.stringify(caps.capabilities)}`;
+        }
+      } catch {
+        /* capability probe is optional */
+      }
     } else if (EDR_PROVIDERS.includes(row.provider)) {
       const { EDR_VALIDATORS } = await import("../discovery/edrIntegrations.js");
       const validator = EDR_VALIDATORS[row.provider];
@@ -452,15 +467,45 @@ export async function testConnector(pool, tenantId, id) {
       ok = result.ok;
       message = result.message;
     } else if (row.provider === "aws") {
-      const { validateAwsConnector } = await import("../discovery/awsCloud.js");
+      const { validateAwsConnector, validateAwsConnectorCapabilities } = await import(
+        "../discovery/awsCloud.js"
+      );
       const result = await validateAwsConnector({ id: row.id, name: row.name, config, secrets });
       ok = result.ok;
       message = result.message;
+      try {
+        const caps = await validateAwsConnectorCapabilities({
+          id: row.id,
+          name: row.name,
+          config,
+          secrets
+        });
+        if (caps?.capabilities) {
+          message = `${message} Capabilities: ${JSON.stringify(caps.capabilities)}`;
+        }
+      } catch {
+        /* capability probe is optional */
+      }
     } else if (row.provider === "gcp") {
-      const { validateGcpConnector } = await import("../discovery/gcpCloud.js");
+      const { validateGcpConnector, validateGcpConnectorCapabilities } = await import(
+        "../discovery/gcpCloud.js"
+      );
       const result = await validateGcpConnector({ id: row.id, name: row.name, config, secrets });
       ok = result.ok;
       message = result.message;
+      try {
+        const caps = await validateGcpConnectorCapabilities({
+          id: row.id,
+          name: row.name,
+          config,
+          secrets
+        });
+        if (caps?.capabilities) {
+          message = `${message} Capabilities: ${JSON.stringify(caps.capabilities)}`;
+        }
+      } catch {
+        /* capability probe is optional */
+      }
     } else if (row.provider === "kubernetes" || row.provider === "kubernetes_identity") {
       const { validateK8sConnector } = await import("../discovery/k8sApi.js");
       const result = await validateK8sConnector({ id: row.id, name: row.name, config, secrets });

@@ -37,9 +37,15 @@ const CONFIDENCE = {
   identity_candidate: 0.6
 };
 
-const STRONG_CLOUD_TYPES = /BedrockAgent|BedrockKnowledgeBase|SageMakerEndpoint|BotService|CognitiveServices|MachineLearning|OpenAI|Vertex|Foundry|Dialogflow|ReasoningEngine/i;
-const STRONG_AZURE_TYPES =
-  /Microsoft\.(CognitiveServices|MachineLearningServices|BotService|Search)\//i;
+/** Cloud types that ARE agent entities themselves (not merely AI platforms/runtimes). */
+const STRONG_CLOUD_AGENT_TYPES = /^(BedrockAgent|DialogflowCxAgent|VertexReasoningEngine)$/i;
+/** Azure types that ARE agent entities themselves (not merely AI platforms). */
+const STRONG_AZURE_AGENT_TYPES = /Microsoft\.BotService\//i;
+const OFFICIAL_AGENT_METHODS =
+  /^(azure_foundry_api|azure_assistants_api|azure_bot_service_arm|bedrock_agents_api|dialogflow_cx_api|vertex_reasoning_engine_api|platform_api)$/i;
+/** EDR process APIs that can confirm a live agent (not hostname/app inventory). */
+const OFFICIAL_EDR_PROCESS_METHODS =
+  /^(crowdstrike_process|defender_hunting|cortex_xql|edr_process_api)$/i;
 
 /**
  * Derive evidenceClass + agentStatus + confidence from an observation.
@@ -140,23 +146,65 @@ export function classifyAgentEvidence(obs = {}) {
     };
   }
 
+  // Explicit non-agent AI resources (Azure OpenAI, SageMaker endpoint, Vertex model, etc.).
+  const agentDetectedFlag =
+    obs.agent && typeof obs.agent === "object"
+      ? obs.agent.detected
+      : meta.agentDetected;
+  if (agentDetectedFlag === false && inventoryClass === "ai_cloud_resource") {
+    return {
+      evidenceClass: null,
+      agentStatus: null,
+      confidence_score: confidence ?? Number(obs.confidence_score) ?? 0.85,
+      ingestible: true,
+      reason: "ai_cloud_resource_only"
+    };
+  }
+
+  // Endpoint device inventory only — host resource, not an AI agent.
+  if (agentDetectedFlag === false && inventoryClass === "endpoint_device") {
+    return {
+      evidenceClass: null,
+      agentStatus: null,
+      confidence_score: confidence ?? Number(obs.confidence_score) ?? 0.78,
+      ingestible: true,
+      reason: "endpoint_device_resource_only"
+    };
+  }
+
   // --- status ---
   if (!agentStatus) {
     if (evidenceClass === "platform_agent") {
       agentStatus = "confirmed";
     } else if (evidenceClass === "cloud_ai_runtime") {
+      const detectionMethod = String(
+        obs.agent?.detectionMethod || meta.agentDetectionMethod || ""
+      );
       const strong =
-        STRONG_CLOUD_TYPES.test(awsType) ||
-        STRONG_CLOUD_TYPES.test(gcpType) ||
-        STRONG_CLOUD_TYPES.test(framework) ||
-        STRONG_AZURE_TYPES.test(azureType) ||
-        /bedrock-agent|sagemaker|openai|bot/i.test(model) ||
-        meta.managedCloudAgent === true;
+        meta.managedCloudAgent === true ||
+        (agentDetectedFlag === true && OFFICIAL_AGENT_METHODS.test(detectionMethod)) ||
+        STRONG_AZURE_AGENT_TYPES.test(azureType) ||
+        STRONG_CLOUD_AGENT_TYPES.test(awsType) ||
+        STRONG_CLOUD_AGENT_TYPES.test(gcpType) ||
+        STRONG_CLOUD_AGENT_TYPES.test(framework) ||
+        /bedrock-agent/i.test(model);
+      // Heuristic compute (ACA/AKS/Lambda/ECS/Cloud Run) stays candidate — never auto-confirmed by type alone.
       agentStatus = strong ? "confirmed" : "candidate";
     } else if (evidenceClass === "ide_agent") {
       agentStatus = mcpCount > 0 || inventoryClass === "mcp_server" ? "confirmed" : "candidate";
     } else if (evidenceClass === "process_agent") {
-      agentStatus = hasProcessEvidence || collector === "process" ? "confirmed" : "candidate";
+      const detectionMethod = String(
+        obs.agent?.detectionMethod || meta.agentDetectionMethod || ""
+      );
+      // Local process collector may confirm from processEvidence alone.
+      // EDR confirms only via official process/hunt APIs — never hostname or app inventory.
+      if (collector === "process") {
+        agentStatus = hasProcessEvidence ? "confirmed" : "candidate";
+      } else if (collector === "edr" || inventoryClass === "endpoint_ai_agent") {
+        agentStatus = OFFICIAL_EDR_PROCESS_METHODS.test(detectionMethod) ? "confirmed" : "candidate";
+      } else {
+        agentStatus = hasProcessEvidence ? "confirmed" : "candidate";
+      }
     } else {
       agentStatus = "candidate";
     }
