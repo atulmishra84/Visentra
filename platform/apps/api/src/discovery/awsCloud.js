@@ -386,8 +386,10 @@ export async function validateAwsConnectorCapabilities(conn) {
         conn,
         service: "bedrock",
         hostname: `bedrock-agent.${creds.region}.amazonaws.com`,
+        method: "POST",
         path: "/agents/",
-        query: { maxResults: 1 }
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ maxResults: 1 })
       },
       true
     )
@@ -398,8 +400,10 @@ export async function validateAwsConnectorCapabilities(conn) {
         conn,
         service: "bedrock",
         hostname: `bedrock-agent.${creds.region}.amazonaws.com`,
+        method: "POST",
         path: "/knowledgebases/",
-        query: { maxResults: 1 }
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ maxResults: 1 })
       },
       true
     )
@@ -458,26 +462,63 @@ export async function validateAwsConnectorCapabilities(conn) {
   };
 }
 
-async function listBedrockAgents(conn, region, discoveryErrors) {
-  const json = await awsJson(
-    {
-      conn,
-      service: "bedrock",
-      hostname: `bedrock-agent.${region}.amazonaws.com`,
-      path: "/agents/",
-      query: { maxResults: 50 }
-    },
-    true
-  );
-  if (json?.__error) {
-    discoveryErrors.push({
-      discoveryType: "bedrock-agents",
-      discoveryStatus: json.permissionDenied ? "permission_denied" : "error",
-      error: json.message
-    });
-    return [];
+/** Paginate Bedrock Agent control-plane list APIs (POST + JSON body + nextToken). */
+export async function listBedrockPaginated({
+  conn,
+  region,
+  path,
+  discoveryType,
+  discoveryErrors,
+  resultKey,
+  maxPages = 20,
+  pageSize = 50,
+  resourceId = null,
+  awsJsonFn = awsJson
+}) {
+  const collected = [];
+  let nextToken = null;
+  for (let page = 0; page < maxPages; page += 1) {
+    const body = { maxResults: pageSize };
+    if (nextToken) body.nextToken = nextToken;
+    const json = await awsJsonFn(
+      {
+        conn,
+        service: "bedrock",
+        hostname: `bedrock-agent.${region}.amazonaws.com`,
+        method: "POST",
+        path,
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(body)
+      },
+      true
+    );
+    if (json?.__error) {
+      discoveryErrors.push({
+        ...(resourceId ? { resourceId } : {}),
+        discoveryType,
+        discoveryStatus: json.permissionDenied ? "permission_denied" : "error",
+        error: json.message
+      });
+      break;
+    }
+    const batch = json?.[resultKey] || [];
+    if (Array.isArray(batch)) collected.push(...batch);
+    nextToken = json?.nextToken || null;
+    if (!nextToken) break;
   }
-  return json?.agentSummaries || json?.agents || [];
+  return collected;
+}
+
+async function listBedrockAgents(conn, region, discoveryErrors) {
+  return listBedrockPaginated({
+    conn,
+    region,
+    path: "/agents/",
+    discoveryType: "bedrock-agents",
+    discoveryErrors,
+    resultKey: "agentSummaries",
+    pageSize: 50
+  });
 }
 
 async function listSageMakerEndpoints(conn, region, discoveryErrors) {
@@ -541,49 +582,30 @@ async function listAiLambdaFunctions(conn, region, discoveryErrors) {
 }
 
 async function listBedrockKnowledgeBases(conn, region, discoveryErrors) {
-  const json = await awsJson(
-    {
-      conn,
-      service: "bedrock",
-      hostname: `bedrock-agent.${region}.amazonaws.com`,
-      path: "/knowledgebases/",
-      query: { maxResults: 50 }
-    },
-    true
-  );
-  if (json?.__error) {
-    discoveryErrors.push({
-      discoveryType: "bedrock-knowledge-bases",
-      discoveryStatus: json.permissionDenied ? "permission_denied" : "error",
-      error: json.message
-    });
-    return [];
-  }
-  return json?.knowledgeBaseSummaries || json?.knowledgeBases || [];
+  return listBedrockPaginated({
+    conn,
+    region,
+    path: "/knowledgebases/",
+    discoveryType: "bedrock-knowledge-bases",
+    discoveryErrors,
+    resultKey: "knowledgeBaseSummaries",
+    pageSize: 50
+  });
 }
 
 async function listBedrockAgentAliases(conn, region, agentId, discoveryErrors) {
   if (!agentId) return [];
-  const json = await awsJson(
-    {
-      conn,
-      service: "bedrock",
-      hostname: `bedrock-agent.${region}.amazonaws.com`,
-      path: `/agents/${encodeURIComponent(agentId)}/agentaliases/`,
-      query: { maxResults: 20 }
-    },
-    true
-  );
-  if (json?.__error) {
-    discoveryErrors.push({
-      resourceId: agentId,
-      discoveryType: "bedrock-agent-aliases",
-      discoveryStatus: json.permissionDenied ? "permission_denied" : "error",
-      error: json.message
-    });
-    return [];
-  }
-  return json?.agentAliasSummaries || json?.agentAliases || [];
+  return listBedrockPaginated({
+    conn,
+    region,
+    path: `/agents/${encodeURIComponent(agentId)}/agentaliases/`,
+    discoveryType: "bedrock-agent-aliases",
+    discoveryErrors,
+    resultKey: "agentAliasSummaries",
+    pageSize: 20,
+    maxPages: 5,
+    resourceId: agentId
+  });
 }
 
 async function listAiEcsServices(conn, region, discoveryErrors) {

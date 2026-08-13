@@ -86,5 +86,12 @@ Attach a custom policy:
 | SageMaker endpoint InService | Endpoint runtime **running**; not an agent |
 | Lambda / ECS AI-named (+ optional GetFunctionConfiguration) | Heuristic agent **candidate**; compute runtime from State/runningCount |
 
+**API note:** Bedrock Agents list APIs (`ListAgents`, `ListKnowledgeBases`, `ListAgentAliases`)
+are **POST** `/agents/` (etc.) with a JSON body and `nextToken` pagination. Visentra follows
+all pages so accounts with >10 agents are fully inventoried.
+
+**Region note:** The connector `region` must match where the agents were created
+(e.g. agents in `us-west-2` are invisible to a connector set to `us-east-1`).
+
 **Never inferred:** SageMaker InService ≠ agent running; Lambda Active ≠ confirmed agent;
 ECS runningCount > 0 ≠ confirmed agent; GetAgent `PREPARED` ≠ agent running.
