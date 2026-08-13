@@ -6,17 +6,54 @@ per connector (`accessKeyId`, `secretAccessKey`, `accountId`, `region`).
 All discovery APIs used are **read-only**. Do **not** grant AdministratorAccess,
 write, or delete permissions.
 
+## Discovery layers
+
+1. **List** — Bedrock agents/KBs, SageMaker endpoints, AI-named Lambda/ECS  
+2. **Deep scan** (default on) — `GetAgent`, `DescribeEndpoint`, `GetFunctionConfiguration`  
+3. **Classify** — confirmed agent vs AI resource vs heuristic candidate  
+
+Hard rules: AI resource ≠ confirmed agent ≠ agent running. Deep scan does **not**
+claim Bedrock `PREPARED` or SageMaker `InService` as a running AI agent.
+
 ## Minimum IAM actions (recommended)
 
-Attach a custom policy (or scoped managed policies) with:
+Attach a custom policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "VisentraAwsDiscoveryReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity",
+        "bedrock:ListAgents",
+        "bedrock:ListAgentAliases",
+        "bedrock:GetAgent",
+        "bedrock:ListKnowledgeBases",
+        "sagemaker:ListEndpoints",
+        "sagemaker:DescribeEndpoint",
+        "lambda:ListFunctions",
+        "lambda:GetFunctionConfiguration",
+        "ecs:ListClusters",
+        "ecs:ListServices",
+        "ecs:DescribeServices"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
 
 | Capability | Actions |
 |---|---|
 | Identity check | `sts:GetCallerIdentity` |
-| Bedrock agents | `bedrock:ListAgents`, `bedrock:ListAgentAliases`, `bedrock:GetAgent` (optional) |
+| Bedrock agents (list) | `bedrock:ListAgents`, `bedrock:ListAgentAliases` |
+| Bedrock agents (deep) | `bedrock:GetAgent` |
 | Bedrock knowledge bases | `bedrock:ListKnowledgeBases` |
-| SageMaker endpoints | `sagemaker:ListEndpoints`, `sagemaker:DescribeEndpoint` (optional) |
-| Lambda | `lambda:ListFunctions` |
+| SageMaker (list + deep) | `sagemaker:ListEndpoints`, `sagemaker:DescribeEndpoint` |
+| Lambda (list + deep) | `lambda:ListFunctions`, `lambda:GetFunctionConfiguration` |
 | ECS | `ecs:ListClusters`, `ecs:ListServices`, `ecs:DescribeServices` |
 
 ### Notes
@@ -33,17 +70,21 @@ Attach a custom policy (or scoped managed policies) with:
 |---|---|---|
 | `AWS_DISCOVERY_AI_ONLY` | inherits `DISCOVERY_AI_ONLY` | AI-relevant posture |
 | `AWS_DISCOVERY_MAX_RESOURCES` | `150` | Cap on ingested resources |
-| `AWS_DISCOVERY_AGENT_SCAN` | `true` | Call Bedrock Agents APIs |
+| `AWS_DISCOVERY_AGENT_SCAN` | `true` | Call Bedrock Agents list APIs |
 | `AWS_DISCOVERY_RUNTIME_SCAN` | `true` | Scan Lambda / ECS runtimes |
+| `AWS_DISCOVERY_DEEP_SCAN` | `true` | GetAgent / DescribeEndpoint / GetFunctionConfiguration |
+| `AWS_DISCOVERY_DEEP_MAX_AGENTS` | `40` | Cap deep GetAgent calls |
+| `AWS_DISCOVERY_DEEP_MAX_ENDPOINTS` | `40` | Cap DescribeEndpoint calls |
+| `AWS_DISCOVERY_DEEP_MAX_LAMBDAS` | `40` | Cap GetFunctionConfiguration calls |
 
 ## Certainty vs unknown
 
 | Finding | Confirmed? |
 |---|---|
-| Bedrock Agent from ListAgents | Agent **confirmed**; runtime usually **unknown** (request-driven) |
+| Bedrock Agent from ListAgents (+ optional GetAgent) | Agent **confirmed**; runtime usually **unknown** (request-driven) |
 | Bedrock Knowledge Base | AI resource only — not an agent |
 | SageMaker endpoint InService | Endpoint runtime **running**; not an agent |
-| Lambda / ECS AI-named | Heuristic agent **candidate**; compute runtime from State/runningCount |
+| Lambda / ECS AI-named (+ optional GetFunctionConfiguration) | Heuristic agent **candidate**; compute runtime from State/runningCount |
 
 **Never inferred:** SageMaker InService ≠ agent running; Lambda Active ≠ confirmed agent;
-ECS runningCount > 0 ≠ confirmed agent.
+ECS runningCount > 0 ≠ confirmed agent; GetAgent `PREPARED` ≠ agent running.

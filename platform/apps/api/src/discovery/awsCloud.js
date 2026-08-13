@@ -16,12 +16,15 @@ import {
   dedupeObservationsByFingerprint,
   safeEnvNames
 } from "./cloudDiscoveryCommon.js";
+import { enrichAwsWithDeepScan } from "./awsDeepScan.js";
 
 const AWS_MAX_RESOURCES = Number(process.env.AWS_DISCOVERY_MAX_RESOURCES || 150);
 const AWS_DISCOVERY_AGENT_SCAN =
   String(process.env.AWS_DISCOVERY_AGENT_SCAN || "true").toLowerCase() !== "false";
 const AWS_DISCOVERY_RUNTIME_SCAN =
   String(process.env.AWS_DISCOVERY_RUNTIME_SCAN || "true").toLowerCase() !== "false";
+const AWS_DISCOVERY_DEEP_SCAN =
+  String(process.env.AWS_DISCOVERY_DEEP_SCAN || "true").toLowerCase() !== "false";
 export const EFFECTIVE_AWS_AI_ONLY =
   process.env.AWS_DISCOVERY_AI_ONLY != null
     ? String(process.env.AWS_DISCOVERY_AI_ONLY).toLowerCase() !== "false"
@@ -142,7 +145,7 @@ function xmlValue(xml, tag) {
   return match?.[1] || null;
 }
 
-async function awsJson(request, optional = false) {
+export async function awsJson(request, optional = false) {
   const res = await awsFetch(request);
   const text = await res.text();
   let json = {};
@@ -705,6 +708,7 @@ export async function discoverAwsConnector(conn) {
         maxResources: AWS_MAX_RESOURCES,
         agentScan: AWS_DISCOVERY_AGENT_SCAN,
         runtimeScan: AWS_DISCOVERY_RUNTIME_SCAN,
+        deepScan: AWS_DISCOVERY_DEEP_SCAN,
         aiOnly: EFFECTIVE_AWS_AI_ONLY
       },
       relationships: cloudRelationship(`aws-account-${creds.accountId}`, `AWS account ${creds.accountId}`)
@@ -1047,6 +1051,21 @@ export async function discoverAwsConnector(conn) {
   }
 
   let selected = dedupeObservationsByFingerprint(observations);
+
+  if (AWS_DISCOVERY_DEEP_SCAN) {
+    const deep = await enrichAwsWithDeepScan({
+      awsJson,
+      conn,
+      region: creds.region,
+      observations: selected.filter((o) => o.metadata?.inventoryClass !== "connector_scan"),
+      discoveryErrors,
+      enabled: true
+    });
+    stats.deepScanned = deep.deepScanned || 0;
+  } else {
+    stats.deepScanned = 0;
+  }
+
   // Keep connector scan + up to MAX resource rows
   const scan = selected.filter((o) => o.metadata?.inventoryClass === "connector_scan");
   const rest = selected.filter((o) => o.metadata?.inventoryClass !== "connector_scan").slice(0, AWS_MAX_RESOURCES);
@@ -1059,6 +1078,7 @@ export async function discoverAwsConnector(conn) {
   if (selected[0]?.metadata) {
     Object.assign(selected[0].metadata, {
       ...stats,
+      deepScan: AWS_DISCOVERY_DEEP_SCAN,
       discoveryErrorSamples: discoveryErrors.slice(0, 25)
     });
   }
