@@ -23,6 +23,8 @@ services:
     # Override the build entirely — use plain nginx + pre-built dist
     # This prevents the container from trying to run 'npm run build' which often fails on EC2 due to memory limits
     image: nginx:1.27-alpine
+    # Bypass the default entrypoint which attempts to run envsubst on templates and fails against our ro mount
+    entrypoint: ["nginx", "-g", "daemon off;"]
     ports:
       - "9000:80"
     volumes:
