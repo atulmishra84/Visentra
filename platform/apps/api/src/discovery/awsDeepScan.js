@@ -13,10 +13,16 @@
  */
 
 import { sanitizeCloudError, safeEnvNames, normalizeRuntimeStatus } from "./cloudDiscoveryCommon.js";
+import {
+  attachAdversarialSurface,
+  toolsFromBedrockActionGroup,
+  buildInstructionsFromText
+} from "./adversarialInventory.js";
 
 const DEEP_AGENT_LIMIT = Number(process.env.AWS_DISCOVERY_DEEP_MAX_AGENTS || 40);
 const DEEP_ENDPOINT_LIMIT = Number(process.env.AWS_DISCOVERY_DEEP_MAX_ENDPOINTS || 40);
 const DEEP_LAMBDA_LIMIT = Number(process.env.AWS_DISCOVERY_DEEP_MAX_LAMBDAS || 40);
+const DEEP_ACTION_GROUP_LIMIT = Number(process.env.AWS_DISCOVERY_DEEP_MAX_ACTION_GROUPS || 15);
 
 /** Local copies — avoid circular import with awsCloud.js. */
 export function mapBedrockAgentLifecycleDeep(agentStatus) {
@@ -181,7 +187,7 @@ export async function getLambdaFunctionConfiguration(
 export function summarizeBedrockAgentDetail(detail) {
   if (!detail || typeof detail !== "object") return null;
   const lifecycle = mapBedrockAgentLifecycleDeep(detail.agentStatus);
-  const instruction = String(detail.instruction || "").slice(0, 240);
+  const instruction = String(detail.instruction || "");
   return {
     deepScan: "bedrock_get_agent",
     foundationModel: detail.foundationModel || null,
@@ -191,12 +197,212 @@ export function summarizeBedrockAgentDetail(detail) {
     preparedAt: detail.preparedAt || null,
     updatedAt: detail.updatedAt || null,
     description: detail.description ? String(detail.description).slice(0, 200) : null,
-    instructionPreview: instruction || null,
+    instructionPreview: instruction ? instruction.slice(0, 240) : null,
+    instructionFull: instruction || null,
+    agentVersion: detail.agentVersion || detail.latestAgentVersion || "DRAFT",
+    guardrailConfiguration: detail.guardrailConfiguration || null,
     customerEncryptionKeyArn: detail.customerEncryptionKeyArn ? "[present]" : null,
     deploymentStatus: lifecycle.deploymentStatus,
     agentRuntimeStatus: lifecycle.runtimeStatus,
     runtimeStatusReason: lifecycle.reason
   };
+}
+
+/**
+ * List action groups for an agent version (POST).
+ * POST /agents/{id}/agentversions/{ver}/actiongroups/
+ */
+export async function listBedrockAgentActionGroups(
+  awsJson,
+  conn,
+  region,
+  agentId,
+  agentVersion = "DRAFT",
+  discoveryErrors = []
+) {
+  if (!agentId) return [];
+  const version = agentVersion || "DRAFT";
+  try {
+    const json = await awsJson(
+      {
+        conn,
+        service: "bedrock",
+        hostname: `bedrock-agent.${region}.amazonaws.com`,
+        method: "POST",
+        path: `/agents/${encodeURIComponent(agentId)}/agentversions/${encodeURIComponent(version)}/actiongroups/`,
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ maxResults: 50 })
+      },
+      true
+    );
+    if (json?.__error) {
+      discoveryErrors.push({
+        resourceId: agentId,
+        discoveryType: "bedrock-list-action-groups",
+        discoveryStatus: json.permissionDenied ? "permission_denied" : "error",
+        error: json.message
+      });
+      return [];
+    }
+    return json?.actionGroupSummaries || [];
+  } catch (err) {
+    discoveryErrors.push({
+      resourceId: agentId,
+      discoveryType: "bedrock-list-action-groups",
+      discoveryStatus: err.permissionDenied ? "permission_denied" : "error",
+      error: sanitizeCloudError(err)
+    });
+    return [];
+  }
+}
+
+/**
+ * GetAgentActionGroup — includes functionSchema / apiSchema for tool parameters.
+ * GET /agents/{id}/agentversions/{ver}/actiongroups/{actionGroupId}/
+ */
+export async function getBedrockAgentActionGroup(
+  awsJson,
+  conn,
+  region,
+  agentId,
+  agentVersion,
+  actionGroupId,
+  discoveryErrors = []
+) {
+  if (!agentId || !actionGroupId) return null;
+  const version = agentVersion || "DRAFT";
+  try {
+    const json = await awsJson(
+      {
+        conn,
+        service: "bedrock",
+        hostname: `bedrock-agent.${region}.amazonaws.com`,
+        method: "GET",
+        path: `/agents/${encodeURIComponent(agentId)}/agentversions/${encodeURIComponent(version)}/actiongroups/${encodeURIComponent(actionGroupId)}/`
+      },
+      true
+    );
+    if (json?.__error) {
+      discoveryErrors.push({
+        resourceId: `${agentId}:${actionGroupId}`,
+        discoveryType: "bedrock-get-action-group",
+        discoveryStatus: json.permissionDenied ? "permission_denied" : "error",
+        error: json.message
+      });
+      return null;
+    }
+    return json?.agentActionGroup || json || null;
+  } catch (err) {
+    discoveryErrors.push({
+      resourceId: `${agentId}:${actionGroupId}`,
+      discoveryType: "bedrock-get-action-group",
+      discoveryStatus: err.permissionDenied ? "permission_denied" : "error",
+      error: sanitizeCloudError(err)
+    });
+    return null;
+  }
+}
+
+/**
+ * List knowledge bases associated with an agent version.
+ * POST /agents/{id}/agentversions/{ver}/knowledgebases/
+ */
+export async function listBedrockAgentKnowledgeBases(
+  awsJson,
+  conn,
+  region,
+  agentId,
+  agentVersion = "DRAFT",
+  discoveryErrors = []
+) {
+  if (!agentId) return [];
+  const version = agentVersion || "DRAFT";
+  try {
+    const json = await awsJson(
+      {
+        conn,
+        service: "bedrock",
+        hostname: `bedrock-agent.${region}.amazonaws.com`,
+        method: "POST",
+        path: `/agents/${encodeURIComponent(agentId)}/agentversions/${encodeURIComponent(version)}/knowledgebases/`,
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ maxResults: 50 })
+      },
+      true
+    );
+    if (json?.__error) {
+      discoveryErrors.push({
+        resourceId: agentId,
+        discoveryType: "bedrock-list-agent-knowledge-bases",
+        discoveryStatus: json.permissionDenied ? "permission_denied" : "error",
+        error: json.message
+      });
+      return [];
+    }
+    return json?.agentKnowledgeBaseSummaries || json?.knowledgeBaseSummaries || [];
+  } catch (err) {
+    discoveryErrors.push({
+      resourceId: agentId,
+      discoveryType: "bedrock-list-agent-knowledge-bases",
+      discoveryStatus: err.permissionDenied ? "permission_denied" : "error",
+      error: sanitizeCloudError(err)
+    });
+    return [];
+  }
+}
+
+/**
+ * Collect tools + KB associations for a Bedrock agent (best-effort).
+ */
+export async function collectBedrockAgentAttackSurface(
+  awsJson,
+  conn,
+  region,
+  agentId,
+  agentVersion,
+  discoveryErrors = []
+) {
+  const version = agentVersion || "DRAFT";
+  const summaries = await listBedrockAgentActionGroups(
+    awsJson,
+    conn,
+    region,
+    agentId,
+    version,
+    discoveryErrors
+  );
+  const tools = [];
+  for (const summary of summaries.slice(0, DEEP_ACTION_GROUP_LIMIT)) {
+    const detail = await getBedrockAgentActionGroup(
+      awsJson,
+      conn,
+      region,
+      agentId,
+      version,
+      summary.actionGroupId,
+      discoveryErrors
+    );
+    if (detail) tools.push(...toolsFromBedrockActionGroup(detail));
+    else {
+      tools.push(
+        ...toolsFromBedrockActionGroup({
+          actionGroupId: summary.actionGroupId,
+          actionGroupName: summary.actionGroupName,
+          description: summary.description,
+          actionGroupState: summary.actionGroupState
+        })
+      );
+    }
+  }
+  const knowledgeBases = await listBedrockAgentKnowledgeBases(
+    awsJson,
+    conn,
+    region,
+    agentId,
+    version,
+    discoveryErrors
+  );
+  return { tools, knowledgeBases, actionGroupCount: summaries.length };
 }
 
 /** Safe summary from DescribeEndpoint. */
@@ -266,28 +472,61 @@ export async function enrichAwsWithDeepScan({
   for (const obs of agents.slice(0, DEEP_AGENT_LIMIT)) {
     const detail = await getBedrockAgent(awsJson, conn, region, obs.metadata.agentId, discoveryErrors);
     const summary = summarizeBedrockAgentDetail(detail);
-    if (!summary) continue;
+    if (!summary) {
+      // Still attach sparse adversarial surface
+      Object.assign(obs, attachAdversarialSurface(obs));
+      continue;
+    }
     deepScanned += 1;
+    const agentVersion =
+      summary.agentVersion || obs.metadata.latestAgentVersion || obs.metadata.aliases?.[0] || "DRAFT";
+    const attack = await collectBedrockAgentAttackSurface(
+      awsJson,
+      conn,
+      region,
+      obs.metadata.agentId,
+      agentVersion,
+      discoveryErrors
+    );
+
+    // Strip full instruction from persisted deep blob — keep preview/hash via adversarial surface
+    const { instructionFull, ...deepSafe } = summary;
     obs.metadata = {
       ...obs.metadata,
       deepScan: summary.deepScan,
       foundationModel: summary.foundationModel || obs.model,
-      deep: summary
+      deep: deepSafe,
+      agentKnowledgeBases: attack.knowledgeBases,
+      actionGroupCount: attack.actionGroupCount
     };
     if (summary.foundationModel) obs.model = summary.foundationModel;
-    // Keep agent confirmed; runtime stays unknown (request-driven).
     if (obs.agent) {
       obs.agent.deploymentStatus = summary.deploymentStatus || obs.agent.deploymentStatus;
       obs.agent.runtimeStatus = summary.agentRuntimeStatus || "unknown";
       obs.agent.lastSeenAt = summary.updatedAt || obs.agent.lastSeenAt;
     }
-    if (summary.runtimeStatusReason) {
-      obs.metadata.runtimeStatusReason = summary.runtimeStatusReason;
-      obs.metadata.evidence = [
-        ...(obs.metadata.evidence || []),
-        "Deep scan: Bedrock GetAgent (lifecycle only; not continuous runtime)"
-      ];
-    }
+    obs.metadata.evidence = [
+      ...(obs.metadata.evidence || []),
+      "Deep scan: Bedrock GetAgent (lifecycle only; not continuous runtime)",
+      attack.tools.length
+        ? `Deep scan: ${attack.tools.length} tool(s) from action groups`
+        : "Deep scan: no action-group tools expanded",
+      attack.knowledgeBases.length
+        ? `Deep scan: ${attack.knowledgeBases.length} associated knowledge base(s)`
+        : "Deep scan: no agent-associated knowledge bases"
+    ];
+
+    Object.assign(
+      obs,
+      attachAdversarialSurface(obs, {
+        tools: attack.tools,
+        knowledgeBases: attack.knowledgeBases,
+        instructionText: instructionFull || null,
+        roleArn: summary.agentResourceRoleArn,
+        guardrailConfiguration: summary.guardrailConfiguration,
+        evidence: ["Adversarial surface built from Bedrock deep scan"]
+      })
+    );
   }
 
   const endpoints = observations.filter(
@@ -297,7 +536,10 @@ export async function enrichAwsWithDeepScan({
     const name = obs.name?.replace(/\s*\(AI\)\s*$/, "") || obs.runtime?.runtimeName;
     const detail = await describeSageMakerEndpoint(awsJson, conn, region, name, discoveryErrors);
     const summary = summarizeSageMakerEndpointDetail(detail);
-    if (!summary) continue;
+    if (!summary) {
+      Object.assign(obs, attachAdversarialSurface(obs));
+      continue;
+    }
     deepScanned += 1;
     obs.metadata = {
       ...obs.metadata,
@@ -315,6 +557,7 @@ export async function enrichAwsWithDeepScan({
       ...(obs.metadata.evidence || []),
       "Deep scan: SageMaker DescribeEndpoint (model serving ≠ agent)"
     ];
+    Object.assign(obs, attachAdversarialSurface(obs));
   }
 
   const lambdas = observations.filter((o) => o.metadata?.awsType === "LambdaFunction");
@@ -328,25 +571,23 @@ export async function enrichAwsWithDeepScan({
       discoveryErrors
     );
     const summary = summarizeLambdaConfiguration(detail);
-    if (!summary) continue;
+    if (!summary) {
+      Object.assign(obs, attachAdversarialSurface(obs));
+      continue;
+    }
     deepScanned += 1;
-    // Never stash env values — only names from summarizeLambdaConfiguration
     obs.metadata = {
       ...obs.metadata,
       deepScan: summary.deepScan,
       envNames: summary.envNames,
       runtime: summary.runtime,
-      deep: {
-        ...summary
-        // Environment.Variables intentionally omitted
-      }
+      deep: { ...summary }
     };
     if (obs.runtime?.detected) {
       obs.runtime.status = summary.runtimeStatus;
       obs.running_status = summary.runtimeStatus;
       obs.metadata.runtimeStatus = summary.runtimeStatus;
     }
-    // Stay candidate — deep config does not confirm agent identity
     if (obs.agent?.detected) {
       obs.agent.agentStatus = "candidate";
       obs.agent.runtimeStatus = "unknown";
@@ -356,8 +597,22 @@ export async function enrichAwsWithDeepScan({
       ...(obs.metadata.evidence || []),
       "Deep scan: Lambda GetFunctionConfiguration (env names only; still heuristic candidate)"
     ];
-    // Ensure no secret values leaked from raw detail
     if (obs.metadata.deep?.Environment) delete obs.metadata.deep.Environment;
+    Object.assign(
+      obs,
+      attachAdversarialSurface(obs, {
+        roleArn: summary.role,
+        codeExecution: /python|node|java|provided/.test(String(summary.runtime || "")) ? null : null,
+        evidence: ["Lambda adversarial surface from configuration (candidate runtime)"]
+      })
+    );
+  }
+
+  // Ensure every observation has adversarial_surface (KB / ECS / unscanned rows)
+  for (const obs of observations) {
+    if (!obs.metadata?.adversarial_surface) {
+      Object.assign(obs, attachAdversarialSurface(obs));
+    }
   }
 
   return { deepScanned, discoveryErrors };

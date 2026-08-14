@@ -9,8 +9,9 @@ write, or delete permissions.
 ## Discovery layers
 
 1. **List** — Bedrock agents/KBs, SageMaker endpoints, AI-named Lambda/ECS  
-2. **Deep scan** (default on) — `GetAgent`, `DescribeEndpoint`, `GetFunctionConfiguration`  
+2. **Deep scan** (default on) — `GetAgent`, action groups/tools, agent KBs, `DescribeEndpoint`, `GetFunctionConfiguration`  
 3. **Classify** — confirmed agent vs AI resource vs heuristic candidate  
+4. **Adversarial surface** — `metadata.adversarial_surface` for red-team consumers (see `ADVERSARIAL_INVENTORY.md`)
 
 Hard rules: AI resource ≠ confirmed agent ≠ agent running. Deep scan does **not**
 claim Bedrock `PREPARED` or SageMaker `InService` as a running AI agent.
@@ -31,6 +32,9 @@ Attach a custom policy:
         "bedrock:ListAgents",
         "bedrock:ListAgentAliases",
         "bedrock:GetAgent",
+        "bedrock:ListAgentActionGroups",
+        "bedrock:GetAgentActionGroup",
+        "bedrock:ListAgentKnowledgeBases",
         "bedrock:ListKnowledgeBases",
         "sagemaker:ListEndpoints",
         "sagemaker:DescribeEndpoint",

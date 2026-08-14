@@ -17,6 +17,7 @@ import {
   safeEnvNames
 } from "./cloudDiscoveryCommon.js";
 import { enrichAwsWithDeepScan } from "./awsDeepScan.js";
+import { attachAdversarialSurface } from "./adversarialInventory.js";
 
 const AWS_MAX_RESOURCES = Number(process.env.AWS_DISCOVERY_MAX_RESOURCES || 150);
 const AWS_DISCOVERY_AGENT_SCAN =
@@ -1086,6 +1087,12 @@ export async function discoverAwsConnector(conn) {
     stats.deepScanned = deep.deepScanned || 0;
   } else {
     stats.deepScanned = 0;
+    for (const obs of selected) {
+      if (obs.metadata?.inventoryClass === "connector_scan") continue;
+      if (!obs.metadata?.adversarial_surface) {
+        Object.assign(obs, attachAdversarialSurface(obs));
+      }
+    }
   }
 
   // Keep connector scan + up to MAX resource rows
