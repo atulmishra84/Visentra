@@ -1,0 +1,145 @@
+{
+  "schema_comment": "Example rich adversarial_surface for a tool-using Bedrock agent",
+  "name": "support-bot (AI)",
+  "category": "cloud",
+  "cloud_provider": "aws",
+  "confidence_score": 0.96,
+  "metadata": {
+    "awsType": "BedrockAgent",
+    "agentStatus": "confirmed",
+    "adversarial_category": "agent",
+    "agent_detected": true,
+    "adversarial_surface": {
+      "schema_version": "1.0.0",
+      "agent_detected": true,
+      "category": "agent",
+      "confidence_score": 0.96,
+      "evidence": [
+        "Official Bedrock Agents API inventory",
+        "Deep scan: 1 tool(s) from action groups",
+        "Deep scan: 1 associated knowledge base(s)"
+      ],
+      "tools": [
+        {
+          "name": "update_customer",
+          "description": "Update customer email profile",
+          "parameters_schema": {
+            "type": "object",
+            "properties": {
+              "email": { "type": "string", "description": null, "required": true }
+            }
+          },
+          "permissions": ["invoke:arn:aws:lambda:us-east-1:123456789012:function:crm"],
+          "risk_flags": {
+            "can_execute_code": false,
+            "can_access_pii": true,
+            "can_access_phi": false,
+            "can_modify_state": true,
+            "can_call_external_apis": false,
+            "can_access_filesystem": false,
+            "can_access_secrets": false
+          },
+          "source": "bedrock_action_group:crm",
+          "confidence": "high",
+          "evidence": ["Bedrock action group function update_customer", "Executor Lambda present"]
+        }
+      ],
+      "instructions": {
+        "present": true,
+        "source": "bedrock_get_agent",
+        "hash": "a1b2c3d4e5f67890",
+        "length": 72,
+        "preview": "Help users. Use update_customer carefully. Do not exfiltrate data.",
+        "contains_tool_guidance": true,
+        "contains_safety_rules": true,
+        "confidence": "high",
+        "evidence": ["Instruction captured from bedrock_get_agent (hash only + preview; full text not stored long-term beyond preview)"]
+      },
+      "identity_and_access": {
+        "identity_type": "aws_iam_role",
+        "name": "BedrockAgentRole",
+        "arn": "arn:aws:iam::123456789012:role/BedrockAgentRole",
+        "permissions": [],
+        "over_permissioned": null,
+        "credential_exposure_risk": "unknown",
+        "confidence": "medium",
+        "evidence": ["IAM role ARN from Bedrock GetAgent / Lambda configuration (policy documents not expanded)"]
+      },
+      "data_access": {
+        "has_pii": null,
+        "has_phi": null,
+        "data_classes": [],
+        "data_stores": [
+          {
+            "name": "policy-docs",
+            "type": "knowledge_base",
+            "sensitivity": "unknown",
+            "access_level": "read"
+          }
+        ],
+        "confidence": "low",
+        "evidence": ["PII/PHI not inferred from content; set when KB/tool/IAM signals indicate sensitive reach"]
+      },
+      "mcp_servers": [],
+      "memory_and_context": {
+        "has_memory": true,
+        "memory_type": "knowledge_base_retrieval",
+        "vector_stores": [],
+        "knowledge_bases": [
+          {
+            "id": "KB123",
+            "name": "policy-docs",
+            "state": "ENABLED",
+            "sensitivity": "unknown",
+            "access_level": "read"
+          }
+        ],
+        "confidence": "high",
+        "evidence": ["1 knowledge base association(s) discovered"]
+      },
+      "connectivity": {
+        "internet_access": null,
+        "filesystem_access": null,
+        "code_execution": false,
+        "browser_access": null,
+        "email_access": null,
+        "slack_access": null,
+        "github_access": null,
+        "database_access": null,
+        "inbound_triggers": [],
+        "confidence": "medium",
+        "evidence": ["Connectivity mostly unknown without deeper IAM/tool policy expansion"]
+      },
+      "platform": {
+        "provider": "aws",
+        "cloud_provider": "aws",
+        "region": "us-east-1",
+        "framework": "BedrockAgent",
+        "service": "bedrock-agent",
+        "resource_id": "arn:aws:bedrock:us-east-1:123456789012:agent/ABCDEFGHIJ",
+        "account_id": "123456789012"
+      },
+      "model": {
+        "name": "anthropic.claude-3",
+        "provider": "aws",
+        "foundation_model": "anthropic.claude-3"
+      },
+      "risk_indicators": ["tool_pii:update_customer", "tool_state_change:update_customer"],
+      "observability": {
+        "guardrails_detected": true,
+        "guardrail_id": "gr-1",
+        "logging_detected": null,
+        "evidence": ["Guardrail configuration present on Bedrock agent"]
+      },
+      "ownership": {
+        "owner": null,
+        "shadow_ai": false,
+        "ownership_status": "unknown"
+      },
+      "owasp_hints": {
+        "llm_top10": ["LLM01_PromptInjection", "LLM06_ExcessiveAgency"],
+        "agentic_asi": ["ASI01_AgentGoalHijack", "ASI02_ToolMisuse", "ASI06_MemoryAndContextPoisoning"]
+      }
+    }
+  }
+}

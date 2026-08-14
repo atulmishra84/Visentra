@@ -127,6 +127,12 @@ describe("awsDeepScan enrichment", () => {
           Environment: { Variables: { SECRET_TOKEN: "nope", MODEL: "x" } }
         };
       }
+      if (String(req.path || "").includes("/actiongroups/") && req.method === "POST") {
+        return { actionGroupSummaries: [] };
+      }
+      if (String(req.path || "").includes("/knowledgebases/") && req.method === "POST") {
+        return { agentKnowledgeBaseSummaries: [] };
+      }
       return { __error: true, permissionDenied: true, message: "denied", status: 403 };
     };
 
@@ -140,8 +146,10 @@ describe("awsDeepScan enrichment", () => {
     });
 
     assert.equal(result.deepScanned, 3);
-    assert.equal(calls, 3);
+    assert.ok(calls >= 3);
     assert.equal(observations[0].metadata.deepScan, "bedrock_get_agent");
+    assert.ok(observations[0].metadata.adversarial_surface);
+    assert.equal(observations[0].metadata.adversarial_surface.category, "agent");
     assert.equal(observations[0].agent.runtimeStatus, "unknown");
     assert.equal(observations[1].runtime.status, "running");
     assert.equal(observations[2].metadata.agentStatus, "candidate");
