@@ -30,6 +30,7 @@ Or open any file under `platform/apps/web/public/prototypes/` directly in a brow
 | `shadow-ai.html` | Unmanaged / unsanctioned agents |
 | `discovery.html` | Connectors + recent jobs |
 | `adversarial.html` | Attack-surface enrichment prototype |
+| `phi-pii-exposure.html` | PHI/PII exposure across all scanners |
 | `inventory.html` | Resource → agent → runtime inventory |
 
 Mock data only — not wired to the API.

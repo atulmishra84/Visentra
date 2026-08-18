@@ -7,6 +7,7 @@
     { href: "shadow-ai.html", label: "Shadow AI", section: "Dashboards" },
     { href: "discovery.html", label: "Discovery", section: "Dashboards" },
     { href: "adversarial.html", label: "Attack Surface", section: "Dashboards" },
+    { href: "phi-pii-exposure.html", label: "PHI / PII Exposure", section: "Dashboards" },
     { href: "inventory.html", label: "Asset Inventory", section: "Inventory" }
   ];
 
