@@ -1,0 +1,108 @@
+{
+  "schema_comment": "Example sparse adversarial_surface for a Bedrock Knowledge Base (AI resource, not an agent)",
+  "name": "policy-kb (AI)",
+  "category": "cloud",
+  "cloud_provider": "aws",
+  "confidence_score": 0.85,
+  "metadata": {
+    "awsType": "BedrockKnowledgeBase",
+    "inventoryClass": "ai_cloud_resource",
+    "agent_detected": false,
+    "adversarial_category": "knowledge_base",
+    "adversarial_surface": {
+      "schema_version": "1.0.0",
+      "agent_detected": false,
+      "category": "knowledge_base",
+      "confidence_score": 0.85,
+      "evidence": [
+        "AWS type BedrockKnowledgeBase is an AI resource / retrieval store, not an agent"
+      ],
+      "tools": [],
+      "instructions": {
+        "present": false,
+        "source": null,
+        "hash": null,
+        "length": null,
+        "preview": null,
+        "contains_tool_guidance": null,
+        "contains_safety_rules": null,
+        "confidence": "low",
+        "evidence": ["Instruction not collected yet"]
+      },
+      "identity_and_access": {
+        "identity_type": null,
+        "name": null,
+        "arn": null,
+        "permissions": [],
+        "over_permissioned": null,
+        "credential_exposure_risk": "unknown",
+        "confidence": "low",
+        "evidence": ["No execution role discovered"]
+      },
+      "data_access": {
+        "has_pii": null,
+        "has_phi": null,
+        "data_classes": [],
+        "data_stores": [],
+        "confidence": "low",
+        "evidence": [
+          "PII/PHI not inferred from content; set when KB/tool/IAM signals indicate sensitive reach"
+        ]
+      },
+      "mcp_servers": [],
+      "memory_and_context": {
+        "has_memory": null,
+        "memory_type": null,
+        "vector_stores": [],
+        "knowledge_bases": [],
+        "confidence": "low",
+        "evidence": ["No memory/KB associations discovered"]
+      },
+      "connectivity": {
+        "internet_access": null,
+        "filesystem_access": null,
+        "code_execution": null,
+        "browser_access": null,
+        "email_access": null,
+        "slack_access": null,
+        "github_access": null,
+        "database_access": null,
+        "inbound_triggers": [],
+        "confidence": "low",
+        "evidence": [
+          "Connectivity mostly unknown without deeper IAM/tool policy expansion"
+        ]
+      },
+      "platform": {
+        "provider": "aws",
+        "cloud_provider": "aws",
+        "region": "us-east-1",
+        "framework": "BedrockKnowledgeBase",
+        "service": "bedrock-agent",
+        "resource_id": "arn:aws:bedrock:us-east-1:123456789012:knowledge-base/KB999",
+        "account_id": "123456789012"
+      },
+      "model": {
+        "name": "bedrock-knowledge-base",
+        "provider": "aws",
+        "foundation_model": null
+      },
+      "risk_indicators": [],
+      "observability": {
+        "guardrails_detected": null,
+        "guardrail_id": null,
+        "logging_detected": null,
+        "evidence": ["No guardrail configuration discovered on resource"]
+      },
+      "ownership": {
+        "owner": null,
+        "shadow_ai": false,
+        "ownership_status": "unknown"
+      },
+      "owasp_hints": {
+        "llm_top10": [],
+        "agentic_asi": []
+      }
+    }
+  }
+}
