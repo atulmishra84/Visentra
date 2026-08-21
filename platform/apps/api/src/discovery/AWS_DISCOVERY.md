@@ -9,12 +9,16 @@ write, or delete permissions.
 ## Discovery layers
 
 1. **List** — Bedrock agents/KBs, SageMaker endpoints, AI-named Lambda/ECS  
-2. **Deep scan** (default on) — `GetAgent`, action groups/tools, agent KBs, `DescribeEndpoint`, `GetFunctionConfiguration`  
+2. **Deep scan** (default on) — `GetAgent`, agent versions, action groups/tools, agent KBs (`GetKnowledgeBase`), `DescribeEndpoint`, `GetFunctionConfiguration` → full `metadata.deep` profile (`aws-deep.v2`)  
 3. **Classify** — confirmed agent vs AI resource vs heuristic candidate  
 4. **Adversarial surface** — `metadata.adversarial_surface` for red-team consumers (see `ADVERSARIAL_INVENTORY.md`)
 
 Hard rules: AI resource ≠ confirmed agent ≠ agent running. Deep scan does **not**
 claim Bedrock `PREPARED` or SageMaker `InService` as a running AI agent.
+
+`metadata.deep` (Bedrock) includes: model, lifecycle, role, guardrails, memory/prompt-override
+presence, instruction preview+hash (not full text), action groups, tools (+ schemas),
+normalized knowledge bases, and identity summary.
 
 ## Minimum IAM actions (recommended)
 
@@ -31,11 +35,13 @@ Attach a custom policy:
         "sts:GetCallerIdentity",
         "bedrock:ListAgents",
         "bedrock:ListAgentAliases",
+        "bedrock:ListAgentVersions",
         "bedrock:GetAgent",
         "bedrock:ListAgentActionGroups",
         "bedrock:GetAgentActionGroup",
         "bedrock:ListAgentKnowledgeBases",
         "bedrock:ListKnowledgeBases",
+        "bedrock:GetKnowledgeBase",
         "sagemaker:ListEndpoints",
         "sagemaker:DescribeEndpoint",
         "lambda:ListFunctions",
@@ -54,8 +60,8 @@ Attach a custom policy:
 |---|---|
 | Identity check | `sts:GetCallerIdentity` |
 | Bedrock agents (list) | `bedrock:ListAgents`, `bedrock:ListAgentAliases` |
-| Bedrock agents (deep) | `bedrock:GetAgent` |
-| Bedrock knowledge bases | `bedrock:ListKnowledgeBases` |
+| Bedrock agents (deep) | `bedrock:GetAgent`, `bedrock:ListAgentVersions`, `bedrock:ListAgentActionGroups`, `bedrock:GetAgentActionGroup`, `bedrock:ListAgentKnowledgeBases` |
+| Bedrock knowledge bases | `bedrock:ListKnowledgeBases`, `bedrock:GetKnowledgeBase` |
 | SageMaker (list + deep) | `sagemaker:ListEndpoints`, `sagemaker:DescribeEndpoint` |
 | Lambda (list + deep) | `lambda:ListFunctions`, `lambda:GetFunctionConfiguration` |
 | ECS | `ecs:ListClusters`, `ecs:ListServices`, `ecs:DescribeServices` |
@@ -80,6 +86,8 @@ Attach a custom policy:
 | `AWS_DISCOVERY_DEEP_MAX_AGENTS` | `40` | Cap deep GetAgent calls |
 | `AWS_DISCOVERY_DEEP_MAX_ENDPOINTS` | `40` | Cap DescribeEndpoint calls |
 | `AWS_DISCOVERY_DEEP_MAX_LAMBDAS` | `40` | Cap GetFunctionConfiguration calls |
+| `AWS_DISCOVERY_DEEP_MAX_ACTION_GROUPS` | `15` | Cap GetAgentActionGroup expansions |
+| `AWS_DISCOVERY_DEEP_MAX_KB_DETAILS` | `10` | Cap GetKnowledgeBase detail calls |
 
 ## Certainty vs unknown
 
