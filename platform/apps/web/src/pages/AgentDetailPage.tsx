@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
+import { AgentDeepScanPanels } from "../components/AgentDeepScanPanels";
 import { KpiCard } from "../components/KpiCard";
 import { apiRequest, compactDate, numberAt, type Agent, valueAt } from "../lib/api";
 
@@ -84,6 +85,24 @@ export function AgentDetailPage() {
   const paths = (blast?.paths as Record<string, unknown>[] | undefined) || [];
   const ownsRels = relationships.filter((rel) => /owns|uses_identity/i.test(valueAt(rel, ["rel_type", "type"])));
   const ownershipStatus = valueAt(ownership, ["ownershipStatus"], valueAt(agent, ["owner"]) ? "owned" : "ownerless");
+  const deep = (meta.deep as Record<string, unknown> | undefined) || null;
+  const adversarialSurface =
+    (meta.adversarial_surface as Record<string, unknown> | undefined) || null;
+  const deepToolCount = numberAt(
+    deep || {},
+    ["toolCount"],
+    Array.isArray(deep?.tools) ? deep.tools.length : 0
+  );
+  const deepKbCount = numberAt(
+    deep || {},
+    ["knowledgeBaseCount"],
+    Array.isArray(deep?.knowledgeBases) ? deep.knowledgeBases.length : 0
+  );
+  const deepModel =
+    valueAt(deep || {}, ["foundationModel"]) ||
+    valueAt((adversarialSurface?.model as Record<string, unknown>) || {}, ["foundation_model", "name"]) ||
+    valueAt(meta, ["foundationModel"]);
+  const deepLifecycle = valueAt(deep || {}, ["agentStatus", "deploymentStatus"]);
 
   if (loading) {
     return (
@@ -167,6 +186,14 @@ export function AgentDetailPage() {
             valueAt(meta, ["environmentLane"], "—")
           }
         />
+        {deep || adversarialSurface ? (
+          <>
+            <KpiCard label="Deep model" value={deepModel || "—"} />
+            <KpiCard label="Deep lifecycle" value={deepLifecycle || "—"} />
+            <KpiCard label="Deep tools" value={deepToolCount || "—"} />
+            <KpiCard label="Deep KBs" value={deepKbCount || "—"} />
+          </>
+        ) : null}
       </section>
 
       {agent.shadowAi ? (
@@ -187,6 +214,8 @@ export function AgentDetailPage() {
           </div>
         </section>
       ) : null}
+
+      <AgentDeepScanPanels agent={agent as Record<string, unknown>} />
 
       <section className="split-grid">
         <div className="panel">
