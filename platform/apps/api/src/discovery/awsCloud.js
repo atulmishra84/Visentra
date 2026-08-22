@@ -150,6 +150,26 @@ function cloudRelationship(id, name) {
   ];
 }
 
+/** Map provider lifecycle strings onto agents.running_status CHECK values. */
+function normalizeRunningStatus(status) {
+  const raw = String(status || "").trim();
+  if (!raw) return "unknown";
+  const s = raw.toUpperCase().replace(/[\s-]+/g, "_");
+  if (
+    /^(RUNNING|ACTIVE|IN_SERVICE|AVAILABLE|PREPARED|READY|SUCCEEDED|HEALTHY|ENABLED|CREATING|PREPARING|UPDATING|VERSIONING)$/.test(
+      s
+    )
+  ) {
+    return /^(CREATING|PREPARING|UPDATING|VERSIONING)$/.test(s) ? "scheduled" : "running";
+  }
+  if (/^(STOPPED|STOPPING|INACTIVE|FAILED|DELETED|DELETING|DISABLED|NOT_PREPARED|OUTOFSERVICE|TERMINATED)$/.test(s)) {
+    return /^(FAILED|NOT_PREPARED)$/.test(s) ? "unknown" : "stopped";
+  }
+  if (/^(SCHEDULED|PENDING)$/.test(s)) return "scheduled";
+  if (["running", "stopped", "unknown", "scheduled"].includes(raw.toLowerCase())) return raw.toLowerCase();
+  return "unknown";
+}
+
 function awsObservation({ conn, id, name, awsType, service, region, aiRelevant = true, status, model, extra = {} }) {
   return {
     collector_id: "cloud_aws",
@@ -161,7 +181,7 @@ function awsObservation({ conn, id, name, awsType, service, region, aiRelevant =
     provider: "aws",
     deployment_type: "cloud",
     endpoint: id,
-    running_status: status || "unknown",
+    running_status: normalizeRunningStatus(status),
     confidence_score: aiRelevant ? 0.9 : 0.78,
     framework: awsType,
     model: model || (aiRelevant ? "ai-relevant" : null),
@@ -172,6 +192,7 @@ function awsObservation({ conn, id, name, awsType, service, region, aiRelevant =
       accountId: conn.config.accountId,
       awsType,
       awsService: service,
+      awsLifecycleStatus: status || null,
       aiRelevant,
       inventoryClass: aiRelevant ? "ai_cloud_resource" : "cloud_resource",
       evidenceClass: aiRelevant ? "cloud_ai_runtime" : null,
@@ -213,23 +234,43 @@ export async function validateAwsConnector(conn) {
   };
 }
 
+/**
+ * Bedrock Agent control-plane APIs (ListAgents, ListKnowledgeBases, ListAgentAliases)
+ * are POST + JSON body — not GET with query params. Wrong method returns 404 and was
+ * previously swallowed as an empty inventory.
+ */
 async function listBedrockAgents(conn, region) {
-  const json = await awsJson(
-    {
+  const agents = [];
+  let nextToken = null;
+  do {
+    const body = { maxResults: 100 };
+    if (nextToken) body.nextToken = nextToken;
+    const json = await awsJson({
       conn,
       service: "bedrock",
       hostname: `bedrock-agent.${region}.amazonaws.com`,
+      method: "POST",
       path: "/agents/",
-      query: { maxResults: 50 }
-    },
-    true
-  );
-  return json?.agentSummaries || json?.agents || [];
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    agents.push(...(json?.agentSummaries || json?.agents || []));
+    nextToken = json?.nextToken || null;
+  } while (nextToken && agents.length < AWS_MAX_RESOURCES);
+  return agents;
 }
 
 async function listSageMakerEndpoints(conn, region) {
-  const json = await awsJson(
-    {
+  const endpoints = [];
+  let nextToken = null;
+  do {
+    const payload = {
+      MaxResults: 100,
+      SortBy: "CreationTime",
+      SortOrder: "Descending"
+    };
+    if (nextToken) payload.NextToken = nextToken;
+    const json = await awsJson({
       conn,
       service: "sagemaker",
       hostname: `api.sagemaker.${region}.amazonaws.com`,
@@ -239,70 +280,108 @@ async function listSageMakerEndpoints(conn, region) {
         "Content-Type": "application/x-amz-json-1.1",
         "X-Amz-Target": "SageMaker.ListEndpoints"
       },
-      body: JSON.stringify({ MaxResults: 50, SortBy: "CreationTime", SortOrder: "Descending" })
-    },
-    true
-  );
-  return json?.Endpoints || [];
+      body: JSON.stringify(payload)
+    });
+    endpoints.push(...(json?.Endpoints || []));
+    nextToken = json?.NextToken || null;
+  } while (nextToken && endpoints.length < AWS_MAX_RESOURCES);
+  return endpoints;
 }
 
 async function listAiLambdaFunctions(conn, region) {
-  const json = await awsJson(
-    {
+  const matched = [];
+  let marker = null;
+  do {
+    const query = { MaxItems: 50 };
+    if (marker) query.Marker = marker;
+    const json = await awsJson({
       conn,
       service: "lambda",
       hostname: `lambda.${region}.amazonaws.com`,
       path: "/2015-03-31/functions/",
-      query: { MaxItems: 50 }
-    },
-    true
-  );
-  const functions = json?.Functions || [];
-  return functions.filter((fn) =>
-    isAiRelevantText(
-      fn.FunctionName,
-      fn.Description,
-      fn.Runtime,
-      fn.Role,
-      fn.PackageType,
-      Object.keys(fn.Environment?.Variables || {}).join(" "),
-      Object.values(fn.Environment?.Variables || {}).join(" ")
-    )
-  );
+      query
+    });
+    const functions = json?.Functions || [];
+    for (const fn of functions) {
+      if (
+        isAiRelevantText(
+          fn.FunctionName,
+          fn.Description,
+          fn.Runtime,
+          fn.Role,
+          fn.PackageType,
+          Object.keys(fn.Environment?.Variables || {}).join(" "),
+          Object.values(fn.Environment?.Variables || {}).join(" ")
+        )
+      ) {
+        matched.push(fn);
+      }
+    }
+    marker = json?.NextMarker || null;
+  } while (marker && matched.length < AWS_MAX_RESOURCES);
+  return matched;
 }
 
 async function listBedrockKnowledgeBases(conn, region) {
-  const json = await awsJson(
-    {
+  const knowledgeBases = [];
+  let nextToken = null;
+  do {
+    const body = { maxResults: 100 };
+    if (nextToken) body.nextToken = nextToken;
+    const json = await awsJson({
       conn,
       service: "bedrock",
       hostname: `bedrock-agent.${region}.amazonaws.com`,
+      method: "POST",
       path: "/knowledgebases/",
-      query: { maxResults: 50 }
-    },
-    true
-  );
-  return json?.knowledgeBaseSummaries || json?.knowledgeBases || [];
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    knowledgeBases.push(...(json?.knowledgeBaseSummaries || json?.knowledgeBases || []));
+    nextToken = json?.nextToken || null;
+  } while (nextToken && knowledgeBases.length < AWS_MAX_RESOURCES);
+  return knowledgeBases;
 }
 
 async function listBedrockAgentAliases(conn, region, agentId) {
   if (!agentId) return [];
-  const json = await awsJson(
-    {
+  const aliases = [];
+  let nextToken = null;
+  do {
+    const body = { maxResults: 100 };
+    if (nextToken) body.nextToken = nextToken;
+    const json = await awsJson({
       conn,
       service: "bedrock",
       hostname: `bedrock-agent.${region}.amazonaws.com`,
+      method: "POST",
       path: `/agents/${encodeURIComponent(agentId)}/agentaliases/`,
-      query: { maxResults: 20 }
-    },
-    true
-  );
-  return json?.agentAliasSummaries || json?.agentAliases || [];
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    aliases.push(...(json?.agentAliasSummaries || json?.agentAliases || []));
+    nextToken = json?.nextToken || null;
+  } while (nextToken && aliases.length < 100);
+  return aliases;
 }
 
 async function listAiEcsServices(conn, region) {
-  const clustersJson = await awsJson(
-    {
+  const clustersJson = await awsJson({
+    conn,
+    service: "ecs",
+    hostname: `ecs.${region}.amazonaws.com`,
+    method: "POST",
+    path: "/",
+    headers: {
+      "Content-Type": "application/x-amz-json-1.1",
+      "X-Amz-Target": "AmazonEC2ContainerServiceV20141113.ListClusters"
+    },
+    body: JSON.stringify({ maxResults: 100 })
+  });
+  const clusterArns = clustersJson?.clusterArns || [];
+  const services = [];
+  for (const cluster of clusterArns.slice(0, 20)) {
+    const list = await awsJson({
       conn,
       service: "ecs",
       hostname: `ecs.${region}.amazonaws.com`,
@@ -310,34 +389,15 @@ async function listAiEcsServices(conn, region) {
       path: "/",
       headers: {
         "Content-Type": "application/x-amz-json-1.1",
-        "X-Amz-Target": "AmazonEC2ContainerServiceV20141113.ListClusters"
+        "X-Amz-Target": "AmazonEC2ContainerServiceV20141113.ListServices"
       },
-      body: JSON.stringify({ maxResults: 20 })
-    },
-    true
-  );
-  const clusterArns = clustersJson?.clusterArns || [];
-  const services = [];
-  for (const cluster of clusterArns.slice(0, 8)) {
-    const list = await awsJson(
-      {
-        conn,
-        service: "ecs",
-        hostname: `ecs.${region}.amazonaws.com`,
-        method: "POST",
-        path: "/",
-        headers: {
-          "Content-Type": "application/x-amz-json-1.1",
-          "X-Amz-Target": "AmazonEC2ContainerServiceV20141113.ListServices"
-        },
-        body: JSON.stringify({ cluster, maxResults: 20 })
-      },
-      true
-    ).catch(() => null);
+      body: JSON.stringify({ cluster, maxResults: 100 })
+    }).catch(() => null);
     const serviceArns = list?.serviceArns || [];
     if (!serviceArns.length) continue;
-    const described = await awsJson(
-      {
+    for (let i = 0; i < serviceArns.length; i += 10) {
+      const batch = serviceArns.slice(i, i + 10);
+      const described = await awsJson({
         conn,
         service: "ecs",
         hostname: `ecs.${region}.amazonaws.com`,
@@ -347,22 +407,29 @@ async function listAiEcsServices(conn, region) {
           "Content-Type": "application/x-amz-json-1.1",
           "X-Amz-Target": "AmazonEC2ContainerServiceV20141113.DescribeServices"
         },
-        body: JSON.stringify({ cluster, services: serviceArns.slice(0, 10) })
-      },
-      true
-    ).catch(() => null);
-    for (const svc of described?.services || []) {
-      const blob = [
-        svc.serviceName,
-        svc.taskDefinition,
-        ...(svc.tags || []).map((t) => `${t.key}:${t.value}`),
-        ...(svc.loadBalancers || []).map((lb) => lb.containerName)
-      ].join(" ");
-      if (!isAiRelevantText(blob)) continue;
-      services.push(svc);
+        body: JSON.stringify({ cluster, services: batch, include: ["TAGS"] })
+      }).catch(() => null);
+      for (const svc of described?.services || []) {
+        const blob = [
+          svc.serviceName,
+          svc.taskDefinition,
+          ...(svc.tags || []).map((t) => `${t.key || t.Key}:${t.value || t.Value}`),
+          ...(svc.loadBalancers || []).map((lb) => lb.containerName)
+        ].join(" ");
+        if (!isAiRelevantText(blob)) continue;
+        services.push(svc);
+      }
     }
   }
   return services;
+}
+
+async function collectAwsList(label, fn) {
+  try {
+    return { label, items: await fn(), error: null };
+  } catch (err) {
+    return { label, items: [], error: err.message || String(err) };
+  }
 }
 
 export async function discoverAwsConnector(conn) {
@@ -395,16 +462,33 @@ export async function discoverAwsConnector(conn) {
     }
   ];
 
-  const [agents, endpoints, lambdas, knowledgeBases, ecsServices] = await Promise.all([
-    listBedrockAgents(conn, creds.region).catch(() => []),
-    listSageMakerEndpoints(conn, creds.region).catch(() => []),
-    listAiLambdaFunctions(conn, creds.region).catch(() => []),
-    listBedrockKnowledgeBases(conn, creds.region).catch(() => []),
-    listAiEcsServices(conn, creds.region).catch(() => [])
+  const settled = await Promise.all([
+    collectAwsList("bedrockAgents", () => listBedrockAgents(conn, creds.region)),
+    collectAwsList("sageMakerEndpoints", () => listSageMakerEndpoints(conn, creds.region)),
+    collectAwsList("lambdaFunctions", () => listAiLambdaFunctions(conn, creds.region)),
+    collectAwsList("bedrockKnowledgeBases", () => listBedrockKnowledgeBases(conn, creds.region)),
+    collectAwsList("ecsServices", () => listAiEcsServices(conn, creds.region))
   ]);
+  const byLabel = Object.fromEntries(settled.map((s) => [s.label, s]));
+  const agents = byLabel.bedrockAgents?.items || [];
+  const endpoints = byLabel.sageMakerEndpoints?.items || [];
+  const lambdas = byLabel.lambdaFunctions?.items || [];
+  const knowledgeBases = byLabel.bedrockKnowledgeBases?.items || [];
+  const ecsServices = byLabel.ecsServices?.items || [];
+  const scanGaps = settled
+    .filter((s) => s.error)
+    .map((s) => ({ source: s.label, error: s.error }));
+  if (scanGaps.length) {
+    console.warn(
+      `AWS connector "${conn.name}" partial scan gaps:`,
+      scanGaps.map((g) => `${g.source}: ${g.error}`).join("; ")
+    );
+  }
 
   for (const agent of agents) {
-    const id = agent.agentArn || `arn:aws:bedrock-agent:${creds.region}:${creds.accountId}:agent/${agent.agentId || agent.agentName}`;
+    const id =
+      agent.agentArn ||
+      `arn:aws:bedrock:${creds.region}:${creds.accountId}:agent/${agent.agentId || agent.agentName}`;
     const aliases = await listBedrockAgentAliases(conn, creds.region, agent.agentId).catch(() => []);
     observations.push(
       awsObservation({
@@ -419,6 +503,8 @@ export async function discoverAwsConnector(conn) {
         model: agent.foundationModel || "bedrock-agent",
         extra: {
           agentId: agent.agentId,
+          description: agent.description || null,
+          latestAgentVersion: agent.latestAgentVersion || null,
           updatedAt: agent.updatedAt || null,
           aliasCount: aliases.length,
           aliases: aliases.slice(0, 5).map((a) => a.agentAliasName || a.agentAliasId)
@@ -514,14 +600,29 @@ export async function discoverAwsConnector(conn) {
   }
 
   const selected = observations.slice(0, AWS_MAX_RESOURCES + 1);
+  const totalResourcesScanned =
+    agents.length + endpoints.length + lambdas.length + knowledgeBases.length + ecsServices.length;
+  const counts = {
+    bedrockAgents: agents.length,
+    bedrockKnowledgeBases: knowledgeBases.length,
+    sageMakerEndpoints: endpoints.length,
+    lambdaFunctions: lambdas.length,
+    ecsServices: ecsServices.length
+  };
+  if (selected[0]?.metadata) {
+    selected[0].metadata.counts = counts;
+    selected[0].metadata.scanGaps = scanGaps;
+    selected[0].metadata.totalResourcesScanned = totalResourcesScanned;
+  }
   return {
     observations: selected,
     stats: {
-      totalResourcesScanned:
-        agents.length + endpoints.length + lambdas.length + knowledgeBases.length + ecsServices.length,
-      aiRelevantResources:
-        agents.length + endpoints.length + lambdas.length + knowledgeBases.length + ecsServices.length,
-      cloudResourcesIngested: Math.max(0, selected.length - 1)
+      totalResourcesScanned,
+      aiRelevantResources: totalResourcesScanned,
+      cloudResourcesIngested: Math.max(0, selected.length - 1),
+      region: creds.region,
+      counts,
+      scanGaps
     }
   };
 }
