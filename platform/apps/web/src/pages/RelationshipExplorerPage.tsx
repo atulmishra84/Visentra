@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { AgentAnatomyPanel, type AgentAnatomy } from "../components/AgentAnatomyPanel";
+import { AgentExecutionTopology } from "../components/AgentExecutionTopology";
 import { DetailDrawer } from "../components/DetailDrawer";
 import { GraphSeedBar, type GraphSeedOption } from "../components/GraphSeedBar";
 import { TopologyGraph } from "../components/TopologyGraph";
-import { apiRequest, type GraphNode, type GraphPayload, valueAt } from "../lib/api";
+import { apiRequest, type Agent, type GraphNode, type GraphPayload, valueAt } from "../lib/api";
 
 function looksLikeAgentId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -23,6 +24,7 @@ export function RelationshipExplorerPage() {
   const [anatomyLoading, setAnatomyLoading] = useState(false);
   const [anatomyError, setAnatomyError] = useState<string | null>(null);
   const [focusedAgentId, setFocusedAgentId] = useState<string | null>(() => searchParams.get("agentId") || null);
+  const [focusedAgent, setFocusedAgent] = useState<Agent | null>(null);
   const [showGraph, setShowGraph] = useState(() => searchParams.get("graph") === "1");
 
   const loadSeeds = async (q = "") => {
@@ -41,16 +43,26 @@ export function RelationshipExplorerPage() {
       setAnatomy(null);
       setAnatomyError(null);
       setFocusedAgentId(null);
+      setFocusedAgent(null);
       return;
     }
     setAnatomyLoading(true);
     setAnatomyError(null);
     setFocusedAgentId(agentId);
     try {
-      const payload = await apiRequest<AgentAnatomy>(`/api/agents/${agentId}/anatomy`);
-      setAnatomy(payload);
+      const [anatomyPayload, agentPayload] = await Promise.all([
+        apiRequest<AgentAnatomy>(`/api/agents/${agentId}/anatomy`),
+        apiRequest<{ agent?: Agent } | Agent>(`/api/agents/${agentId}`).catch(() => null)
+      ]);
+      setAnatomy(anatomyPayload);
+      const agentRecord =
+        agentPayload && typeof agentPayload === "object" && "agent" in agentPayload
+          ? ((agentPayload as { agent?: Agent }).agent as Agent | undefined) || null
+          : ((agentPayload as Agent | null) || null);
+      setFocusedAgent(agentRecord);
     } catch (requestError) {
       setAnatomy(null);
+      setFocusedAgent(null);
       setAnatomyError(requestError instanceof Error ? requestError.message : "Failed to load agent anatomy.");
     } finally {
       setAnatomyLoading(false);
@@ -95,6 +107,7 @@ export function RelationshipExplorerPage() {
       setError(requestError instanceof Error ? requestError.message : "Failed to load relationship graph.");
       setGraph({ nodes: [], edges: [] });
       setAnatomy(null);
+      setFocusedAgent(null);
     } finally {
       setLoading(false);
     }
@@ -192,6 +205,16 @@ export function RelationshipExplorerPage() {
             : undefined
         }
       />
+
+      {focusedAgent ? (
+        <div style={{ marginTop: 16 }}>
+          <AgentExecutionTopology
+            agent={focusedAgent as Record<string, unknown>}
+            title="Execution path & tool relationships"
+            compact
+          />
+        </div>
+      ) : null}
 
       {showGraph ? (
         <section className="panel" style={{ marginTop: 16 }}>

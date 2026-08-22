@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { AgentDeepScanPanels } from "../components/AgentDeepScanPanels";
+import { AgentExecutionTopology } from "../components/AgentExecutionTopology";
 import { KpiCard } from "../components/KpiCard";
 import { apiRequest, compactDate, numberAt, type Agent, valueAt } from "../lib/api";
 
@@ -275,6 +276,8 @@ export function AgentDetailPage() {
           </div>
         </section>
       ) : null}
+
+      <AgentExecutionTopology agent={agent as Record<string, unknown>} />
 
       <AgentDeepScanPanels agent={agent as Record<string, unknown>} />
 

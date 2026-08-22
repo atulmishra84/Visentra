@@ -57,6 +57,31 @@ const deep = {
   actionGroupCount: 1,
   tools: [
     {
+      name: "update_claim",
+      description: "Persist claim adjudication status changes",
+      parameters_schema: {
+        type: "object",
+        required: ["claim_id", "status"],
+        properties: {
+          claim_id: { type: "string" },
+          status: { type: "string" }
+        }
+      },
+      permissions: ["invoke:arn:aws:lambda:us-east-1:123456789012:function:update-claim"],
+      risk_flags: {
+        can_execute_code: false,
+        can_access_pii: true,
+        can_access_phi: true,
+        can_modify_state: true,
+        can_call_external_apis: false,
+        can_access_filesystem: false,
+        can_access_secrets: false
+      },
+      source: "bedrock_action_group:claims-tools",
+      confidence: "high",
+      evidence: ["Bedrock action group function update_claim", "Executor Lambda present"]
+    },
+    {
       name: "lookup_claim",
       description: "Look up a claim by ID",
       parameters_schema: {
@@ -77,10 +102,35 @@ const deep = {
         can_access_secrets: false
       },
       source: "bedrock_action_group:claims-tools",
-      confidence: "high"
+      confidence: "high",
+      evidence: ["Bedrock action group function lookup_claim", "Executor Lambda present"]
+    },
+    {
+      name: "retrieve_kb",
+      description: "Retrieve policy guidance from the claims knowledge base",
+      parameters_schema: {
+        type: "object",
+        required: ["query"],
+        properties: {
+          query: { type: "string" }
+        }
+      },
+      permissions: [],
+      risk_flags: {
+        can_execute_code: false,
+        can_access_pii: false,
+        can_access_phi: false,
+        can_modify_state: false,
+        can_call_external_apis: false,
+        can_access_filesystem: false,
+        can_access_secrets: false
+      },
+      source: "bedrock_knowledge_base",
+      confidence: "high",
+      evidence: ["Associated knowledge base retrieval path"]
     }
   ],
-  toolCount: 1,
+  toolCount: 3,
   knowledgeBases: [
     {
       knowledgeBaseId: "KB1",
@@ -98,7 +148,7 @@ const adversarial_surface = {
   confidence_score: 0.96,
   evidence: [
     "Official Bedrock Agents API inventory",
-    "Deep scan: 1 tool(s) from action groups",
+    "Deep scan: 3 tool(s) from action groups / knowledge bases",
     "Deep scan: 1 associated knowledge base(s)"
   ],
   tools: deep.tools,
