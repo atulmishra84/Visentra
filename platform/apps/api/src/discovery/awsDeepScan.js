@@ -835,13 +835,25 @@ export async function enrichAwsWithDeepScan({
     (o) => o.metadata?.awsType === "BedrockAgent" && o.metadata?.agentId
   );
   for (const obs of agents.slice(0, DEEP_AGENT_LIMIT)) {
+    const errorsBefore = discoveryErrors.length;
     const detail = await getBedrockAgent(awsJson, conn, region, obs.metadata.agentId, discoveryErrors);
     const summary = summarizeBedrockAgentDetail(detail);
     if (!summary) {
+      const latest = discoveryErrors.slice(errorsBefore).find((e) => e.resourceId === obs.metadata.agentId);
+      obs.metadata = {
+        ...obs.metadata,
+        deepScanStatus: latest?.discoveryStatus || "error",
+        deepScanError: latest?.error || "GetAgent returned no detail",
+        deepScanSchema: "aws-deep.v2"
+      };
       Object.assign(obs, attachAdversarialSurface(obs));
       continue;
     }
     deepScanned += 1;
+    obs.metadata = {
+      ...obs.metadata,
+      deepScanStatus: "ok"
+    };
 
     const versions = await listBedrockAgentVersions(
       awsJson,

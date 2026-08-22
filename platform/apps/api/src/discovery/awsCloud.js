@@ -24,8 +24,18 @@ const AWS_DISCOVERY_AGENT_SCAN =
   String(process.env.AWS_DISCOVERY_AGENT_SCAN || "true").toLowerCase() !== "false";
 const AWS_DISCOVERY_RUNTIME_SCAN =
   String(process.env.AWS_DISCOVERY_RUNTIME_SCAN || "true").toLowerCase() !== "false";
-const AWS_DISCOVERY_DEEP_SCAN =
-  String(process.env.AWS_DISCOVERY_DEEP_SCAN || "true").toLowerCase() !== "false";
+/**
+ * Deep scan is always on. AWS_DISCOVERY_DEEP_SCAN=false is ignored unless the
+ * break-glass override AWS_DISCOVERY_DEEP_SCAN_ALLOW_OFF=true is also set.
+ */
+export function resolveAwsDeepScanEnabled(env = process.env) {
+  const allowOff =
+    String(env.AWS_DISCOVERY_DEEP_SCAN_ALLOW_OFF || "false").toLowerCase() === "true";
+  if (!allowOff) return true;
+  return String(env.AWS_DISCOVERY_DEEP_SCAN || "true").toLowerCase() !== "false";
+}
+
+const AWS_DISCOVERY_DEEP_SCAN = resolveAwsDeepScanEnabled();
 export const EFFECTIVE_AWS_AI_ONLY =
   process.env.AWS_DISCOVERY_AI_ONLY != null
     ? String(process.env.AWS_DISCOVERY_AI_ONLY).toLowerCase() !== "false"

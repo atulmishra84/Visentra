@@ -328,6 +328,82 @@ describe("awsDeepScan enrichment", () => {
     assert.equal(discoveryErrors.length, 3);
   });
 
+  it("stamps deepScanStatus=permission_denied on agent when GetAgent is denied", async () => {
+    const discoveryErrors = [];
+    const observations = [
+      {
+        name: "blocked-agent",
+        metadata: { awsType: "BedrockAgent", agentId: "DENIED1", aliases: [] }
+      }
+    ];
+    const awsJson = async () => ({
+      __error: true,
+      permissionDenied: true,
+      status: 403,
+      message: "AccessDenied"
+    });
+
+    await enrichAwsWithDeepScan({
+      awsJson,
+      conn: { id: "c1", name: "aws" },
+      region: "us-east-1",
+      observations,
+      discoveryErrors,
+      enabled: true
+    });
+
+    assert.equal(observations[0].metadata.deepScanStatus, "permission_denied");
+    assert.equal(observations[0].metadata.deepScanSchema, "aws-deep.v2");
+    assert.ok(!observations[0].metadata.deep);
+    assert.ok(String(observations[0].metadata.deepScanError || "").length > 0);
+  });
+
+  it("stamps deepScanStatus=ok when GetAgent succeeds", async () => {
+    const observations = [
+      {
+        name: "ok-agent",
+        metadata: { awsType: "BedrockAgent", agentId: "OK1", aliases: [] }
+      }
+    ];
+    const awsJson = async (req) => {
+      const path = String(req.path || "");
+      const method = String(req.method || "GET").toUpperCase();
+      if (path.match(/\/agents\/[^/]+\/$/) && method === "GET") {
+        return {
+          agent: {
+            agentId: "OK1",
+            agentName: "ok-agent",
+            agentStatus: "PREPARED",
+            foundationModel: "anthropic.claude-v2",
+            instruction: "Be helpful."
+          }
+        };
+      }
+      if (path.includes("/agentversions/") && method === "POST") {
+        return { agentVersionSummaries: [{ agentVersion: "1", agentStatus: "PREPARED" }] };
+      }
+      if (path.includes("/actiongroups/") && method === "POST") {
+        return { actionGroupSummaries: [] };
+      }
+      if (path.includes("/knowledgebases/") && method === "POST") {
+        return { agentKnowledgeBaseSummaries: [] };
+      }
+      return {};
+    };
+
+    await enrichAwsWithDeepScan({
+      awsJson,
+      conn: { id: "c1", name: "aws" },
+      region: "us-east-1",
+      observations,
+      discoveryErrors: [],
+      enabled: true
+    });
+
+    assert.equal(observations[0].metadata.deepScanStatus, "ok");
+    assert.ok(observations[0].metadata.deep);
+  });
+
   it("sanitizes deep-scan errors", () => {
     const msg = sanitizeCloudError("Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.aaa.bbb failed");
     assert.equal(msg.includes("eyJhbGci"), false);

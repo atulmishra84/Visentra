@@ -103,6 +103,7 @@ export function AgentDetailPage() {
     valueAt((adversarialSurface?.model as Record<string, unknown>) || {}, ["foundation_model", "name"]) ||
     valueAt(meta, ["foundationModel"]);
   const deepLifecycle = valueAt(deep || {}, ["agentStatus", "deploymentStatus"]);
+  const deepScanStatus = valueAt(meta, ["deepScanStatus"], deep ? "ok" : "—");
 
   if (loading) {
     return (
@@ -186,8 +187,21 @@ export function AgentDetailPage() {
             valueAt(meta, ["environmentLane"], "—")
           }
         />
-        {deep || adversarialSurface ? (
+        {deep || adversarialSurface || deepScanStatus !== "—" ? (
           <>
+            <KpiCard
+              label="Deep scan"
+              value={deepScanStatus}
+              tone={
+                deepScanStatus === "ok"
+                  ? "good"
+                  : deepScanStatus === "permission_denied"
+                    ? "warn"
+                    : deep
+                      ? "good"
+                      : "warn"
+              }
+            />
             <KpiCard label="Deep model" value={deepModel || "—"} />
             <KpiCard label="Deep lifecycle" value={deepLifecycle || "—"} />
             <KpiCard label="Deep tools" value={deepToolCount || "—"} />
