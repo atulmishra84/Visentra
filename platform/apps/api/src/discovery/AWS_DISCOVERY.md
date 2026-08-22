@@ -102,8 +102,23 @@ Attach a custom policy:
 are **POST** `/agents/` (etc.) with a JSON body and `nextToken` pagination. Visentra follows
 all pages so accounts with >10 agents are fully inventoried.
 
+> **Regression warning:** Calling `ListAgents` with **GET** (or query-string only) returns an
+> empty inventory even when agents exist. That bug shipped in the first AWS discovery cut and
+> was fixed by using POST + `nextToken` pagination. Deploy from `latest` (includes that fix);
+> do not run an older `main` image for AWS Bedrock agent detection.
+
 **Region note:** The connector `region` must match where the agents were created
 (e.g. agents in `us-west-2` are invisible to a connector set to `us-east-1`).
+
+**Troubleshooting — 0 Bedrock agents**
+
+1. Confirm the running API image includes the POST `ListAgents` fix (`latest`, not pre-fix `main`).
+2. Connector **region** must be the region where Bedrock agents were created.
+3. IAM must allow `bedrock:ListAgents` (and deep-scan actions if deep scan is on).
+4. After a scan, open the connector scan row / discovery events and check
+   `metadata.scanWarnings`, `metadata.bedrockAgentsFound`, and `metadata.discoveryErrorSamples`
+   for `bedrock-agents` / `permission_denied`.
+5. Deep scan **enriches** agents already listed — it does not invent agents if ListAgents is empty.
 
 **Never inferred:** SageMaker InService ≠ agent running; Lambda Active ≠ confirmed agent;
 ECS runningCount > 0 ≠ confirmed agent; GetAgent `PREPARED` ≠ agent running.

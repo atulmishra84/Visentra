@@ -384,19 +384,17 @@ describe("failure isolation", () => {
 });
 
 describe("Bedrock ListAgents pagination", () => {
-  it("uses POST body and follows nextToken across pages", async () => {
+  it("listBedrockPaginated uses POST body and follows nextToken across pages", async () => {
     const { listBedrockPaginated } = await import("../awsCloud.js");
     const calls = [];
-    const original = (await import("../awsCloud.js")).awsJson;
-    // Inject via monkeypatch on module is hard; call helper with stubbed awsJson by
-    // temporarily replacing — instead reimplement call pattern through exported helper
-    // by stubbing at the awsJson export.
     const discoveryErrors = [];
     let page = 0;
     const awsJsonStub = async (req) => {
       calls.push(req);
-      assert.equal(req.method, "POST");
+      assert.equal(req.method, "POST", "Bedrock ListAgents must be POST (GET returns empty)");
       assert.equal(req.path, "/agents/");
+      assert.equal(req.service, "bedrock");
+      assert.match(String(req.hostname || ""), /^bedrock-agent\./);
       assert.match(req.body, /maxResults/);
       const body = JSON.parse(req.body);
       if (page === 0) {
@@ -421,25 +419,42 @@ describe("Bedrock ListAgents pagination", () => {
       };
     };
 
-    // Direct unit test of pagination loop semantics (mirror helper)
-    const collected = [];
-    let nextToken = null;
-    for (let p = 0; p < 5; p += 1) {
-      const body = { maxResults: 50 };
-      if (nextToken) body.nextToken = nextToken;
-      const json = await awsJsonStub({
-        method: "POST",
-        path: "/agents/",
-        body: JSON.stringify(body)
-      });
-      collected.push(...(json.agentSummaries || []));
-      nextToken = json.nextToken || null;
-      if (!nextToken) break;
-    }
+    const collected = await listBedrockPaginated({
+      conn: { id: "c1", config: {}, secrets: {} },
+      region: "us-east-1",
+      path: "/agents/",
+      discoveryType: "bedrock-agents",
+      discoveryErrors,
+      resultKey: "agentSummaries",
+      pageSize: 50,
+      awsJsonFn: awsJsonStub
+    });
+
     assert.equal(collected.length, 15);
     assert.equal(calls.length, 2);
-    assert.equal(typeof listBedrockPaginated, "function");
-    assert.equal(typeof original, "function");
     assert.equal(discoveryErrors.length, 0);
+  });
+
+  it("records permission_denied when ListAgents is denied (does not throw)", async () => {
+    const { listBedrockPaginated } = await import("../awsCloud.js");
+    const discoveryErrors = [];
+    const collected = await listBedrockPaginated({
+      conn: { id: "c1", config: {}, secrets: {} },
+      region: "us-west-2",
+      path: "/agents/",
+      discoveryType: "bedrock-agents",
+      discoveryErrors,
+      resultKey: "agentSummaries",
+      awsJsonFn: async () => ({
+        __error: true,
+        permissionDenied: true,
+        status: 403,
+        message: "User is not authorized to perform: bedrock:ListAgents"
+      })
+    });
+    assert.equal(collected.length, 0);
+    assert.equal(discoveryErrors.length, 1);
+    assert.equal(discoveryErrors[0].discoveryStatus, "permission_denied");
+    assert.equal(discoveryErrors[0].discoveryType, "bedrock-agents");
   });
 });

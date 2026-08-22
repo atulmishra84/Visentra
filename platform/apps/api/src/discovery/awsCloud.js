@@ -1104,10 +1104,30 @@ export async function discoverAwsConnector(conn) {
   stats.discoveryErrors = discoveryErrors.length;
   stats.nonAiResourcesSkipped = 0;
 
+  const bedrockAgentErrors = discoveryErrors.filter((e) => e.discoveryType === "bedrock-agents");
+  const bedrockAgentsFound = selected.filter(
+    (o) => o.metadata?.awsType === "BedrockAgent" || o.framework === "BedrockAgent"
+  ).length;
+  const scanWarnings = [];
+  if (AWS_DISCOVERY_AGENT_SCAN && bedrockAgentsFound === 0 && bedrockAgentErrors.length) {
+    scanWarnings.push(
+      `Bedrock ListAgents returned 0 agents with ${bedrockAgentErrors.length} error(s): ${
+        bedrockAgentErrors[0].error || bedrockAgentErrors[0].discoveryStatus || "unknown"
+      }. Check IAM bedrock:ListAgents and connector region.`
+    );
+  } else if (AWS_DISCOVERY_AGENT_SCAN && bedrockAgentsFound === 0 && !bedrockAgentErrors.length) {
+    scanWarnings.push(
+      "Bedrock ListAgents returned 0 agents. Confirm agents exist in this connector region and AWS_DISCOVERY_AGENT_SCAN is enabled."
+    );
+  }
+
   if (selected[0]?.metadata) {
     Object.assign(selected[0].metadata, {
       ...stats,
       deepScan: AWS_DISCOVERY_DEEP_SCAN,
+      bedrockAgentsFound,
+      bedrockAgentListErrors: bedrockAgentErrors.length,
+      scanWarnings,
       discoveryErrorSamples: discoveryErrors.slice(0, 25)
     });
   }
@@ -1115,7 +1135,8 @@ export async function discoverAwsConnector(conn) {
   return {
     observations: selected,
     stats,
-    discoveryErrors
+    discoveryErrors,
+    scanWarnings
   };
 }
 
