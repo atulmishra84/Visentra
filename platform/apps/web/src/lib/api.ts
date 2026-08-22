@@ -30,6 +30,16 @@ export type GraphNode = Record<string, unknown> & {
   type?: string;
   displayName?: string;
   name?: string;
+  awsType?: string;
+  agentStatus?: string;
+  awsLifecycleStatus?: string;
+  accountId?: string;
+  connectorId?: string;
+  connectorName?: string;
+  managedCloudAgent?: boolean;
+  kindLabel?: string;
+  region?: string;
+  runningStatus?: string;
 };
 
 export type GraphEdge = Record<string, unknown> & {
