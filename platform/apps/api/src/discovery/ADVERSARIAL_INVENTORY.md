@@ -62,8 +62,12 @@ lambda:GetFunctionConfiguration
 
 | Variable | Default |
 |---|---|
-| `AWS_DISCOVERY_DEEP_SCAN` | `true` |
+| `AWS_DISCOVERY_DEEP_SCAN` | always `true` (cannot be turned off unless break-glass) |
+| `AWS_DISCOVERY_DEEP_SCAN_ALLOW_OFF` | `false` — break-glass only; do not set in production |
 | `AWS_DISCOVERY_DEEP_MAX_ACTION_GROUPS` | `15` |
+
+`permission_denied` on deep APIs is **not** deep scan being off — it means IAM blocked
+`GetAgent` / related calls. Grant deep-scan IAM and re-run; see `AWS_DISCOVERY.md`.
 
 ## Consumer tip
 

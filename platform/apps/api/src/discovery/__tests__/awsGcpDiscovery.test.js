@@ -6,7 +6,8 @@ import {
   mapBedrockAgentLifecycle,
   mapSageMakerEndpointStatus,
   listBedrockPaginated,
-  EFFECTIVE_AWS_AI_ONLY
+  EFFECTIVE_AWS_AI_ONLY,
+  resolveAwsDeepScanEnabled
 } from "../awsCloud.js";
 import { gcpObservation, EFFECTIVE_GCP_AI_ONLY } from "../gcpCloud.js";
 import {
@@ -456,5 +457,28 @@ describe("Bedrock ListAgents pagination", () => {
     assert.equal(discoveryErrors.length, 1);
     assert.equal(discoveryErrors[0].discoveryStatus, "permission_denied");
     assert.equal(discoveryErrors[0].discoveryType, "bedrock-agents");
+  });
+});
+describe("resolveAwsDeepScanEnabled", () => {
+  it("is always on by default even when AWS_DISCOVERY_DEEP_SCAN=false", () => {
+    assert.equal(resolveAwsDeepScanEnabled({ AWS_DISCOVERY_DEEP_SCAN: "false" }), true);
+    assert.equal(resolveAwsDeepScanEnabled({}), true);
+  });
+
+  it("honors false only with break-glass ALLOW_OFF", () => {
+    assert.equal(
+      resolveAwsDeepScanEnabled({
+        AWS_DISCOVERY_DEEP_SCAN_ALLOW_OFF: "true",
+        AWS_DISCOVERY_DEEP_SCAN: "false"
+      }),
+      false
+    );
+    assert.equal(
+      resolveAwsDeepScanEnabled({
+        AWS_DISCOVERY_DEEP_SCAN_ALLOW_OFF: "true",
+        AWS_DISCOVERY_DEEP_SCAN: "true"
+      }),
+      true
+    );
   });
 });

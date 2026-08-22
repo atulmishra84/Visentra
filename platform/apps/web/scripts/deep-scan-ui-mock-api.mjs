@@ -37,7 +37,7 @@ const deep = {
     enabledMemoryTypes: ["SESSION_SUMMARY"],
     storageDays: 30
   },
-  promptOverride: { configured: true },
+  promptOverride: { present: true, configured: true, overrideCount: 1 },
   instructions: {
     present: true,
     hash: "a1b2c3d4e5f67890",
@@ -221,6 +221,7 @@ const agent = {
     howIdentified: "AWS Bedrock ListAgents + GetAgent deep scan",
     foundationModel: deep.foundationModel,
     deepScan: "bedrock_get_agent",
+    deepScanStatus: "ok",
     deepScanSchema: "aws-deep.v2",
     deep,
     adversarial_surface,

@@ -23,15 +23,43 @@ export function AgentDetailPage() {
   useEffect(() => {
     if (!id) return;
     let mounted = true;
-    setLoading(true);
-    apiRequest<Record<string, unknown>>(`/api/agents/${encodeURIComponent(id)}`)
-      .then((data) => mounted && setPayload(data))
-      .catch((requestError) =>
-        mounted && setError(requestError instanceof Error ? requestError.message : "Failed to load agent.")
-      )
-      .finally(() => mounted && setLoading(false));
+    const load = (opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setLoading(true);
+      apiRequest<Record<string, unknown>>(`/api/agents/${encodeURIComponent(id)}`)
+        .then((data) => {
+          if (!mounted) return;
+          setPayload(data);
+          setError(null);
+        })
+        .catch((requestError) =>
+          mounted &&
+            setError(requestError instanceof Error ? requestError.message : "Failed to load agent.")
+        )
+        .finally(() => mounted && setLoading(false));
+    };
+
+    load();
+
+    const onGraphEvent = (event: Event) => {
+      const type = String((event as CustomEvent).detail?.type || "");
+      if (
+        type === "inventory.agent.updated" ||
+        type === "discovery.job.completed" ||
+        type === "discovery.job.finished"
+      ) {
+        load({ silent: true });
+      }
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load({ silent: true });
+    };
+
+    window.addEventListener("visentra:graph-event", onGraphEvent);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       mounted = false;
+      window.removeEventListener("visentra:graph-event", onGraphEvent);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [id]);
 
@@ -103,6 +131,7 @@ export function AgentDetailPage() {
     valueAt((adversarialSurface?.model as Record<string, unknown>) || {}, ["foundation_model", "name"]) ||
     valueAt(meta, ["foundationModel"]);
   const deepLifecycle = valueAt(deep || {}, ["agentStatus", "deploymentStatus"]);
+  const deepScanStatus = valueAt(meta, ["deepScanStatus"], deep ? "ok" : "—");
 
   if (loading) {
     return (
@@ -131,6 +160,25 @@ export function AgentDetailPage() {
           </p>
         </div>
         <div className="toolbar">
+          <button
+            type="button"
+            className="button"
+            onClick={() => {
+              if (!id) return;
+              setLoading(true);
+              apiRequest<Record<string, unknown>>(`/api/agents/${encodeURIComponent(id)}`)
+                .then((data) => {
+                  setPayload(data);
+                  setError(null);
+                })
+                .catch((requestError) =>
+                  setError(requestError instanceof Error ? requestError.message : "Failed to load agent.")
+                )
+                .finally(() => setLoading(false));
+            }}
+          >
+            Refresh
+          </button>
           <Link className="button primary" to={`/relationships?agentId=${encodeURIComponent(String(agent.id ?? id))}`}>
             Open anatomy
           </Link>
@@ -186,8 +234,21 @@ export function AgentDetailPage() {
             valueAt(meta, ["environmentLane"], "—")
           }
         />
-        {deep || adversarialSurface ? (
+        {deep || adversarialSurface || deepScanStatus !== "—" ? (
           <>
+            <KpiCard
+              label="Deep scan"
+              value={deepScanStatus}
+              tone={
+                deepScanStatus === "ok"
+                  ? "good"
+                  : deepScanStatus === "permission_denied"
+                    ? "warn"
+                    : deep
+                      ? "good"
+                      : "warn"
+              }
+            />
             <KpiCard label="Deep model" value={deepModel || "—"} />
             <KpiCard label="Deep lifecycle" value={deepLifecycle || "—"} />
             <KpiCard label="Deep tools" value={deepToolCount || "—"} />

@@ -82,7 +82,8 @@ Attach a custom policy:
 | `AWS_DISCOVERY_MAX_RESOURCES` | `150` | Cap on ingested resources |
 | `AWS_DISCOVERY_AGENT_SCAN` | `true` | Call Bedrock Agents list APIs |
 | `AWS_DISCOVERY_RUNTIME_SCAN` | `true` | Scan Lambda / ECS runtimes |
-| `AWS_DISCOVERY_DEEP_SCAN` | `true` | GetAgent / DescribeEndpoint / GetFunctionConfiguration |
+| `AWS_DISCOVERY_DEEP_SCAN` | always `true` | GetAgent / DescribeEndpoint / GetFunctionConfiguration. Cannot be turned off unless `AWS_DISCOVERY_DEEP_SCAN_ALLOW_OFF=true` (break-glass). |
+| `AWS_DISCOVERY_DEEP_SCAN_ALLOW_OFF` | `false` | Break-glass only. When `true`, honors `AWS_DISCOVERY_DEEP_SCAN=false`. Do not set in production. |
 | `AWS_DISCOVERY_DEEP_MAX_AGENTS` | `40` | Cap deep GetAgent calls |
 | `AWS_DISCOVERY_DEEP_MAX_ENDPOINTS` | `40` | Cap DescribeEndpoint calls |
 | `AWS_DISCOVERY_DEEP_MAX_LAMBDAS` | `40` | Cap GetFunctionConfiguration calls |
@@ -119,6 +120,21 @@ all pages so accounts with >10 agents are fully inventoried.
    `metadata.scanWarnings`, `metadata.bedrockAgentsFound`, and `metadata.discoveryErrorSamples`
    for `bedrock-agents` / `permission_denied`.
 5. Deep scan **enriches** agents already listed — it does not invent agents if ListAgents is empty.
+
+**Deep scan off vs permission denied**
+
+| Symptom | Meaning | What to do |
+|---|---|---|
+| `metadata.deep` missing, `deepScanStatus=permission_denied` | Deep scan **ran**, but IAM blocked `GetAgent` / related APIs | Grant deep-scan IAM actions (table above), re-run connector |
+| `metadata.deep` missing, no status | Agent never deep-enriched (old image, list-only path, or pre-fix deploy) | Deploy `latest`, re-run scan |
+| Deep scan “off” | Only possible with break-glass `AWS_DISCOVERY_DEEP_SCAN_ALLOW_OFF=true` **and** `AWS_DISCOVERY_DEEP_SCAN=false` | Do **not** set either in production. Deep scan is forced on by default. |
+
+To keep deep scan permanently on:
+
+1. Do not set `AWS_DISCOVERY_DEEP_SCAN=false`
+2. Do not set `AWS_DISCOVERY_DEEP_SCAN_ALLOW_OFF=true`
+3. Ensure connector IAM includes deep-scan actions (GetAgent, action groups, KBs, etc.)
+4. Re-run AWS discovery after IAM changes so agents get `metadata.deep` + `adversarial_surface`
 
 **Never inferred:** SageMaker InService ≠ agent running; Lambda Active ≠ confirmed agent;
 ECS runningCount > 0 ≠ confirmed agent; GetAgent `PREPARED` ≠ agent running.
