@@ -852,7 +852,9 @@ export async function enrichAwsWithDeepScan({
     deepScanned += 1;
     obs.metadata = {
       ...obs.metadata,
-      deepScanStatus: "ok"
+      deepScanStatus: "ok",
+      // Clear prior IAM/error stamp so shallow jsonb merge does not keep stale denial text.
+      deepScanError: null
     };
 
     const versions = await listBedrockAgentVersions(
