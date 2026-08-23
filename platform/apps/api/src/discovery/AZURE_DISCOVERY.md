@@ -48,6 +48,9 @@ Connector credentials stay on the connector. Global env only tunes scan behavior
 | Azure resource | ARM object exists | Storage account, VM, OpenAI account |
 | AI resource | Classified AI platform / AI-hosting compute | `Microsoft.CognitiveServices/accounts` kind=OpenAI |
 | Agent | Actual agent entity | Foundry Agents API hit, Bot Service bot, heuristic ACA workload |
+
+> **Agent 365 / Copilot Studio published agents** are **not** on this Azure plane.
+> Use the `m365_copilot` connector + Graph Copilot admin catalog — see `AGENT365_DISCOVERY.md`.
 | Runtime | Deployed compute with status | Container App revision replicas, VM power state |
 | Runtime status | Evidence-backed only | `running` / `stopped` / `failed` / `unknown` |
 

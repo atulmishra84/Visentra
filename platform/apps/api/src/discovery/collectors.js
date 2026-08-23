@@ -752,7 +752,7 @@ export const collectors = {
         for (const conn of connectors) {
           const label =
             {
-              m365_copilot: "Microsoft 365 Copilot",
+              m365_copilot: "Microsoft 365 Copilot / Agent 365",
               salesforce: "Salesforce Agentforce",
               workday: "Workday",
               servicenow: "ServiceNow",
