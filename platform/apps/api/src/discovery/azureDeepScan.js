@@ -660,7 +660,24 @@ export async function discoverCognitiveAgents({
         ],
         runtimeReason,
         containerAppId,
-        classification
+        classification,
+        // List/detail signals for metadata.deep + adversarial_surface alignment
+        foundationModel: latest.definition?.model || agent.model || null,
+        description: latest.definition?.description || agent.description || null,
+        instructionText:
+          latest.definition?.instructions ||
+          latest.definition?.system_prompt ||
+          agent.instructions ||
+          null,
+        tools:
+          latest.definition?.tools ||
+          latest.definition?.actions ||
+          agent.tools ||
+          [],
+        knowledgeBases:
+          latest.definition?.knowledge_bases ||
+          latest.definition?.vector_stores ||
+          [],
       });
     }
   }
@@ -705,7 +722,18 @@ export async function discoverCognitiveAgents({
         ],
         runtimeReason: "Assistants API has no durable runtime status field",
         containerAppId: null,
-        classification
+        classification,
+        foundationModel: assistant.model || null,
+        description: assistant.description || null,
+        instructionText: assistant.instructions || null,
+        tools: Array.isArray(assistant.tools) ? assistant.tools : [],
+        knowledgeBases: Array.isArray(assistant.tool_resources?.file_search?.vector_store_ids)
+          ? assistant.tool_resources.file_search.vector_store_ids.map((id) => ({
+              id,
+              name: id,
+              type: "vector_store",
+            }))
+          : [],
       });
     }
   }

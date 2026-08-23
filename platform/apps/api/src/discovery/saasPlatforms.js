@@ -1,6 +1,7 @@
 import { safeFetch, assertAllowedUrl, assertDnsLabel, ALLOW } from "../utils/http.js";
 import { isAiRelevantText } from "./aiRelevance.js";
 import { enrichAgent365WithDeepScan } from "./agent365DeepScan.js";
+import { alignObservationWithDeepSurface } from "./providerDeepAlign.js";
 
 /**
  * SaaS / platform agent discovery adapters.
@@ -151,7 +152,7 @@ function platformObservation({
     team: conn.environment || null
   };
 
-  return {
+  const observation = {
     collector_id: "saas_platform",
     fingerprint: `saas:${provider}:agent:${id}`,
     name,
@@ -208,6 +209,28 @@ function platformObservation({
         : [])
     ]
   };
+
+  // Agent 365 catalog packages get richer deep scan separately — skip list-align duplicate.
+  if (extra.source === "graph-agent365-catalog") {
+    return observation;
+  }
+
+  return alignObservationWithDeepSurface(observation, {
+    provider,
+    schema: `${provider}-deep.v1`,
+    deepScan: `${provider}_platform_list`,
+    agentId: id,
+    agentName: name,
+    agentType: framework || label,
+    foundationModel: model || null,
+    description: extra.description || extra.shortDescription || null,
+    instructionText: extra.instructions || extra.systemPrompt || null,
+    tools,
+    knowledgeBases: knowledgeSources,
+    limitations: [
+      `Aligned from ${label} list/discovery payload for AWS metadata.deep + adversarial_surface parity.`,
+    ],
+  });
 }
 
 function connectorHealthObservation(provider, conn, message, agentCount = 0) {
@@ -1049,8 +1072,18 @@ export async function discoverOpenAi(conn) {
           status: "running",
           extra: {
             source: "openai-assistants",
-            tools: (a.tools || []).map((t) => t.type).filter(Boolean),
-            description: a.description || null
+            tools: a.tools || [],
+            description: a.description || null,
+            instructions: a.instructions || null,
+            hasInstructions: Boolean(a.instructions),
+            instructionSource: a.instructions ? "openai_assistants_api" : null,
+            knowledgeSources: Array.isArray(a.tool_resources?.file_search?.vector_store_ids)
+              ? a.tool_resources.file_search.vector_store_ids.map((id) => ({
+                  id,
+                  name: id,
+                  type: "vector_store",
+                }))
+              : [],
           }
         })
       );

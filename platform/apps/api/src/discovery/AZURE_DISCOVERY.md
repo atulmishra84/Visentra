@@ -54,5 +54,18 @@ Connector credentials stay on the connector. Global env only tunes scan behavior
 | Runtime | Deployed compute with status | Container App revision replicas, VM power state |
 | Runtime status | Evidence-backed only | `running` / `stopped` / `failed` / `unknown` |
 
+## Deep + adversarial alignment (AWS parity)
+
+Confirmed Foundry / Assistants / Bot Service agents are stamped with:
+
+| Field | Schema |
+|---|---|
+| `metadata.deep` | `azure-deep.v1` (`awsDeepCompatible: aws-deep.v2`) |
+| `metadata.adversarial_surface` | `1.0.0` (shared `attachAdversarialSurface`) |
+| `deepScanStatus` | `ok` when list/detail signals are aligned |
+
+Assistants list payloads contribute tools + instruction preview/hash when present.
+Bot Service ARM confirms the bot but often has empty tools (honest empty lists).
+
 **Never inferred:** AI resource exists ≠ agent running; VM running ≠ agent running;
 Container App running ≠ confirmed agent running.

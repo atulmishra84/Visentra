@@ -22,6 +22,7 @@ import {
   isHeuristicAiWorkload,
   powerStateFromInstanceView
 } from "./azureDeepScan.js";
+import { alignObservationWithDeepSurface } from "./providerDeepAlign.js";
 
 /**
  * Live Azure Resource Manager discovery using connector service-principal credentials.
@@ -350,26 +351,53 @@ function agentObservationFromFinding(finding, resource, conn, classification) {
     });
   }
 
-  return resourceToObservation(resource, conn, classification, {
-    fingerprint: `azure-agent:${conn.config.subscriptionId}:${agentId}`,
-    name: `${finding.agentName || agentId} (Azure Agent)`,
-    framework: finding.agentType || "azure-agent",
-    model: finding.agentType || "azure-foundry-agent",
-    confidence: finding.confidence,
-    evidence: finding.evidence,
-    discoveryMode: "azure-agent-api",
-    discoveryLayer: "agent",
-    inventoryClass: "ai_cloud_agent",
-    runningStatus: "unknown", // agent obs running_status stays unknown unless we conflate; runtime is on agent/runtime blocks
-    runtimeStatusReason: finding.runtimeReason || null,
-    agentRuntime,
-    relationships,
-    metadata: {
-      projectName: finding.projectName || null,
-      projectEndpoint: finding.projectEndpoint || null,
-      foundrySource: finding.source
+  return alignObservationWithDeepSurface(
+    resourceToObservation(resource, conn, classification, {
+      fingerprint: `azure-agent:${conn.config.subscriptionId}:${agentId}`,
+      name: `${finding.agentName || agentId} (Azure Agent)`,
+      framework: finding.agentType || "azure-agent",
+      model: finding.foundationModel || finding.agentType || "azure-foundry-agent",
+      confidence: finding.confidence,
+      evidence: finding.evidence,
+      discoveryMode: "azure-agent-api",
+      discoveryLayer: "agent",
+      inventoryClass: "ai_cloud_agent",
+      runningStatus: "unknown", // agent obs running_status stays unknown unless we conflate; runtime is on agent/runtime blocks
+      runtimeStatusReason: finding.runtimeReason || null,
+      agentRuntime,
+      relationships,
+      metadata: {
+        projectName: finding.projectName || null,
+        projectEndpoint: finding.projectEndpoint || null,
+        foundrySource: finding.source,
+        description: finding.description || null,
+      }
+    }),
+    {
+      provider: "azure",
+      schema: "azure-deep.v1",
+      deepScan:
+        finding.detectionMethod === "azure_assistants_api"
+          ? "azure_assistants_list"
+          : "azure_foundry_agents_list",
+      agentId,
+      agentName: finding.agentName,
+      agentType: finding.agentType,
+      foundationModel: finding.foundationModel || null,
+      description: finding.description || null,
+      instructionText: finding.instructionText || null,
+      tools: finding.tools || [],
+      knowledgeBases: finding.knowledgeBases || [],
+      identity: {
+        identity_type: "azure_managed_identity",
+        note: "Azure agent identity is account/project scoped; no AWS IAM roleArn equivalent.",
+      },
+      limitations: [
+        "Aligned from Azure Foundry Agents / Assistants list payloads (not Bedrock GetAgent).",
+        "Hosted container runtime status is separate from tool/instruction enrichment.",
+      ],
     }
-  });
+  );
 }
 
 function botServiceObservation(resource, conn, classification) {
@@ -394,21 +422,35 @@ function botServiceObservation(resource, conn, classification) {
     region: resource.location || null
   });
 
-  return resourceToObservation(resource, conn, classification, {
-    fingerprint: `azure-agent:${conn.config.subscriptionId}:${agentId}`,
-    name: `${resource.name} (Azure Bot)`,
-    confidence: 0.95,
-    evidence: [
-      ...(classification.evidence || []),
-      "Azure Bot Service bot resource returned by ARM",
-      "ARM does not expose live bot conversation runtime state"
-    ],
-    discoveryMode: "azure-arm-bot",
-    discoveryLayer: "agent",
-    inventoryClass: "ai_cloud_agent",
-    runtimeStatusReason: "Bot Service ARM resource has no continuous runtime status",
-    agentRuntime
-  });
+  return alignObservationWithDeepSurface(
+    resourceToObservation(resource, conn, classification, {
+      fingerprint: `azure-agent:${conn.config.subscriptionId}:${agentId}`,
+      name: `${resource.name} (Azure Bot)`,
+      confidence: 0.95,
+      evidence: [
+        ...(classification.evidence || []),
+        "Azure Bot Service bot resource returned by ARM",
+        "ARM does not expose live bot conversation runtime state"
+      ],
+      discoveryMode: "azure-arm-bot",
+      discoveryLayer: "agent",
+      inventoryClass: "ai_cloud_agent",
+      runtimeStatusReason: "Bot Service ARM resource has no continuous runtime status",
+      agentRuntime
+    }),
+    {
+      provider: "azure",
+      schema: "azure-deep.v1",
+      deepScan: "azure_bot_service_arm",
+      agentId,
+      agentName: resource.name,
+      agentType: "azure_bot_service",
+      tools: [],
+      limitations: [
+        "Bot Service ARM list confirms the bot resource but does not return tools/instructions.",
+      ],
+    }
+  );
 }
 
 async function discoverContainerAppRuntime(token, resource, conn, classification, discoveryErrors) {

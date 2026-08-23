@@ -126,7 +126,7 @@ function DeepScanStatusBanner({
     return (
       <Section
         title="Deep scan blocked"
-        hint="metadata.deep is missing because AWS denied GetAgent (or related deep APIs)."
+        hint="metadata.deep is missing because the provider denied deep enrichment APIs (e.g. AWS GetAgent)."
       >
         <div className="chip-row" style={{ marginTop: 0 }}>
           <Pill tone="warn">permission_denied</Pill>
@@ -183,7 +183,12 @@ function hasDeepScanUi(meta: AnyRec, deep: AnyRec | null, surface: AnyRec | null
   if (meta.deepScanStatus) return true;
   const awsType = String(meta.awsType || meta.aws_type || "");
   if (/bedrockagent/i.test(awsType) || Boolean(meta.agentId)) return true;
-  return meta.source === "graph-agent365-catalog" || Boolean(meta.agent365PackageId);
+  if (meta.source === "graph-agent365-catalog" || Boolean(meta.agent365PackageId)) return true;
+  // Any confirmed / platform / cloud agent should surface deep/adversarial panels when stamped.
+  if (meta.agentStatus === "confirmed") return true;
+  if (meta.inventoryClass === "platform_agent" || meta.inventoryClass === "ai_cloud_agent") return true;
+  if (meta.managedPlatformAgent === true) return true;
+  return Boolean(meta.azureType || meta.gcpType || meta.foundrySource);
 }
 
 export function AgentDeepScanPanels({ agent }: { agent: AnyRec }) {
@@ -274,7 +279,7 @@ export function AgentDeepScanPanels({ agent }: { agent: AnyRec }) {
       {(deep || surface) && (
         <Section
           title="Deep scan profile"
-          hint="From AWS GetAgent or Agent 365 catalog package detail (metadata.deep + adversarial_surface)."
+          hint="From provider deep scan / list alignment (metadata.deep + adversarial_surface)."
         >
           <div className="deep-kpi-row">
             {foundationModel ? (
@@ -391,7 +396,7 @@ export function AgentDeepScanPanels({ agent }: { agent: AnyRec }) {
       {toolsToShow.length > 0 || deepGroups.length > 0 ? (
         <Section
           title="Tools &amp; action groups"
-          hint="Discovered from Bedrock action groups / tool schemas."
+          hint="Discovered from provider tool schemas / action groups / capabilities."
         >
           {deepGroups.length > 0 ? (
             <div style={{ marginBottom: 14 }}>
