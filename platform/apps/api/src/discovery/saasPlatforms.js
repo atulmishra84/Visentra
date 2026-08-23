@@ -1,5 +1,6 @@
 import { safeFetch, assertAllowedUrl, assertDnsLabel, ALLOW } from "../utils/http.js";
 import { isAiRelevantText } from "./aiRelevance.js";
+import { enrichAgent365WithDeepScan } from "./agent365DeepScan.js";
 
 /**
  * SaaS / platform agent discovery adapters.
@@ -311,8 +312,9 @@ export function mapAgent365PackageToObservation(conn, pkg = {}) {
       lastModifiedDateTime: pkg.lastModifiedDateTime || null,
       channels: hosts.length ? hosts : ["Microsoft 365", "Copilot"],
       authMode: "entra_sso",
-      hasInstructions: true,
-      instructionSource: "agent365_catalog",
+      // List API does not return instruction body — deep scan may set this later.
+      hasInstructions: false,
+      instructionSource: null,
       catalogApi: "copilot/admin/catalog/packages"
     }
   });
@@ -445,13 +447,17 @@ export async function discoverM365Copilot(conn) {
   if (M365_AGENT365_CATALOG_SCAN) {
     const catalog = await listAgent365CatalogPackages(token, { discoveryErrors });
     const agentPackages = (catalog.packages || []).filter(isAgent365CatalogPackage);
+    const catalogObservations = [];
     for (const pkg of agentPackages) {
       const obs = mapAgent365PackageToObservation(conn, pkg);
       if (obs) {
-        observations.push(obs);
+        catalogObservations.push(obs);
         agent365Count += 1;
       }
     }
+    // Deep + adversarial enrichment (package detail) — does not invent agents.
+    const enriched = await enrichAgent365WithDeepScan(catalogObservations, token);
+    observations.push(...enriched);
   }
 
   // Secondary heuristics: service principals that look like Copilot / Copilot Studio / PVA

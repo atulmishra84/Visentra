@@ -182,7 +182,8 @@ function hasDeepScanUi(meta: AnyRec, deep: AnyRec | null, surface: AnyRec | null
   if (deep || surface) return true;
   if (meta.deepScanStatus) return true;
   const awsType = String(meta.awsType || meta.aws_type || "");
-  return /bedrockagent/i.test(awsType) || Boolean(meta.agentId);
+  if (/bedrockagent/i.test(awsType) || Boolean(meta.agentId)) return true;
+  return meta.source === "graph-agent365-catalog" || Boolean(meta.agent365PackageId);
 }
 
 export function AgentDeepScanPanels({ agent }: { agent: AnyRec }) {
@@ -273,7 +274,7 @@ export function AgentDeepScanPanels({ agent }: { agent: AnyRec }) {
       {(deep || surface) && (
         <Section
           title="Deep scan profile"
-          hint="From AWS GetAgent / action groups / knowledge bases (metadata.deep + adversarial_surface)."
+          hint="From AWS GetAgent or Agent 365 catalog package detail (metadata.deep + adversarial_surface)."
         >
           <div className="deep-kpi-row">
             {foundationModel ? (
