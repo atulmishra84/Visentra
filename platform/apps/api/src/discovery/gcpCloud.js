@@ -15,6 +15,7 @@ import {
   tallyDiscoveryObservation,
   dedupeObservationsByFingerprint
 } from "./cloudDiscoveryCommon.js";
+import { alignObservationWithDeepSurface } from "./providerDeepAlign.js";
 
 const GCP_MAX_RESOURCES = Number(process.env.GCP_DISCOVERY_MAX_RESOURCES || 150);
 const GCP_DISCOVERY_AGENT_SCAN =
@@ -600,83 +601,114 @@ function toLayeredObservation(conn, resource) {
   const { id, name, gcpType, service, region, status, model, extra = {} } = resource;
 
   if (classification.category === "dialogflow_cx_agent") {
-    return gcpObservation({
-      conn,
-      id,
-      name,
-      gcpType,
-      service,
-      region,
-      classification,
-      model,
-      fingerprint: `gcp-agent:${conn.config.projectId}:${id}`,
-      discoveryLayer: "agent",
-      inventoryClass: "ai_cloud_agent",
-      confidence: 0.96,
-      evidence: [
-        "Dialogflow CX agent returned by Dialogflow API",
-        "API does not expose continuous conversation runtime; runtimeStatus=unknown"
-      ],
-      runtimeStatusReason: "Dialogflow CX list agents has no durable runtime execution field",
-      agentRuntime: buildAgentAndRuntime({
-        agentDetected: true,
-        detectionMethod: "dialogflow_cx_api",
+    return alignObservationWithDeepSurface(
+      gcpObservation({
+        conn,
+        id,
+        name,
+        gcpType,
+        service,
+        region,
+        classification,
+        model,
+        fingerprint: `gcp-agent:${conn.config.projectId}:${id}`,
+        discoveryLayer: "agent",
+        inventoryClass: "ai_cloud_agent",
+        confidence: 0.96,
+        evidence: [
+          "Dialogflow CX agent returned by Dialogflow API",
+          "API does not expose continuous conversation runtime; runtimeStatus=unknown"
+        ],
+        runtimeStatusReason: "Dialogflow CX list agents has no durable runtime execution field",
+        agentRuntime: buildAgentAndRuntime({
+          agentDetected: true,
+          detectionMethod: "dialogflow_cx_api",
+          agentId: id,
+          agentName: name,
+          agentType: "dialogflow_cx_agent",
+          agentStatus: "confirmed",
+          agentRuntimeStatus: "unknown",
+          source: "gcp_dialogflow_cx",
+          runtimeDetected: false,
+          runtimeStatus: "unknown",
+          runtimeType: "dialogflow_cx",
+          runtimeId: id,
+          runtimeName: name,
+          resourceId: id,
+          region
+        }),
+        extra
+      }),
+      {
+        provider: "gcp",
+        schema: "gcp-deep.v1",
+        deepScan: "gcp_dialogflow_cx_list",
         agentId: id,
         agentName: name,
         agentType: "dialogflow_cx_agent",
-        agentStatus: "confirmed",
-        agentRuntimeStatus: "unknown",
-        source: "gcp_dialogflow_cx",
-        runtimeDetected: false,
-        runtimeStatus: "unknown",
-        runtimeType: "dialogflow_cx",
-        runtimeId: id,
-        runtimeName: name,
-        resourceId: id,
-        region
-      }),
-      extra
-    });
+        foundationModel: model || null,
+        description: extra.displayName || name,
+        tools: [],
+        limitations: [
+          "Dialogflow CX list confirms the agent; flows/pages/tools require additional APIs not expanded here.",
+        ],
+      }
+    );
   }
 
   if (classification.category === "vertex_reasoning_engine") {
-    return gcpObservation({
-      conn,
-      id,
-      name,
-      gcpType,
-      service,
-      region,
-      classification,
-      model,
-      fingerprint: `gcp-agent:${conn.config.projectId}:${id}`,
-      discoveryLayer: "agent",
-      inventoryClass: "ai_cloud_agent",
-      confidence: 0.95,
-      evidence: [
-        "Vertex AI Reasoning Engine returned by AI Platform API",
-        "List API does not reliably expose continuous runtime; runtimeStatus=unknown"
-      ],
-      runtimeStatusReason: "Vertex Reasoning Engine list has no continuous runtime status field",
-      agentRuntime: buildAgentAndRuntime({
-        agentDetected: true,
-        detectionMethod: "vertex_reasoning_engine_api",
+    return alignObservationWithDeepSurface(
+      gcpObservation({
+        conn,
+        id,
+        name,
+        gcpType,
+        service,
+        region,
+        classification,
+        model,
+        fingerprint: `gcp-agent:${conn.config.projectId}:${id}`,
+        discoveryLayer: "agent",
+        inventoryClass: "ai_cloud_agent",
+        confidence: 0.95,
+        evidence: [
+          "Vertex AI Reasoning Engine returned by AI Platform API",
+          "List API does not reliably expose continuous runtime; runtimeStatus=unknown"
+        ],
+        runtimeStatusReason: "Vertex Reasoning Engine list has no continuous runtime status field",
+        agentRuntime: buildAgentAndRuntime({
+          agentDetected: true,
+          detectionMethod: "vertex_reasoning_engine_api",
+          agentId: id,
+          agentName: name,
+          agentType: "vertex_reasoning_engine",
+          agentStatus: "confirmed",
+          agentRuntimeStatus: "unknown",
+          source: "gcp_vertex_reasoning_engine",
+          runtimeDetected: false,
+          runtimeStatus: "unknown",
+          runtimeType: "vertex_reasoning_engine",
+          runtimeId: id,
+          runtimeName: name,
+          resourceId: id,
+          region
+        }),
+        extra
+      }),
+      {
+        provider: "gcp",
+        schema: "gcp-deep.v1",
+        deepScan: "gcp_vertex_reasoning_engine_list",
         agentId: id,
         agentName: name,
         agentType: "vertex_reasoning_engine",
-        agentStatus: "confirmed",
-        agentRuntimeStatus: "unknown",
-        source: "gcp_vertex_reasoning_engine",
-        runtimeDetected: false,
-        runtimeStatus: "unknown",
-        runtimeType: "vertex_reasoning_engine",
-        runtimeId: id,
-        runtimeName: name,
-        resourceId: id,
-        region
-      }),
-      extra
-    });
+        foundationModel: model || null,
+        tools: [],
+        limitations: [
+          "Reasoning Engine list confirms the agent; tool/spec detail APIs are thin vs Bedrock GetAgent.",
+        ],
+      }
+    );
   }
 
   if (classification.category === "vertex_endpoint") {
