@@ -124,7 +124,7 @@ export function buildAgentExecutionTopology(agent: AnyRec): ExecTopology {
       edges: [],
       confidence: 0,
       emptyReason:
-        "No metadata.deep or adversarial_surface yet. Re-run AWS discovery after granting GetAgent IAM."
+        "No metadata.deep or adversarial_surface yet. Re-run discovery after granting deep-scan permissions (AWS GetAgent or Agent 365 CopilotPackages.Read.All)."
     };
   }
 
