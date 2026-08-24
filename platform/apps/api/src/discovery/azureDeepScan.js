@@ -1999,19 +1999,17 @@ export async function validateAzureConnectorCapabilities(conn) {
 /* =========================================================================
  * NEW: Entra Agent ID discovery (Microsoft Graph, tenant-scoped)
  *
- * Targets the actual Entra Agent ID type Microsoft assigns to Copilot
- * Studio and Agent 365 agents: a service principal with
- * servicePrincipalType = "ServiceIdentity" (and @odata.type =
- * "#microsoft.graph.agentIdentity" on newer Graph versions). This is a
- * real, platform-confirmed agent identity — distinct from entraIdentity.js's
- * broader heuristic name/tag match over ALL service principals/applications,
- * which only catches agents that happen to have an AI-sounding name.
- * entraIdentity.js is left unchanged and still useful as a wider net; this
- * collector is the authoritative, narrow one.
+ * Official list API (Graph v1.0 / beta):
+ *   GET /servicePrincipals/microsoft.graph.agentIdentity
+ * Permission: AgentIdentity.Read.All (application), admin-consented.
  *
- * Requires Graph application permission Application.Read.All (or
- * Directory.Read.All), admin-consented. No Defender/Advanced Hunting
- * license required — this is core Entra ID.
+ * Older code filtered servicePrincipals?$filter=servicePrincipalType eq
+ * 'ServiceIdentity' — that often returns empty or 400 on tenants where the
+ * cast endpoint is the supported path. We try the cast endpoint first, then
+ * beta, then the filter, then a client-side fallback.
+ *
+ * Requires Graph application permission AgentIdentity.Read.All (preferred) or
+ * Application.Read.All / Directory.Read.All on older tenants. No Defender license.
  * ========================================================================= */
 
 const ENTRA_AGENT_ID_SCAN = String(process.env.ENTRA_AGENT_ID_SCAN || "true").toLowerCase() !== "false";
@@ -2023,28 +2021,63 @@ const GRAPH_SCOPE = "https://graph.microsoft.com/.default";
 // key isn't wired up yet in this checkout.
 const GRAPH_POLICY = ALLOW.graphMicrosoft || { allowHosts: ["graph.microsoft.com"] };
 
+const AGENT_IDENTITY_SELECT =
+  "id,appId,displayName,servicePrincipalType,createdDateTime,accountEnabled,tags,publisherName,appOwnerOrganizationId";
+const AGENT_IDENTITY_CAST_SELECT = `${AGENT_IDENTITY_SELECT},agentIdentityBlueprintId,createdByAppId`;
+
+const AGENT_IDENTITY_CAST_URLS = [
+  `https://graph.microsoft.com/v1.0/servicePrincipals/microsoft.graph.agentIdentity?$select=${AGENT_IDENTITY_CAST_SELECT}`,
+  `https://graph.microsoft.com/beta/servicePrincipals/microsoft.graph.agentIdentity?$select=${AGENT_IDENTITY_CAST_SELECT}`
+];
+
 const AGENT_IDENTITY_FILTER_URL =
   "https://graph.microsoft.com/v1.0/servicePrincipals" +
-  "?$filter=servicePrincipalType eq 'ServiceIdentity'" +
-  "&$select=id,appId,displayName,servicePrincipalType,createdDateTime,accountEnabled,tags,publisherName,appOwnerOrganizationId";
+  `?$count=true&$filter=servicePrincipalType eq 'ServiceIdentity'` +
+  `&$select=${AGENT_IDENTITY_SELECT}`;
 
 const ENTRA_AGENT_ID_FALLBACK_URL =
   "https://graph.microsoft.com/v1.0/servicePrincipals" +
-  "?$select=id,appId,displayName,servicePrincipalType,createdDateTime,accountEnabled,tags,publisherName,appOwnerOrganizationId";
+  `?$select=${AGENT_IDENTITY_SELECT}`;
+
+function isAgentIdentityPrincipal(sp = {}) {
+  return (
+    sp.servicePrincipalType === "ServiceIdentity" ||
+    sp["@odata.type"] === "#microsoft.graph.agentIdentity" ||
+    Boolean(sp.agentIdentityBlueprintId)
+  );
+}
+
+function dedupeById(items = []) {
+  const seen = new Set();
+  const out = [];
+  for (const item of items) {
+    const id = item?.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(item);
+  }
+  return out;
+}
 
 /**
  * Shared Graph GET-all-pages helper (used by Entra Agent ID + Teams catalog
  * collectors below). Never throws on HTTP failure when optional=true —
  * mirrors the armGet/dataPlaneGet convention used throughout this file.
  */
-async function graphGetAllPages(url, token, { optional = true } = {}) {
+async function graphGetAllPages(url, token, { optional = true, headers = {} } = {}) {
   let items = [];
   let next = url;
   while (next) {
     assertAllowedUrl(next, GRAPH_POLICY);
     const res = await safeFetch(
       next,
-      { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+          ...headers
+        }
+      },
       GRAPH_POLICY
     );
     const json = await res.json().catch(() => ({}));
@@ -2056,7 +2089,10 @@ async function graphGetAllPages(url, token, { optional = true } = {}) {
           status: res.status,
           permissionDenied,
           items,
-          error: sanitizeAzureError(json.error?.message || `Graph request failed (${res.status})`)
+          error: sanitizeAzureError(
+            json.error?.message || json.error?.code || `Graph request failed (${res.status})`
+          ),
+          errorCode: json.error?.code || null
         };
       }
       throw new Error(sanitizeAzureError(json.error?.message || `Graph request failed (${res.status})`));
@@ -2089,6 +2125,7 @@ function entraAgentIdentityObservation(sp, conn, tenantId) {
       name: `${displayName} (Entra Agent ID)`,
       category: "identity",
       provider: "entra_agent_id",
+      cloud_provider: "azure",
       deployment_type: "identity",
       region: "global",
       running_status: sp.accountEnabled === false ? "disabled" : "unknown",
@@ -2105,10 +2142,13 @@ function entraAgentIdentityObservation(sp, conn, tenantId) {
         inventoryClass: "ai_cloud_agent",
         evidenceClass: "platform_agent",
         agentStatus: "confirmed",
+        cloudProvider: "azure",
         tenantId,
         objectId: sp.id,
         appId: sp.appId || null,
-        servicePrincipalType: sp.servicePrincipalType,
+        servicePrincipalType: sp.servicePrincipalType || "ServiceIdentity",
+        agentIdentityBlueprintId: sp.agentIdentityBlueprintId || null,
+        createdByAppId: sp.createdByAppId || null,
         publisherName: sp.publisherName || null,
         appOwnerOrganizationId: sp.appOwnerOrganizationId || null,
         createdDateTime: sp.createdDateTime || null,
@@ -2116,8 +2156,8 @@ function entraAgentIdentityObservation(sp, conn, tenantId) {
         aiRelevant: true,
         environment: conn.environment,
         evidence: [
-          "servicePrincipalType=ServiceIdentity (Microsoft Entra Agent ID)",
-          "Confirms a real agent identity — covers Copilot Studio agents (auto-assigned since Jul 2026) and Agent 365-onboarded agents",
+          "Listed via Microsoft Graph agentIdentity API (Entra Agent ID)",
+          "Confirms a real agent identity — covers Copilot Studio and Agent 365-onboarded agents",
           "Does not require the object's display name to mention AI/agent/copilot"
         ]
       },
@@ -2149,6 +2189,7 @@ export async function discoverEntraAgentIdentities(conn) {
   const tenantId = conn.config.tenantId;
   const creds = { tenantId, clientId: conn.config.clientId, clientSecret: conn.secrets.clientSecret };
   const discoveryErrors = [];
+  const attempts = [];
 
   let token;
   try {
@@ -2158,41 +2199,101 @@ export async function discoverEntraAgentIdentities(conn) {
     return { observations: [], stats: { agentIdentitiesFound: 0 }, discoveryErrors };
   }
 
-  let result = await graphGetAllPages(AGENT_IDENTITY_FILTER_URL, token, { optional: true });
+  let items = [];
+  let sourceApi = null;
 
-  // Some tenants/Graph API versions reject the servicePrincipalType filter
-  // with a 400 - fall back to client-side filtering rather than lose coverage.
-  if (!result.ok && result.status === 400) {
-    discoveryErrors.push({
-      discoveryType: "entra-agent-id-filter",
-      discoveryStatus: "fallback",
-      error: "Server-side servicePrincipalType filter rejected (400); falling back to client-side scan"
+  // 1) Official cast endpoint (v1.0 then beta)
+  for (const url of AGENT_IDENTITY_CAST_URLS) {
+    const result = await graphGetAllPages(url, token, { optional: true });
+    attempts.push({
+      api: url.includes("/beta/") ? "agentIdentity-cast-beta" : "agentIdentity-cast-v1",
+      ok: result.ok,
+      status: result.status || (result.ok ? 200 : null),
+      count: (result.items || []).length,
+      error: result.error || null
     });
+    if (result.ok) {
+      items = result.items || [];
+      sourceApi = url.includes("/beta/") ? "agentIdentity-cast-beta" : "agentIdentity-cast-v1";
+      break;
+    }
+    if (result.permissionDenied) {
+      discoveryErrors.push({
+        discoveryType: "entra-agent-id-list",
+        discoveryStatus: "permission_denied",
+        error:
+          `${result.error || "Graph denied agentIdentity list"} — grant application permission AgentIdentity.Read.All (preferred) or Application.Read.All, then admin-consent`,
+        api: url.includes("/beta/") ? "beta" : "v1.0"
+      });
+      // Keep trying alternate endpoints; some tenants allow filter but not cast (or vice versa).
+    }
+  }
+
+  // 2) OData filter on servicePrincipals (needs ConsistencyLevel for some tenants)
+  if (!items.length) {
+    const filtered = await graphGetAllPages(AGENT_IDENTITY_FILTER_URL, token, {
+      optional: true,
+      headers: { ConsistencyLevel: "eventual" }
+    });
+    attempts.push({
+      api: "servicePrincipalType-filter",
+      ok: filtered.ok,
+      status: filtered.status || (filtered.ok ? 200 : null),
+      count: (filtered.items || []).length,
+      error: filtered.error || null
+    });
+    if (filtered.ok && (filtered.items || []).length) {
+      items = filtered.items;
+      sourceApi = "servicePrincipalType-filter";
+    } else if (!filtered.ok && filtered.permissionDenied) {
+      discoveryErrors.push({
+        discoveryType: "entra-agent-id-filter",
+        discoveryStatus: "permission_denied",
+        error: filtered.error || "Graph denied servicePrincipals filter"
+      });
+    }
+  }
+
+  // 3) Client-side scan fallback when filter/cast unavailable (400) or empty
+  if (!items.length) {
     const all = await graphGetAllPages(ENTRA_AGENT_ID_FALLBACK_URL, token, { optional: true });
-    result = {
+    attempts.push({
+      api: "servicePrincipals-client-filter",
       ok: all.ok,
-      permissionDenied: all.permissionDenied,
-      items: (all.items || []).filter(
-        (sp) => sp.servicePrincipalType === "ServiceIdentity" || sp["@odata.type"] === "#microsoft.graph.agentIdentity"
-      )
-    };
-  }
-
-  if (!result.ok) {
-    discoveryErrors.push({
-      discoveryType: "entra-agent-id-list",
-      discoveryStatus: result.permissionDenied ? "permission_denied" : "error",
-      error: result.error || "Failed to list Entra Agent ID service principals"
+      status: all.status || (all.ok ? 200 : null),
+      count: (all.items || []).length,
+      error: all.error || null
     });
-    return { observations: [], stats: { agentIdentitiesFound: 0 }, discoveryErrors };
+    if (all.ok) {
+      items = (all.items || []).filter(isAgentIdentityPrincipal);
+      sourceApi = "servicePrincipals-client-filter";
+      if (!items.length) {
+        discoveryErrors.push({
+          discoveryType: "entra-agent-id-empty",
+          discoveryStatus: "empty",
+          error:
+            "Graph returned service principals but none matched ServiceIdentity / agentIdentity. If Entra UI shows agents, they may be legacy Application SPs — also run Power Platform / Agent 365 catalog discovery."
+        });
+      }
+    } else if (!discoveryErrors.some((e) => e.discoveryStatus === "permission_denied")) {
+      discoveryErrors.push({
+        discoveryType: "entra-agent-id-list",
+        discoveryStatus: all.permissionDenied ? "permission_denied" : "error",
+        error: all.error || "Failed to list Entra Agent ID principals"
+      });
+    }
   }
 
-  const items = (result.items || []).slice(0, ENTRA_AGENT_ID_MAX);
+  items = dedupeById(items).slice(0, ENTRA_AGENT_ID_MAX);
   const observations = items.map((sp) => entraAgentIdentityObservation(sp, conn, tenantId));
 
   return {
     observations,
-    stats: { agentIdentitiesFound: items.length, scanned: (result.items || []).length },
+    stats: {
+      agentIdentitiesFound: items.length,
+      sourceApi,
+      attempts
+    },
     discoveryErrors
   };
 }
@@ -2266,6 +2367,7 @@ function copilotStudioAgentObservation({ bot, env, conn, tenantId }) {
       name: `${displayName} (Copilot Studio)`,
       category: "saas",
       provider: "power_platform",
+      cloud_provider: "azure",
       deployment_type: "saas",
       region: "global",
       running_status: runtimeStatus,
@@ -2282,6 +2384,7 @@ function copilotStudioAgentObservation({ bot, env, conn, tenantId }) {
         inventoryClass: "ai_cloud_agent",
         evidenceClass: "platform_agent",
         agentStatus: "confirmed",
+        cloudProvider: "azure",
         tenantId,
         environmentId: env.environmentId,
         environmentDisplayName: env.environmentDisplayName,
@@ -2586,6 +2689,8 @@ export async function discoverTeamsAgentApps(conn) {
  * ========================================================================= */
 
 const M365_AGENT_REGISTRY_SCAN = String(process.env.M365_AGENT_REGISTRY_SCAN || "false").toLowerCase() === "true";
+const AZURE_AGENT365_CATALOG_SCAN =
+  String(process.env.AZURE_AGENT365_CATALOG_SCAN || "true").toLowerCase() !== "false";
 
 export async function discoverM365AgentRegistry(conn) {
   if (!M365_AGENT_REGISTRY_SCAN) {
@@ -2613,27 +2718,114 @@ export async function discoverM365AgentRegistry(conn) {
   };
 }
 
+/**
+ * Agent 365 / Copilot admin catalog via the Azure connector's Graph app token.
+ * Same Graph catalog as m365_copilot SaaS — so a tenant that already has
+ * CopilotPackages.Read.All on the Azure app registration can discover the
+ * Agent 365 package without a separate SaaS connector.
+ */
+export async function discoverAgent365CatalogForAzure(conn) {
+  if (!AZURE_AGENT365_CATALOG_SCAN) {
+    return {
+      observations: [],
+      stats: { skipped: true, reason: "AZURE_AGENT365_CATALOG_SCAN=false" },
+      discoveryErrors: []
+    };
+  }
+
+  const tenantId = conn.config.tenantId;
+  const creds = { tenantId, clientId: conn.config.clientId, clientSecret: conn.secrets.clientSecret };
+  const discoveryErrors = [];
+
+  let token;
+  try {
+    token = await getAzureAccessToken({ ...creds, scope: GRAPH_SCOPE });
+  } catch (err) {
+    discoveryErrors.push({
+      discoveryType: "agent365-catalog-token",
+      discoveryStatus: "error",
+      error: sanitizeAzureError(err)
+    });
+    return { observations: [], stats: { agent365CatalogAgents: 0 }, discoveryErrors };
+  }
+
+  const saas = await import("./saasPlatforms.js");
+  const deep = await import("./agent365DeepScan.js");
+  const {
+    listAgent365CatalogPackages,
+    isAgent365CatalogPackage,
+    mapAgent365PackageToObservation
+  } = saas;
+  const { enrichAgent365WithDeepScan } = deep;
+
+  // Use a synthetic conn provider so mapAgent365PackageToObservation stamps m365_copilot.
+  const catalogConn = {
+    ...conn,
+    provider: "m365_copilot",
+    config: { ...conn.config, tenantId }
+  };
+
+  const catalog = await listAgent365CatalogPackages(token, { discoveryErrors });
+  const packages = (catalog.packages || []).filter(isAgent365CatalogPackage);
+  let observations = [];
+  for (const pkg of packages) {
+    const obs = mapAgent365PackageToObservation(catalogConn, pkg);
+    if (!obs) continue;
+    // Keep azure cloud facet visibility while preserving Agent 365 provider.
+    obs.cloud_provider = "azure";
+    obs.metadata = {
+      ...(obs.metadata || {}),
+      cloudProvider: "azure",
+      discoveredVia: "azure_ecosystem_graph_catalog"
+    };
+    observations.push(obs);
+  }
+
+  observations = await enrichAgent365WithDeepScan(observations, token);
+
+  if (!observations.length && discoveryErrors.some((e) => e.discoveryStatus === "permission_denied")) {
+    // Already recorded by listAgent365CatalogPackages
+  } else if (!observations.length) {
+    discoveryErrors.push({
+      discoveryType: "agent365-catalog",
+      discoveryStatus: "empty",
+      error:
+        "Agent 365 catalog returned no agent packages. Confirm CopilotPackages.Read.All + Agent 365 license, or use the m365_copilot SaaS connector."
+    });
+  }
+
+  return {
+    observations,
+    stats: {
+      agent365CatalogAgents: observations.length,
+      catalogApi: catalog.api || null,
+      packagesListed: (catalog.packages || []).length
+    },
+    discoveryErrors
+  };
+}
+
 /* =========================================================================
  * NEW: Single-scanner entry point
  *
- * Runs ARM + Entra Agent ID + Power Platform + Teams catalog + (optional)
- * M365 Agent Registry for one connector and merges everything into one
- * observations/discoveryErrors/statsByCollector result. This is the direct
- * answer to "why doesn't my ARM-only scanner see Copilot Studio or Agent 365
- * agents" — those live in Entra ID / Power Platform / Teams, not as ARM
- * resources under the subscription, so they need their own collectors even
- * though this is "one scanner" from the caller's perspective.
- *
- * discoverAzureConnector() itself is left unchanged (ARM-only, same stats
- * shape as before the merge) for any existing caller that depends on it.
+ * Runs ARM + Entra Agent ID + Power Platform + Teams catalog + Agent 365
+ * Graph catalog + (optional) M365 Agent Registry for one connector.
  * ========================================================================= */
 export async function discoverAzureEcosystem(conn) {
-  const labels = ["arm", "entraAgentId", "powerPlatform", "teamsCatalog", "m365AgentRegistry"];
+  const labels = [
+    "arm",
+    "entraAgentId",
+    "powerPlatform",
+    "teamsCatalog",
+    "agent365Catalog",
+    "m365AgentRegistry"
+  ];
   const results = await Promise.allSettled([
     discoverAzureConnector(conn),
     discoverEntraAgentIdentities(conn),
     discoverPowerPlatformAgents(conn),
     discoverTeamsAgentApps(conn),
+    discoverAgent365CatalogForAzure(conn),
     discoverM365AgentRegistry(conn)
   ]);
 
@@ -2673,13 +2865,16 @@ export async function discoverAzureEcosystem(conn) {
     candidateAgents,
     runtimesDiscovered: Number(armStats.runtimesDiscovered || 0),
     discoveryErrors: discoveryErrors.length,
+    discoveryErrorSamples: discoveryErrors.slice(0, 25),
     nonAiResourcesSkipped: Number(armStats.nonAiResourcesSkipped || 0),
     deepScanned: Number(armStats.deepScanned || 0),
     ecosystem: {
       entraAgentIdentities: Number(statsByCollector.entraAgentId?.agentIdentitiesFound || 0),
+      entraSourceApi: statsByCollector.entraAgentId?.sourceApi || null,
       copilotStudioAgents: Number(statsByCollector.powerPlatform?.agentsFound || 0),
       powerPlatformEnvironments: Number(statsByCollector.powerPlatform?.environmentsScanned || 0),
       teamsAppsFlagged: Number(statsByCollector.teamsCatalog?.agentsFlagged || 0),
+      agent365CatalogAgents: Number(statsByCollector.agent365Catalog?.agent365CatalogAgents || 0),
       m365AgentRegistry: statsByCollector.m365AgentRegistry || {},
     },
     statsByCollector,
