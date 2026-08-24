@@ -39,11 +39,13 @@ describe("Azure Graph probe diagnostics", () => {
     assert.match(src, /tokenRoles/);
     assert.match(src, /missingRoles/);
     assert.match(src, /readGraphProbeFailure/);
-    assert.match(src, /entraProbeUrls/);
+    assert.match(src, /ENTRA_CAPABILITY_PROBES/);
     assert.match(src, /servicePrincipalType-filter/);
     assert.match(src, /despite Graph app roles present/);
+    assert.match(src, /AGENT365_CAPABILITY_PROBES/);
     const connectors = readFileSync(join(here, "../../services/connectors.js"), "utf8");
     assert.match(connectors, /caps\?\.message/);
     assert.match(connectors, /graphProbeDetail/);
+    assert.match(connectors, /entraAgentIdDiscovery=\$\{c\.entraAgentIdDiscovery\}/);
   });
 });
