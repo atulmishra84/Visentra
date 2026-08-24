@@ -442,8 +442,14 @@ export async function testConnector(pool, tenantId, id) {
           config,
           secrets
         });
+        if (caps?.message) {
+          message = `${message} ${caps.message}`;
+        }
         if (caps?.capabilities) {
           message = `${message} Capabilities: ${JSON.stringify(caps.capabilities)}`;
+        }
+        if (caps?.graphProbeDetail) {
+          message = `${message} GraphProbe: ${JSON.stringify(caps.graphProbeDetail)}`;
         }
       } catch {
         /* capability probe is optional */
