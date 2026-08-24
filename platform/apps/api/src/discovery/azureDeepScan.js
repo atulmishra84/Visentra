@@ -2076,32 +2076,113 @@ export async function validateAzureConnectorCapabilities(conn) {
     }
 
     const graphPolicy = ALLOW.graphMicrosoft || { allowHosts: ["graph.microsoft.com"] };
-    const entraProbe = await safeFetch(
-      "https://graph.microsoft.com/v1.0/servicePrincipals/microsoft.graph.agentIdentity?$top=1",
-      { headers: { Authorization: `Bearer ${graphToken}`, Accept: "application/json" } },
-      graphPolicy
-    );
-    capabilities.entraAgentIdDiscovery = entraProbe.ok;
-    if (!entraProbe.ok) {
-      const failure = await readGraphProbeFailure(entraProbe);
-      graphProbeDetail.entra = failure;
-      graphHints.push(
-        `entraAgentIdDiscovery=false (HTTP ${failure.status}${failure.code ? ` ${failure.code}` : ""}: ${failure.message}). Need Application permission AgentIdentity.Read.All + admin consent on clientId=${clientId}.`
+
+    // Try several Entra Agent ID read paths — cast+$top can 400 on some tenants while
+    // unscoped cast or ServiceIdentity filter still works (Application.Read.All).
+    const entraProbeUrls = [
+      {
+        api: "agentIdentity-cast-v1",
+        url: "https://graph.microsoft.com/v1.0/servicePrincipals/microsoft.graph.agentIdentity"
+      },
+      {
+        api: "agentIdentity-cast-v1-top1",
+        url: "https://graph.microsoft.com/v1.0/servicePrincipals/microsoft.graph.agentIdentity?$top=1"
+      },
+      {
+        api: "agentIdentity-cast-beta",
+        url: "https://graph.microsoft.com/beta/servicePrincipals/microsoft.graph.agentIdentity"
+      },
+      {
+        api: "servicePrincipalType-filter",
+        url:
+          "https://graph.microsoft.com/v1.0/servicePrincipals?$count=true&$top=1&$filter=servicePrincipalType eq 'ServiceIdentity'",
+        headers: { ConsistencyLevel: "eventual" }
+      }
+    ];
+    const entraAttempts = [];
+    for (const probe of entraProbeUrls) {
+      const res = await safeFetch(
+        probe.url,
+        {
+          headers: {
+            Authorization: `Bearer ${graphToken}`,
+            Accept: "application/json",
+            ...(probe.headers || {})
+          }
+        },
+        graphPolicy
       );
+      if (res.ok) {
+        capabilities.entraAgentIdDiscovery = true;
+        graphProbeDetail.entra = { ok: true, api: probe.api, status: res.status };
+        // Drain body so the socket can be reused cleanly.
+        await res.json().catch(() => ({}));
+        break;
+      }
+      const failure = await readGraphProbeFailure(res);
+      entraAttempts.push({ api: probe.api, ...failure });
+    }
+    if (!capabilities.entraAgentIdDiscovery) {
+      graphProbeDetail.entra = { ok: false, attempts: entraAttempts };
+      const first = entraAttempts[0] || {};
+      if (hasEntraRole || tokenRoles.includes("Application.Read.All") || tokenRoles.includes("Directory.Read.All")) {
+        graphHints.push(
+          `entraAgentIdDiscovery=false despite Graph app roles present (roles=[${tokenRoles.join(",") || "none"}]). First failure: HTTP ${first.status || "?"} ${first.code || ""} ${first.message || ""}. Confirm Visentra connector clientId equals this app’s Application (client) ID, then re-Test.`
+        );
+      } else {
+        graphHints.push(
+          `entraAgentIdDiscovery=false (HTTP ${first.status || "?"}${first.code ? ` ${first.code}` : ""}: ${first.message || "denied"}). Need Application permission AgentIdentity.Read.All + admin consent on clientId=${clientId}.`
+        );
+      }
     }
 
-    const a365Probe = await safeFetch(
-      "https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages?$top=1",
-      { headers: { Authorization: `Bearer ${graphToken}`, Accept: "application/json" } },
-      graphPolicy
-    );
-    capabilities.agent365CatalogDiscovery = a365Probe.ok;
-    if (!a365Probe.ok) {
-      const failure = await readGraphProbeFailure(a365Probe);
-      graphProbeDetail.agent365 = failure;
-      graphHints.push(
-        `agent365CatalogDiscovery=false (HTTP ${failure.status}${failure.code ? ` ${failure.code}` : ""}: ${failure.message}). Need Application permission CopilotPackages.Read.All + admin consent + Agent 365 license on clientId=${clientId}.`
+    const a365ProbeUrls = [
+      {
+        api: "copilot-catalog-v1",
+        url: "https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages"
+      },
+      {
+        api: "copilot-catalog-v1-top1",
+        url: "https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages?$top=1"
+      },
+      {
+        api: "copilot-catalog-beta",
+        url: "https://graph.microsoft.com/beta/copilot/admin/catalog/packages"
+      }
+    ];
+    const a365Attempts = [];
+    for (const probe of a365ProbeUrls) {
+      const res = await safeFetch(
+        probe.url,
+        {
+          headers: {
+            Authorization: `Bearer ${graphToken}`,
+            Accept: "application/json"
+          }
+        },
+        graphPolicy
       );
+      if (res.ok) {
+        capabilities.agent365CatalogDiscovery = true;
+        graphProbeDetail.agent365 = { ok: true, api: probe.api, status: res.status };
+        await res.json().catch(() => ({}));
+        break;
+      }
+      const failure = await readGraphProbeFailure(res);
+      a365Attempts.push({ api: probe.api, ...failure });
+    }
+    if (!capabilities.agent365CatalogDiscovery) {
+      graphProbeDetail.agent365 = { ok: false, attempts: a365Attempts };
+      const first = a365Attempts[0] || {};
+      if (hasA365Role) {
+        graphHints.push(
+          `agent365CatalogDiscovery=false despite CopilotPackages role in token. First failure: HTTP ${first.status || "?"} ${first.code || ""} ${first.message || ""}. Often means no Agent 365 license / catalog not provisioned in this tenant (Entra Agent ID can still work).`
+        );
+      } else {
+        graphHints.push(
+          `agent365CatalogDiscovery=false (HTTP ${first.status || "?"}${first.code ? ` ${first.code}` : ""}: ${first.message || "denied"}). Need Application permission CopilotPackages.Read.All + admin consent + Agent 365 license on clientId=${clientId}.`
+        );
+      }
     }
   } catch (err) {
     graphHints.push(`Graph token/probe failed: ${sanitizeAzureError(err)}`);

@@ -33,12 +33,15 @@ describe("Azure Graph probe diagnostics", () => {
     assert.deepEqual(claims.roles, []);
   });
 
-  it("capability probe surfaces token roles and Graph HTTP detail", () => {
+  it("capability probe tries multiple Entra Graph paths and surfaces token roles", () => {
     const src = readFileSync(join(here, "../azureDeepScan.js"), "utf8");
     assert.match(src, /graphProbeDetail/);
     assert.match(src, /tokenRoles/);
     assert.match(src, /missingRoles/);
     assert.match(src, /readGraphProbeFailure/);
+    assert.match(src, /entraProbeUrls/);
+    assert.match(src, /servicePrincipalType-filter/);
+    assert.match(src, /despite Graph app roles present/);
     const connectors = readFileSync(join(here, "../../services/connectors.js"), "utf8");
     assert.match(connectors, /caps\?\.message/);
     assert.match(connectors, /graphProbeDetail/);
