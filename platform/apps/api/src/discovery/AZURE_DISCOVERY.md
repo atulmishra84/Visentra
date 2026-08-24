@@ -56,10 +56,21 @@ Live Azure connector scans call **`discoverAzureEcosystem`** (not ARM-only):
 
 ### Why Entra shows agents but Visentra shows none
 
-1. Grant **`AgentIdentity.Read.All`** on the Azure connector app and admin-consent (Application.Read.All alone often cannot call the agentIdentity cast API).
-2. Re-run **Scan cloud** after deploy — check discovery event payload `ecosystem.entraAgentIdentities` and `discoveryErrorSamples`.
-3. Inventory filter: use **All** (not only “Cloud / azure”) — or look for provider `entra_agent_id` / `m365_copilot`. Ecosystem rows also stamp `cloud_provider=azure` so the Azure cloud facet can match.
-4. Legacy Copilot Studio apps that are plain Application service principals (not Agent ID) appear in Entra’s agent list UI but need **Power Platform** Dataverse discovery, not Entra Agent ID.
+Those Entra **"Agent identities"** rows (e.g. `a365ct-…-AgentIdentity`) are **not ARM resources**. They only appear after Graph allows:
+
+`GET /servicePrincipals/microsoft.graph.agentIdentity`
+
+1. On the **same app registration used by the Azure connector** (e.g. AgentRadar-SSO):
+   - Add application permission **`AgentIdentity.Read.All`**
+   - Optionally **`CopilotPackages.Read.All`** for Agent 365 catalog packages
+   - Click **Grant admin consent**
+2. Deploy code that includes Entra Agent ID ecosystem scanning (#55+)
+3. **Test** the Azure connector — capabilities must show `entraAgentIdDiscovery: true`
+4. Re-run **Scan cloud**
+5. Inventory → **All** (or Azure facet). Look for names ending in `AgentIdentity` / provider `entra_agent_id`
+6. If still empty, open the discovery event and check `ecosystem.entraAgentIdentities`, `warning`, and `discoveryErrorSamples`
+
+Legacy Copilot Studio apps that are plain Application service principals (not Agent ID) appear in some Entra lists but need **Power Platform** Dataverse discovery, not Entra Agent ID.
 
 ### Copilot Studio setup
 

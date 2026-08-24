@@ -1929,7 +1929,9 @@ export async function validateAzureConnectorCapabilities(conn) {
     aksDiscovery: false,
     functionsDiscovery: false,
     appServiceDiscovery: false,
-    vmDiscovery: false
+    vmDiscovery: false,
+    entraAgentIdDiscovery: false,
+    agent365CatalogDiscovery: false
   };
 
   let token;
@@ -1987,12 +1989,57 @@ export async function validateAzureConnectorCapabilities(conn) {
     if (!cogToken) capabilities.foundryDiscovery = capabilities.foundryDiscovery && false;
   }
 
+  // Graph probes — required to see Entra Agent identities + Agent 365 catalog
+  // (the 3 agents in Entra "Agent identities" UI need AgentIdentity.Read.All).
+  const graphHints = [];
+  try {
+    const graphToken = await getAzureAccessToken({ ...creds, scope: "https://graph.microsoft.com/.default" });
+    const graphPolicy = ALLOW.graphMicrosoft || { allowHosts: ["graph.microsoft.com"] };
+    const entraProbe = await safeFetch(
+      "https://graph.microsoft.com/v1.0/servicePrincipals/microsoft.graph.agentIdentity?$top=1",
+      { headers: { Authorization: `Bearer ${graphToken}`, Accept: "application/json" } },
+      graphPolicy
+    );
+    capabilities.entraAgentIdDiscovery = entraProbe.ok;
+    if (!entraProbe.ok) {
+      graphHints.push(
+        entraProbe.status === 401 || entraProbe.status === 403
+          ? "entraAgentIdDiscovery=false — grant AgentIdentity.Read.All (application) + admin consent on this app registration"
+          : `entraAgentIdDiscovery=false (Graph HTTP ${entraProbe.status})`
+      );
+    }
+
+    const a365Probe = await safeFetch(
+      "https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages?$top=1",
+      { headers: { Authorization: `Bearer ${graphToken}`, Accept: "application/json" } },
+      graphPolicy
+    );
+    capabilities.agent365CatalogDiscovery = a365Probe.ok;
+    if (!a365Probe.ok) {
+      graphHints.push(
+        a365Probe.status === 401 || a365Probe.status === 403
+          ? "agent365CatalogDiscovery=false — grant CopilotPackages.Read.All (application) + admin consent + Agent 365 license"
+          : `agent365CatalogDiscovery=false (Graph HTTP ${a365Probe.status})`
+      );
+    }
+  } catch (err) {
+    graphHints.push(`Graph token/probe failed: ${sanitizeAzureError(err)}`);
+  }
+
+  const messageParts = [
+    capabilities.arm
+      ? "Azure connector capability probe completed (read-only)."
+      : "Azure ARM capability probe failed."
+  ];
+  if (graphHints.length) messageParts.push(...graphHints);
+  if (capabilities.entraAgentIdDiscovery && capabilities.agent365CatalogDiscovery) {
+    messageParts.push("Entra Agent ID + Agent 365 catalog Graph probes OK.");
+  }
+
   return {
     ok: capabilities.arm,
     capabilities,
-    message: capabilities.arm
-      ? "Azure connector capability probe completed (read-only)."
-      : "Azure ARM capability probe failed."
+    message: messageParts.join(" ")
   };
 }
 
@@ -2025,8 +2072,12 @@ const AGENT_IDENTITY_SELECT =
   "id,appId,displayName,servicePrincipalType,createdDateTime,accountEnabled,tags,publisherName,appOwnerOrganizationId";
 const AGENT_IDENTITY_CAST_SELECT = `${AGENT_IDENTITY_SELECT},agentIdentityBlueprintId,createdByAppId`;
 
+// Prefer unscoped cast first (avoids $select rejecting unknown props on some tenants),
+// then cast+$select, then beta variants.
 const AGENT_IDENTITY_CAST_URLS = [
+  "https://graph.microsoft.com/v1.0/servicePrincipals/microsoft.graph.agentIdentity",
   `https://graph.microsoft.com/v1.0/servicePrincipals/microsoft.graph.agentIdentity?$select=${AGENT_IDENTITY_CAST_SELECT}`,
+  "https://graph.microsoft.com/beta/servicePrincipals/microsoft.graph.agentIdentity",
   `https://graph.microsoft.com/beta/servicePrincipals/microsoft.graph.agentIdentity?$select=${AGENT_IDENTITY_CAST_SELECT}`
 ];
 
@@ -2879,6 +2930,20 @@ export async function discoverAzureEcosystem(conn) {
     },
     statsByCollector,
   };
+
+  const entraDenied = discoveryErrors.some(
+    (e) => e.collector === "entraAgentId" && e.discoveryStatus === "permission_denied"
+  );
+  const a365Denied = discoveryErrors.some(
+    (e) => e.collector === "agent365Catalog" && e.discoveryStatus === "permission_denied"
+  );
+  if (stats.ecosystem.entraAgentIdentities === 0 && entraDenied) {
+    stats.warning =
+      "Entra Agent identities not readable — grant AgentIdentity.Read.All on the connector app (AgentRadar-SSO / Azure app registration), admin-consent, then re-scan. Entra UI agents will not appear until Graph allows GET /servicePrincipals/microsoft.graph.agentIdentity.";
+  } else if (stats.ecosystem.agent365CatalogAgents === 0 && a365Denied) {
+    stats.warning =
+      "Agent 365 catalog denied — grant CopilotPackages.Read.All + Agent 365 license, admin-consent, then re-scan.";
+  }
 
   return {
     observations,
