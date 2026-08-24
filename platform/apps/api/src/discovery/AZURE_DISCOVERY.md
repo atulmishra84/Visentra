@@ -45,21 +45,29 @@ Connector credentials stay on the connector. Global env only tunes scan behavior
 
 Live Azure connector scans call **`discoverAzureEcosystem`** (not ARM-only):
 
-| Plane | What it finds | Default |
-|---|---|---|
-| ARM | Foundry agents, Assistants, Bot Service, AI resources, compute heuristics | on |
-| Entra Agent ID | Graph `ServiceIdentity` principals (Copilot Studio / Agent 365 identities) | `ENTRA_AGENT_ID_SCAN=true` |
-| Power Platform | Copilot Studio agents as Dataverse `bot` records | `POWER_PLATFORM_SCAN=true` |
-| Teams catalog | Org Teams apps with bots (confirmed) or agent heuristics (candidate) | `TEAMS_CATALOG_SCAN=true` |
-| M365 Agent Registry | Defender XDR Advanced Hunting | off / not implemented |
+| Plane | What it finds | Default | Required permission |
+|---|---|---|---|
+| ARM | Foundry agents, Assistants, Bot Service, AI resources, compute heuristics | on | Azure Reader / Cognitive roles |
+| Entra Agent ID | Graph `GET /servicePrincipals/microsoft.graph.agentIdentity` | `ENTRA_AGENT_ID_SCAN=true` | **`AgentIdentity.Read.All`** (preferred) or Application.Read.All |
+| Power Platform | Copilot Studio agents as Dataverse `bot` records | `POWER_PLATFORM_SCAN=true` | Power Platform management app + Dataverse app user |
+| Teams catalog | Org Teams apps with bots (confirmed) or agent heuristics (candidate) | `TEAMS_CATALOG_SCAN=true` | `TeamsApp.Read.All` |
+| Agent 365 catalog | Graph Copilot admin catalog packages | `AZURE_AGENT365_CATALOG_SCAN=true` | **`CopilotPackages.Read.All`** + Agent 365 license |
+| M365 Agent Registry | Defender XDR Advanced Hunting | off / not implemented | Defender XDR |
+
+### Why Entra shows agents but Visentra shows none
+
+1. Grant **`AgentIdentity.Read.All`** on the Azure connector app and admin-consent (Application.Read.All alone often cannot call the agentIdentity cast API).
+2. Re-run **Scan cloud** after deploy — check discovery event payload `ecosystem.entraAgentIdentities` and `discoveryErrorSamples`.
+3. Inventory filter: use **All** (not only “Cloud / azure”) — or look for provider `entra_agent_id` / `m365_copilot`. Ecosystem rows also stamp `cloud_provider=azure` so the Azure cloud facet can match.
+4. Legacy Copilot Studio apps that are plain Application service principals (not Agent ID) appear in Entra’s agent list UI but need **Power Platform** Dataverse discovery, not Entra Agent ID.
 
 ### Copilot Studio setup
 
 1. Register the connector app as a Power Platform management app: `New-PowerAppManagementApp -ApplicationId <clientId>`
 2. Add the app’s service principal as an **Application User** with a security role in each Dataverse environment to scan
-3. Graph permissions for Entra Agent ID / Teams: application read on service principals / Teams app catalog (admin consent)
+3. Graph permissions for Entra Agent ID / Teams / Agent 365 as in the table above
 
-> Published **Agent 365 catalog** packages are still best covered by the `m365_copilot` connector (Graph Copilot admin catalog). Entra Agent ID + Power Platform catch Studio/identity planes the subscription ARM scan cannot see.
+> You can still use a dedicated `m365_copilot` SaaS connector for Agent 365; the Azure ecosystem now also calls the same Graph catalog when `CopilotPackages.Read.All` is on the Azure app.
 
 ## Discovery layers (evidence)
 

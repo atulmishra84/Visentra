@@ -92,7 +92,14 @@ export function classifyAgentEvidence(obs = {}) {
 
   // --- classify ---
   if (!evidenceClass) {
-    if (managedPlatform || category === "saas" || collector === "saas_platform") {
+    if (
+      managedPlatform ||
+      category === "saas" ||
+      collector === "saas_platform" ||
+      collector === "identity_entra_agent" ||
+      collector === "saas_copilot_studio" ||
+      inventoryClass === "ai_cloud_agent"
+    ) {
       evidenceClass = "platform_agent";
     } else if (
       inventoryClass === "ide_ai_agent" ||
