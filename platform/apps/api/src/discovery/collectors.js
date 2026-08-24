@@ -339,12 +339,13 @@ export const collectors = {
       if (ctx.pool && ctx.tenantId) {
         try {
           const { listActiveCloudConnectors } = await import("../services/connectors.js");
-          const { discoverAzureConnector } = await import("./azureArm.js");
+          // Azure uses the ecosystem scanner (ARM + Entra Agent ID + Copilot Studio + Teams).
+          const { discoverAzureEcosystem } = await import("./azureArm.js");
           const { discoverAwsConnector } = await import("./awsCloud.js");
           const { discoverGcpConnector } = await import("./gcpCloud.js");
           const connectors = await listActiveCloudConnectors(ctx.pool, ctx.tenantId);
           const discoverers = {
-            azure: discoverAzureConnector,
+            azure: discoverAzureEcosystem,
             aws: discoverAwsConnector,
             gcp: discoverGcpConnector
           };
@@ -363,7 +364,7 @@ export const collectors = {
                      VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
                     [
                       ctx.tenantId,
-                      `${label} connector "${conn.name}" scanned ${stats.totalResourcesScanned || 0} resources — ingested ${stats.cloudResourcesIngested || 0} AI assets (${stats.aiRelevantResources || 0} AI-relevant, ${stats.agentsDiscovered || 0} agents, ${stats.runtimesDiscovered || 0} runtimes${stats.deepScanned != null ? `, deep-scanned ${stats.deepScanned}` : ""}${stats.nonAiResourcesSkipped != null ? `, skipped ${stats.nonAiResourcesSkipped} non-AI` : ""}${stats.discoveryErrors ? `, ${stats.discoveryErrors} discovery errors` : ""})`,
+                      `${label} connector "${conn.name}" scanned ${stats.totalResourcesScanned || 0} resources — ingested ${stats.cloudResourcesIngested || observations.length || 0} AI assets (${stats.aiRelevantResources || 0} AI-relevant, ${stats.agentsDiscovered || 0} agents${stats.ecosystem?.copilotStudioAgents != null ? ` incl. ${stats.ecosystem.copilotStudioAgents} Copilot Studio` : ""}${stats.ecosystem?.entraAgentIdentities != null ? `, ${stats.ecosystem.entraAgentIdentities} Entra Agent ID` : ""}, ${stats.runtimesDiscovered || 0} runtimes${stats.deepScanned != null ? `, deep-scanned ${stats.deepScanned}` : ""}${stats.nonAiResourcesSkipped != null ? `, skipped ${stats.nonAiResourcesSkipped} non-AI` : ""}${stats.discoveryErrors ? `, ${stats.discoveryErrors} discovery errors` : ""})`,
                       JSON.stringify({
                         connectorId: conn.id,
                         provider: conn.provider,
