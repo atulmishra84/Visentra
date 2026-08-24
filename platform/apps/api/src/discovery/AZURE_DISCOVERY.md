@@ -67,8 +67,8 @@ Those Entra **"Agent identities"** rows (e.g. `a365ct-…-AgentIdentity`) are **
 2. Deploy code that includes Entra Agent ID ecosystem scanning (#55+)
 3. **Test** the Azure connector — capabilities must show `entraAgentIdDiscovery: true`
 4. Re-run **Scan cloud**
-5. Inventory → **All** (or Azure facet). Look for names ending in `AgentIdentity` / provider `entra_agent_id`
-6. If still empty, open the discovery event and check `ecosystem.entraAgentIdentities`, `warning`, and `discoveryErrorSamples`
+5. Inventory → **All** or **Cloud** (Cloud includes `cloud_provider=azure` rows such as Entra Agent ID / Copilot Studio, not only `category=cloud`). Look for names ending in `AgentIdentity` / provider `entra_agent_id`
+6. If still empty, open the discovery event and check `ecosystem.entraAgentIdentities`, `warning`, `statsByCollector.entraAgentId.attempts`, and `discoveryErrorSamples`
 
 Legacy Copilot Studio apps that are plain Application service principals (not Agent ID) appear in some Entra lists but need **Power Platform** Dataverse discovery, not Entra Agent ID.
 
