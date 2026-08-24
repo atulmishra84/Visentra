@@ -1912,6 +1912,38 @@ export async function validateAzureConnector(conn) {
 }
 
 /**
+ * Decode an Entra access-token payload (no signature verify) for diagnostics.
+ * App-only Graph tokens expose granted application roles in `roles`.
+ */
+export function decodeEntraAccessTokenClaims(accessToken) {
+  try {
+    const parts = String(accessToken || "").split(".");
+    if (parts.length < 2) return null;
+    const json = Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    const payload = JSON.parse(json);
+    const roles = Array.isArray(payload.roles) ? payload.roles.map(String) : [];
+    return {
+      roles,
+      appid: payload.appid || payload.azp || null,
+      tid: payload.tid || null,
+      aud: payload.aud || null
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function readGraphProbeFailure(res) {
+  const json = await res.json().catch(() => ({}));
+  const err = json?.error || {};
+  return {
+    status: res.status,
+    code: err.code || null,
+    message: sanitizeAzureError(err.message || err.code || `Graph HTTP ${res.status}`)
+  };
+}
+
+/**
  * Non-destructive capability probe — does not scan the full subscription.
  */
 export async function validateAzureConnectorCapabilities(conn) {
@@ -1934,6 +1966,16 @@ export async function validateAzureConnectorCapabilities(conn) {
     agent365CatalogDiscovery: false
   };
 
+  const graphProbeDetail = {
+    clientId,
+    tenantId,
+    tokenRoles: [],
+    tokenAppId: null,
+    missingRoles: [],
+    entra: null,
+    agent365: null
+  };
+
   let token;
   try {
     token = await getAzureAccessToken(creds);
@@ -1944,7 +1986,7 @@ export async function validateAzureConnectorCapabilities(conn) {
     );
     capabilities.arm = sub.ok;
   } catch {
-    return { ok: false, capabilities, message: "ARM authentication failed" };
+    return { ok: false, capabilities, message: "ARM authentication failed", graphProbeDetail };
   }
 
   async function probe(path) {
@@ -1992,8 +2034,47 @@ export async function validateAzureConnectorCapabilities(conn) {
   // Graph probes — required to see Entra Agent identities + Agent 365 catalog
   // (the 3 agents in Entra "Agent identities" UI need AgentIdentity.Read.All).
   const graphHints = [];
+  const REQUIRED_ENTRA_ROLES = ["AgentIdentity.Read.All", "AgentIdentity.ReadWrite.All"];
+  const REQUIRED_A365_ROLES = ["CopilotPackages.Read.All", "CopilotPackages.ReadWrite.All"];
   try {
     const graphToken = await getAzureAccessToken({ ...creds, scope: "https://graph.microsoft.com/.default" });
+    const claims = decodeEntraAccessTokenClaims(graphToken);
+    const tokenRoles = claims?.roles || [];
+    graphProbeDetail.tokenRoles = tokenRoles;
+    graphProbeDetail.tokenAppId = claims?.appid || null;
+    if (claims?.tid && String(claims.tid) !== String(tenantId)) {
+      graphHints.push(
+        `Graph token tid=${claims.tid} differs from connector tenantId=${tenantId} — verify the connector tenant.`
+      );
+    }
+    if (claims?.appid && String(claims.appid) !== String(clientId)) {
+      graphHints.push(
+        `Graph token appid=${claims.appid} differs from connector clientId=${clientId} — permissions may be on a different app registration.`
+      );
+    }
+
+    const hasEntraRole = REQUIRED_ENTRA_ROLES.some((r) => tokenRoles.includes(r));
+    const hasA365Role = REQUIRED_A365_ROLES.some((r) => tokenRoles.includes(r));
+    if (!hasEntraRole) graphProbeDetail.missingRoles.push("AgentIdentity.Read.All");
+    if (!hasA365Role) graphProbeDetail.missingRoles.push("CopilotPackages.Read.All");
+
+    if (!tokenRoles.length) {
+      graphHints.push(
+        `Graph token has no application roles for clientId=${clientId}. In Entra → App registrations → this app (Application ID must match connector clientId) → API permissions: add Application (not Delegated) AgentIdentity.Read.All + CopilotPackages.Read.All, then click Grant admin consent. Status must show green checkmarks for the tenant — listing the permission without consent leaves roles empty.`
+      );
+    } else {
+      if (!hasEntraRole) {
+        graphHints.push(
+          `Token roles=[${tokenRoles.join(",")}] missing AgentIdentity.Read.All — add Application permission + admin consent on app ${clientId}.`
+        );
+      }
+      if (!hasA365Role) {
+        graphHints.push(
+          `Token roles=[${tokenRoles.join(",")}] missing CopilotPackages.Read.All — add Application permission + admin consent (and Agent 365 license) on app ${clientId}.`
+        );
+      }
+    }
+
     const graphPolicy = ALLOW.graphMicrosoft || { allowHosts: ["graph.microsoft.com"] };
     const entraProbe = await safeFetch(
       "https://graph.microsoft.com/v1.0/servicePrincipals/microsoft.graph.agentIdentity?$top=1",
@@ -2002,10 +2083,10 @@ export async function validateAzureConnectorCapabilities(conn) {
     );
     capabilities.entraAgentIdDiscovery = entraProbe.ok;
     if (!entraProbe.ok) {
+      const failure = await readGraphProbeFailure(entraProbe);
+      graphProbeDetail.entra = failure;
       graphHints.push(
-        entraProbe.status === 401 || entraProbe.status === 403
-          ? "entraAgentIdDiscovery=false — grant AgentIdentity.Read.All (application) + admin consent on this app registration"
-          : `entraAgentIdDiscovery=false (Graph HTTP ${entraProbe.status})`
+        `entraAgentIdDiscovery=false (HTTP ${failure.status}${failure.code ? ` ${failure.code}` : ""}: ${failure.message}). Need Application permission AgentIdentity.Read.All + admin consent on clientId=${clientId}.`
       );
     }
 
@@ -2016,10 +2097,10 @@ export async function validateAzureConnectorCapabilities(conn) {
     );
     capabilities.agent365CatalogDiscovery = a365Probe.ok;
     if (!a365Probe.ok) {
+      const failure = await readGraphProbeFailure(a365Probe);
+      graphProbeDetail.agent365 = failure;
       graphHints.push(
-        a365Probe.status === 401 || a365Probe.status === 403
-          ? "agent365CatalogDiscovery=false — grant CopilotPackages.Read.All (application) + admin consent + Agent 365 license"
-          : `agent365CatalogDiscovery=false (Graph HTTP ${a365Probe.status})`
+        `agent365CatalogDiscovery=false (HTTP ${failure.status}${failure.code ? ` ${failure.code}` : ""}: ${failure.message}). Need Application permission CopilotPackages.Read.All + admin consent + Agent 365 license on clientId=${clientId}.`
       );
     }
   } catch (err) {
@@ -2039,6 +2120,7 @@ export async function validateAzureConnectorCapabilities(conn) {
   return {
     ok: capabilities.arm,
     capabilities,
+    graphProbeDetail,
     message: messageParts.join(" ")
   };
 }

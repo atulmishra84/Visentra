@@ -70,6 +70,20 @@ Those Entra **"Agent identities"** rows (e.g. `a365ct-…-AgentIdentity`) are **
 5. Inventory → **All** or **Cloud** (Cloud includes `cloud_provider=azure` rows such as Entra Agent ID / Copilot Studio, not only `category=cloud`). Look for names ending in `AgentIdentity` / provider `entra_agent_id`
 6. If still empty, open the discovery event and check `ecosystem.entraAgentIdentities`, `warning`, `statsByCollector.entraAgentId.attempts`, and `discoveryErrorSamples`
 
+### “I already added the permissions” but probes are still false
+
+Connector Test issues a **client-credentials** Graph token for the connector’s `clientId`. Flags stay `false` until that token’s `roles` claim includes the app permissions **and** Graph returns HTTP 2xx.
+
+Typical causes (permission row exists in the portal but probe still fails):
+
+1. **Admin consent not granted** — API permissions list the role, but Status is not a green “Granted for &lt;tenant&gt;”. Click **Grant admin consent**.
+2. **Delegated instead of Application** — Visentra uses app-only auth; Delegated `AgentIdentity.Read.All` does **not** appear in the token `roles`.
+3. **Wrong app registration** — permissions were added on a different app than the connector `clientId`. Test message now includes `GraphProbe.clientId` / `tokenAppId` / `tokenRoles` so you can compare.
+4. **Consent on a different tenant** than the connector `tenantId`.
+5. For Agent 365 only: permission OK but tenant has **no Agent 365 license** → catalog probe can still be 403/404.
+
+After fixing consent, wait 1–2 minutes, **Test** again, and confirm `tokenRoles` contains `AgentIdentity.Read.All` (and `CopilotPackages.Read.All` if needed).
+
 Legacy Copilot Studio apps that are plain Application service principals (not Agent ID) appear in some Entra lists but need **Power Platform** Dataverse discovery, not Entra Agent ID.
 
 ### Copilot Studio setup
