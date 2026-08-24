@@ -60,7 +60,7 @@ Those Entra **"Agent identities"** rows (e.g. `a365ct-…-AgentIdentity`) are **
 
 `GET /servicePrincipals/microsoft.graph.agentIdentity`
 
-1. On the **same app registration used by the Azure connector** (e.g. AgentRadar-SSO):
+1. On the **same app registration used by the Azure connector** (Application ID = connector Client ID):
    - Add application permission **`AgentIdentity.Read.All`**
    - Optionally **`CopilotPackages.Read.All`** for Agent 365 catalog packages
    - Click **Grant admin consent**

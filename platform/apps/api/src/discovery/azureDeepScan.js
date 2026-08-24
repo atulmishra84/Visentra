@@ -805,6 +805,17 @@ const MAX_RESOURCES = Number(
   process.env.AZURE_DISCOVERY_MAX_RESOURCES || process.env.DISCOVERY_MAX_RESOURCES || 500
 );
 
+/** Hard cap on ARM subscription list pages/items before AI filtering (prevents huge-tenant OOM). */
+const ARM_LIST_MAX_ITEMS = Number(
+  process.env.AZURE_DISCOVERY_MAX_LIST || Math.max(MAX_RESOURCES * 10, 5000)
+);
+const ARM_LIST_MAX_PAGES = Number(process.env.AZURE_DISCOVERY_MAX_PAGES || 80);
+/** Parallelism for Foundry / runtime deep-scan of selected ARM resources. */
+const ARM_DEEP_SCAN_CONCURRENCY = Math.max(
+  1,
+  Math.min(16, Number(process.env.AZURE_DISCOVERY_DEEP_CONCURRENCY || 4))
+);
+
 const AZURE_DISCOVERY_AGENT_SCAN =
   String(process.env.AZURE_DISCOVERY_AGENT_SCAN || "true").toLowerCase() !== "false";
 
@@ -867,8 +878,11 @@ async function listSubscriptionResources(token, subscriptionId) {
   let url =
     `https://management.azure.com/subscriptions/${subscriptionId}/resources` +
     `?api-version=2021-04-01`;
+  let pages = 0;
 
   while (url) {
+    if (pages >= ARM_LIST_MAX_PAGES || resources.length >= ARM_LIST_MAX_ITEMS) break;
+    pages += 1;
     assertAllowedUrl(url, ALLOW.azureArm);
     const res = await safeFetch(
       url,
@@ -886,7 +900,26 @@ async function listSubscriptionResources(token, subscriptionId) {
     resources.push(...(json.value || []));
     url = json.nextLink || null;
   }
+  if (resources.length > ARM_LIST_MAX_ITEMS) {
+    return resources.slice(0, ARM_LIST_MAX_ITEMS);
+  }
   return resources;
+}
+
+/** Run async work over items with a fixed worker pool (order of results preserved). */
+async function mapPool(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function run() {
+    while (next < items.length) {
+      const idx = next;
+      next += 1;
+      results[idx] = await worker(items[idx], idx);
+    }
+  }
+  const n = Math.max(1, Math.min(concurrency, items.length || 1));
+  await Promise.all(Array.from({ length: n }, () => run()));
+  return results;
 }
 
 function baseObservationFields(conn) {
@@ -1684,17 +1717,16 @@ export async function discoverAzureConnector(conn) {
   }
   selected = selected.slice(0, MAX_RESOURCES);
 
-  const observations = [];
-
-  for (const { resource, classification } of selected) {
+  const chunkResults = await mapPool(selected, ARM_DEEP_SCAN_CONCURRENCY, async ({ resource, classification }) => {
     const type = String(resource.type || "");
     const category = classification.category;
+    const out = [];
 
     try {
       // --- AI platform resources ---
       if (type === "Microsoft.BotService/botServices" || category === "azure_bot_service") {
-        observations.push(botServiceObservation(resource, conn, classification));
-        continue;
+        out.push(botServiceObservation(resource, conn, classification));
+        return out;
       }
 
       if (
@@ -1705,8 +1737,7 @@ export async function discoverAzureConnector(conn) {
           category === "azure_ai_foundry" ||
           category === "azure_ai_services")
       ) {
-        // Always emit the AI resource observation (not an agent by itself).
-        observations.push(
+        out.push(
           resourceToObservation(resource, conn, classification, {
             discoveryLayer: "ai_resource",
             evidence: [
@@ -1725,9 +1756,9 @@ export async function discoverAzureConnector(conn) {
           discoveryErrors
         });
         for (const finding of findings) {
-          observations.push(agentObservationFromFinding(finding, resource, conn, classification));
+          out.push(agentObservationFromFinding(finding, resource, conn, classification));
         }
-        continue;
+        return out;
       }
 
       if (
@@ -1735,7 +1766,7 @@ export async function discoverAzureConnector(conn) {
         category === "azure_ai_search" ||
         classification.layer === "ai_resource"
       ) {
-        observations.push(
+        out.push(
           resourceToObservation(resource, conn, classification, {
             discoveryLayer: "ai_resource",
             evidence: [
@@ -1745,32 +1776,25 @@ export async function discoverAzureConnector(conn) {
             agentRuntime: buildAgentAndRuntime({ agentDetected: false })
           })
         );
-        // ML workspace agents sub-resource type is rare in subscription list; skip invented APIs.
-        continue;
+        return out;
       }
 
       // --- Compute / runtime hosts ---
       if (!AZURE_DISCOVERY_RUNTIME_SCAN) {
-        observations.push(resourceToObservation(resource, conn, classification));
-        continue;
+        out.push(resourceToObservation(resource, conn, classification));
+        return out;
       }
 
       if (category === "azure_container_app" || type === "Microsoft.App/containerApps") {
-        const more = await discoverContainerAppRuntime(
-          token,
-          resource,
-          conn,
-          classification,
-          discoveryErrors
+        out.push(
+          ...(await discoverContainerAppRuntime(token, resource, conn, classification, discoveryErrors))
         );
-        observations.push(...more);
-        continue;
+        return out;
       }
 
       if (category === "azure_aks" || type === "Microsoft.ContainerService/managedClusters") {
-        const more = await discoverAksRuntime(token, resource, conn, classification, discoveryErrors);
-        observations.push(...more);
-        continue;
+        out.push(...(await discoverAksRuntime(token, resource, conn, classification, discoveryErrors)));
+        return out;
       }
 
       if (
@@ -1779,26 +1803,19 @@ export async function discoverAzureConnector(conn) {
         type === "Microsoft.Web/sites" ||
         type.startsWith("Microsoft.Web/sites/")
       ) {
-        const more = await discoverWebAppRuntime(
-          token,
-          resource,
-          conn,
-          classification,
-          discoveryErrors
+        out.push(
+          ...(await discoverWebAppRuntime(token, resource, conn, classification, discoveryErrors))
         );
-        observations.push(...more);
-        continue;
+        return out;
       }
 
       if (category === "azure_vm" || type === "Microsoft.Compute/virtualMachines") {
-        const more = await discoverVmRuntime(token, resource, conn, classification, discoveryErrors);
-        observations.push(...more);
-        continue;
+        out.push(...(await discoverVmRuntime(token, resource, conn, classification, discoveryErrors)));
+        return out;
       }
 
-      // Fallback: classified AI-relevant resource without a deeper scanner
       if (shouldIngestAiOnly(classification.aiRelevant) || !EFFECTIVE_AZURE_AI_ONLY) {
-        observations.push(
+        out.push(
           resourceToObservation(resource, conn, classification, {
             agentRuntime: buildAgentAndRuntime({ agentDetected: false })
           })
@@ -1811,9 +1828,8 @@ export async function discoverAzureConnector(conn) {
         discoveryStatus: err.permissionDenied ? "permission_denied" : "error",
         error: sanitizeAzureError(err)
       });
-      // Still emit a minimal resource observation so ARM success is preserved.
       try {
-        observations.push(
+        out.push(
           resourceToObservation(resource, conn, classification, {
             discoveryStatus: err.permissionDenied ? "permission_denied" : "error",
             evidence: [
@@ -1826,7 +1842,10 @@ export async function discoverAzureConnector(conn) {
         /* ignore secondary failure */
       }
     }
-  }
+    return out;
+  });
+
+  const observations = chunkResults.flat();
 
   const deduped = dedupeObservations(observations);
   for (const obs of deduped) tallyObservation(stats, obs);
@@ -2024,11 +2043,11 @@ export async function validateAzureConnectorCapabilities(conn) {
     `Microsoft.Compute/virtualMachines?api-version=${encodeURIComponent("2024-07-01")}&$top=1`
   );
 
-  // Optional data-plane token for Foundry
+  // Optional data-plane token for Foundry Agents / Assistants APIs.
   const aiToken = await getOptionalToken(creds, AI_DATA_SCOPE);
-  if (!aiToken) {
-    const cogToken = await getOptionalToken(creds, COGNITIVE_SCOPE);
-    if (!cogToken) capabilities.foundryDiscovery = capabilities.foundryDiscovery && false;
+  const cogToken = aiToken ? true : await getOptionalToken(creds, COGNITIVE_SCOPE);
+  if (!aiToken && !cogToken) {
+    capabilities.foundryDiscovery = false;
   }
 
   // Graph probes — required to see Entra Agent identities + Agent 365 catalog
@@ -2079,28 +2098,8 @@ export async function validateAzureConnectorCapabilities(conn) {
 
     // Try several Entra Agent ID read paths — cast+$top can 400 on some tenants while
     // unscoped cast or ServiceIdentity filter still works (Application.Read.All).
-    const entraProbeUrls = [
-      {
-        api: "agentIdentity-cast-v1",
-        url: "https://graph.microsoft.com/v1.0/servicePrincipals/microsoft.graph.agentIdentity"
-      },
-      {
-        api: "agentIdentity-cast-v1-top1",
-        url: "https://graph.microsoft.com/v1.0/servicePrincipals/microsoft.graph.agentIdentity?$top=1"
-      },
-      {
-        api: "agentIdentity-cast-beta",
-        url: "https://graph.microsoft.com/beta/servicePrincipals/microsoft.graph.agentIdentity"
-      },
-      {
-        api: "servicePrincipalType-filter",
-        url:
-          "https://graph.microsoft.com/v1.0/servicePrincipals?$count=true&$top=1&$filter=servicePrincipalType eq 'ServiceIdentity'",
-        headers: { ConsistencyLevel: "eventual" }
-      }
-    ];
     const entraAttempts = [];
-    for (const probe of entraProbeUrls) {
+    for (const probe of ENTRA_CAPABILITY_PROBES) {
       const res = await safeFetch(
         probe.url,
         {
@@ -2136,22 +2135,8 @@ export async function validateAzureConnectorCapabilities(conn) {
       }
     }
 
-    const a365ProbeUrls = [
-      {
-        api: "copilot-catalog-v1",
-        url: "https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages"
-      },
-      {
-        api: "copilot-catalog-v1-top1",
-        url: "https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages?$top=1"
-      },
-      {
-        api: "copilot-catalog-beta",
-        url: "https://graph.microsoft.com/beta/copilot/admin/catalog/packages"
-      }
-    ];
     const a365Attempts = [];
-    for (const probe of a365ProbeUrls) {
+    for (const probe of AGENT365_CAPABILITY_PROBES) {
       const res = await safeFetch(
         probe.url,
         {
@@ -2242,6 +2227,28 @@ const AGENT_IDENTITY_CAST_URLS = [
   `https://graph.microsoft.com/v1.0/servicePrincipals/microsoft.graph.agentIdentity?$select=${AGENT_IDENTITY_CAST_SELECT}`,
   "https://graph.microsoft.com/beta/servicePrincipals/microsoft.graph.agentIdentity",
   `https://graph.microsoft.com/beta/servicePrincipals/microsoft.graph.agentIdentity?$select=${AGENT_IDENTITY_CAST_SELECT}`
+];
+
+/** Capability-probe URLs (shared with Test) — keep in sync with cast/filter discovery. */
+const ENTRA_CAPABILITY_PROBES = [
+  { api: "agentIdentity-cast-v1", url: AGENT_IDENTITY_CAST_URLS[0] },
+  { api: "agentIdentity-cast-v1-top1", url: `${AGENT_IDENTITY_CAST_URLS[0]}?$top=1` },
+  { api: "agentIdentity-cast-beta", url: AGENT_IDENTITY_CAST_URLS[2] },
+  {
+    api: "servicePrincipalType-filter",
+    url:
+      "https://graph.microsoft.com/v1.0/servicePrincipals?$count=true&$top=1&$filter=servicePrincipalType eq 'ServiceIdentity'",
+    headers: { ConsistencyLevel: "eventual" }
+  }
+];
+
+const AGENT365_CAPABILITY_PROBES = [
+  { api: "copilot-catalog-v1", url: "https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages" },
+  {
+    api: "copilot-catalog-v1-top1",
+    url: "https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages?$top=1"
+  },
+  { api: "copilot-catalog-beta", url: "https://graph.microsoft.com/beta/copilot/admin/catalog/packages" }
 ];
 
 const AGENT_IDENTITY_FILTER_URL =
@@ -2404,7 +2411,7 @@ function entraAgentIdentityObservation(sp, conn, tenantId) {
   );
 }
 
-export async function discoverEntraAgentIdentities(conn) {
+export async function discoverEntraAgentIdentities(conn, { graphToken: sharedGraphToken } = {}) {
   if (!ENTRA_AGENT_ID_SCAN) {
     return { observations: [], stats: { skipped: true, reason: "ENTRA_AGENT_ID_SCAN=false" }, discoveryErrors: [] };
   }
@@ -2414,12 +2421,14 @@ export async function discoverEntraAgentIdentities(conn) {
   const discoveryErrors = [];
   const attempts = [];
 
-  let token;
-  try {
-    token = await getAzureAccessToken({ ...creds, scope: GRAPH_SCOPE });
-  } catch (err) {
-    discoveryErrors.push({ discoveryType: "entra-agent-id-token", discoveryStatus: "error", error: sanitizeAzureError(err) });
-    return { observations: [], stats: { agentIdentitiesFound: 0 }, discoveryErrors };
+  let token = sharedGraphToken || null;
+  if (!token) {
+    try {
+      token = await getAzureAccessToken({ ...creds, scope: GRAPH_SCOPE });
+    } catch (err) {
+      discoveryErrors.push({ discoveryType: "entra-agent-id-token", discoveryStatus: "error", error: sanitizeAzureError(err) });
+      return { observations: [], stats: { agentIdentitiesFound: 0 }, discoveryErrors };
+    }
   }
 
   let items = [];
@@ -2429,7 +2438,10 @@ export async function discoverEntraAgentIdentities(conn) {
   // Only stop on a *non-empty* success — some tenants return 200 [] on v1.0 while
   // beta (or the ServiceIdentity filter) still lists Agent identities.
   for (const url of AGENT_IDENTITY_CAST_URLS) {
-    const result = await graphGetAllPages(url, token, { optional: true });
+    const result = await graphGetAllPages(url, token, {
+      optional: true,
+      maxItems: ENTRA_AGENT_ID_MAX
+    });
     const count = (result.items || []).length;
     attempts.push({
       api: url.includes("/beta/") ? "agentIdentity-cast-beta" : "agentIdentity-cast-v1",
@@ -2572,7 +2584,7 @@ const POWER_PLATFORM_SCOPE = `${POWER_PLATFORM_SCOPE_BASE}/.default`;
 const POWER_PLATFORM_POLICY = ALLOW.powerPlatformAdmin || {
   allowHosts: ["api.bap.microsoft.com", "api.powerplatform.com"]
 };
-const DATAVERSE_BASE_POLICY = ALLOW.dataverse || { allowHosts: [] };
+const DATAVERSE_BASE_POLICY = ALLOW.dataverse || { allowHosts: [], allowHostSuffixes: [".dynamics.com"] };
 
 function powerPlatformEnvironmentsUrl() {
   return `${POWER_PLATFORM_SCOPE_BASE}/providers/Microsoft.BusinessAppPlatform/scopes/admin/environments?api-version=2023-06-01`;
@@ -2869,7 +2881,7 @@ function teamsAgentObservation(app, definition, conn, tenantId) {
   });
 }
 
-export async function discoverTeamsAgentApps(conn) {
+export async function discoverTeamsAgentApps(conn, { graphToken: sharedGraphToken } = {}) {
   if (!TEAMS_CATALOG_SCAN) {
     return { observations: [], stats: { skipped: true, reason: "TEAMS_CATALOG_SCAN=false" }, discoveryErrors: [] };
   }
@@ -2878,15 +2890,20 @@ export async function discoverTeamsAgentApps(conn) {
   const creds = { tenantId, clientId: conn.config.clientId, clientSecret: conn.secrets.clientSecret };
   const discoveryErrors = [];
 
-  let token;
-  try {
-    token = await getAzureAccessToken({ ...creds, scope: GRAPH_SCOPE });
-  } catch (err) {
-    discoveryErrors.push({ discoveryType: "teams-catalog-token", discoveryStatus: "error", error: sanitizeAzureError(err) });
-    return { observations: [], stats: { appsScanned: 0, agentsFlagged: 0 }, discoveryErrors };
+  let token = sharedGraphToken || null;
+  if (!token) {
+    try {
+      token = await getAzureAccessToken({ ...creds, scope: GRAPH_SCOPE });
+    } catch (err) {
+      discoveryErrors.push({ discoveryType: "teams-catalog-token", discoveryStatus: "error", error: sanitizeAzureError(err) });
+      return { observations: [], stats: { appsScanned: 0, agentsFlagged: 0 }, discoveryErrors };
+    }
   }
 
-  const result = await graphGetAllPages(TEAMS_CATALOG_URL, token, { optional: true });
+  const result = await graphGetAllPages(TEAMS_CATALOG_URL, token, {
+    optional: true,
+    maxItems: TEAMS_CATALOG_MAX_APPS
+  });
   if (!result.ok) {
     discoveryErrors.push({
       discoveryType: "teams-catalog-list",
@@ -2971,7 +2988,7 @@ export async function discoverM365AgentRegistry(conn) {
  * CopilotPackages.Read.All on the Azure app registration can discover the
  * Agent 365 package without a separate SaaS connector.
  */
-export async function discoverAgent365CatalogForAzure(conn) {
+export async function discoverAgent365CatalogForAzure(conn, { graphToken: sharedGraphToken } = {}) {
   if (!AZURE_AGENT365_CATALOG_SCAN) {
     return {
       observations: [],
@@ -2984,16 +3001,18 @@ export async function discoverAgent365CatalogForAzure(conn) {
   const creds = { tenantId, clientId: conn.config.clientId, clientSecret: conn.secrets.clientSecret };
   const discoveryErrors = [];
 
-  let token;
-  try {
-    token = await getAzureAccessToken({ ...creds, scope: GRAPH_SCOPE });
-  } catch (err) {
-    discoveryErrors.push({
-      discoveryType: "agent365-catalog-token",
-      discoveryStatus: "error",
-      error: sanitizeAzureError(err)
-    });
-    return { observations: [], stats: { agent365CatalogAgents: 0 }, discoveryErrors };
+  let token = sharedGraphToken || null;
+  if (!token) {
+    try {
+      token = await getAzureAccessToken({ ...creds, scope: GRAPH_SCOPE });
+    } catch (err) {
+      discoveryErrors.push({
+        discoveryType: "agent365-catalog-token",
+        discoveryStatus: "error",
+        error: sanitizeAzureError(err)
+      });
+      return { observations: [], stats: { agent365CatalogAgents: 0 }, discoveryErrors };
+    }
   }
 
   const saas = await import("./saasPlatforms.js");
@@ -3059,29 +3078,41 @@ export async function discoverAgent365CatalogForAzure(conn) {
  * Graph catalog + (optional) M365 Agent Registry for one connector.
  * ========================================================================= */
 export async function discoverAzureEcosystem(conn) {
-  const labels = [
-    "arm",
-    "entraAgentId",
-    "powerPlatform",
-    "teamsCatalog",
-    "agent365Catalog",
-    "m365AgentRegistry"
+  const creds = {
+    tenantId: conn.config.tenantId,
+    clientId: conn.config.clientId,
+    clientSecret: conn.secrets.clientSecret
+  };
+
+  // One Graph token shared by Entra / Teams / Agent 365 planes (avoids 3 login round-trips).
+  let sharedGraphToken = null;
+  try {
+    sharedGraphToken = await getAzureAccessToken({ ...creds, scope: GRAPH_SCOPE });
+  } catch {
+    sharedGraphToken = null;
+  }
+  const graphOpts = { graphToken: sharedGraphToken };
+
+  const jobs = [
+    ["arm", () => discoverAzureConnector(conn)],
+    ["entraAgentId", () => discoverEntraAgentIdentities(conn, graphOpts)],
+    ["powerPlatform", () => discoverPowerPlatformAgents(conn)],
+    ["teamsCatalog", () => discoverTeamsAgentApps(conn, graphOpts)],
+    ["agent365Catalog", () => discoverAgent365CatalogForAzure(conn, graphOpts)]
   ];
-  const results = await Promise.allSettled([
-    discoverAzureConnector(conn),
-    discoverEntraAgentIdentities(conn),
-    discoverPowerPlatformAgents(conn),
-    discoverTeamsAgentApps(conn),
-    discoverAgent365CatalogForAzure(conn),
-    discoverM365AgentRegistry(conn)
-  ]);
+  // Skip Defender registry stub unless explicitly enabled (not implemented yet).
+  if (M365_AGENT_REGISTRY_SCAN) {
+    jobs.push(["m365AgentRegistry", () => discoverM365AgentRegistry(conn)]);
+  }
+
+  const results = await Promise.allSettled(jobs.map(([, run]) => run()));
 
   const observations = [];
   const discoveryErrors = [];
   const statsByCollector = {};
 
   results.forEach((result, i) => {
-    const label = labels[i];
+    const label = jobs[i][0];
     if (result.status === "fulfilled") {
       observations.push(...(result.value.observations || []));
       discoveryErrors.push(...(result.value.discoveryErrors || []).map((e) => ({ ...e, collector: label })));
@@ -3096,6 +3127,13 @@ export async function discoverAzureEcosystem(conn) {
       statsByCollector[label] = { failed: true };
     }
   });
+
+  if (!M365_AGENT_REGISTRY_SCAN) {
+    statsByCollector.m365AgentRegistry = {
+      skipped: true,
+      reason: "M365_AGENT_REGISTRY_SCAN=false"
+    };
+  }
 
   const armStats = statsByCollector.arm || {};
   const confirmedAgents = observations.filter((o) => o?.metadata?.agentStatus === "confirmed").length;
@@ -3123,6 +3161,7 @@ export async function discoverAzureEcosystem(conn) {
       teamsAppsFlagged: Number(statsByCollector.teamsCatalog?.agentsFlagged || 0),
       agent365CatalogAgents: Number(statsByCollector.agent365Catalog?.agent365CatalogAgents || 0),
       m365AgentRegistry: statsByCollector.m365AgentRegistry || {},
+      sharedGraphToken: Boolean(sharedGraphToken)
     },
     statsByCollector,
   };
@@ -3138,7 +3177,7 @@ export async function discoverAzureEcosystem(conn) {
   );
   if (stats.ecosystem.entraAgentIdentities === 0 && entraDenied) {
     stats.warning =
-      "Entra Agent identities not readable — grant AgentIdentity.Read.All on the connector app (AgentRadar-SSO / Azure app registration), admin-consent, then re-scan. Entra UI agents will not appear until Graph allows GET /servicePrincipals/microsoft.graph.agentIdentity.";
+      "Entra Agent identities not readable — grant AgentIdentity.Read.All on the connector app (same Application ID as the Visentra Azure connector), admin-consent, then re-scan. Entra UI agents will not appear until Graph allows GET /servicePrincipals/microsoft.graph.agentIdentity.";
   } else if (stats.ecosystem.entraAgentIdentities === 0 && entraEmpty) {
     const attemptSummary = (statsByCollector.entraAgentId?.attempts || [])
       .map((a) => `${a.api}:${a.ok ? "ok" : "fail"}(${a.count ?? "?"})`)

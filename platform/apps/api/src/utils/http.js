@@ -60,6 +60,12 @@ export const ALLOW = {
     allowHosts: ["login.salesforce.com", "test.salesforce.com"],
     allowHostSuffixes: [".salesforce.com", ".force.com", ".my.salesforce.com"]
   },
+  powerPlatformAdmin: {
+    allowHosts: ["api.bap.microsoft.com", "api.powerplatform.com"]
+  },
+  dataverse: {
+    allowHostSuffixes: [".dynamics.com", ".crm.dynamics.com", ".api.crm.dynamics.com"]
+  },
   graphMicrosoft: {
     allowHosts: ["graph.microsoft.com"]
   },

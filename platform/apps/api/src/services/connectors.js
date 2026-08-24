@@ -446,11 +446,24 @@ export async function testConnector(pool, tenantId, id) {
           message = `${message} ${caps.message}`;
         }
         if (caps?.capabilities) {
-          message = `${message} Capabilities: ${JSON.stringify(caps.capabilities)}`;
+          const c = caps.capabilities;
+          // Compact summary — full GraphProbe is returned as a structured field.
+          message =
+            `${message} Capabilities: arm=${c.arm}, entraAgentIdDiscovery=${c.entraAgentIdDiscovery}, ` +
+            `agent365CatalogDiscovery=${c.agent365CatalogDiscovery}`;
         }
-        if (caps?.graphProbeDetail) {
-          message = `${message} GraphProbe: ${JSON.stringify(caps.graphProbeDetail)}`;
-        }
+        await pool.query(
+          `UPDATE connectors SET status=$3, last_tested_at=NOW(), last_error=$4, updated_at=NOW()
+           WHERE tenant_id=$1 AND id=$2`,
+          [tenantId, id, ok ? "active" : "error", ok ? null : message.slice(0, 4000)]
+        );
+        return {
+          ok,
+          message,
+          capabilities: caps?.capabilities || null,
+          graphProbeDetail: caps?.graphProbeDetail || null,
+          connector: await getConnector(pool, tenantId, id)
+        };
       } catch {
         /* capability probe is optional */
       }
