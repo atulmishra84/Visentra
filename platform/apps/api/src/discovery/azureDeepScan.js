@@ -2082,49 +2082,63 @@ function entraAgentIdentityObservation(sp, conn, tenantId) {
     runtimeDetected: false
   });
 
-  return {
-    collector_id: "identity_entra_agent",
-    fingerprint: `entra-agent-id:${tenantId}:${agentId}`,
-    name: `${displayName} (Entra Agent ID)`,
-    category: "identity",
-    provider: "entra_agent_id",
-    deployment_type: "identity",
-    region: "global",
-    running_status: sp.accountEnabled === false ? "disabled" : "unknown",
-    confidence_score: 0.95,
-    framework: "entra-agent-identity",
-    model: "microsoft-agent-identity",
-    agent: agentRuntime.agent,
-    runtime: agentRuntime.runtime,
-    metadata: {
-      connectorId: conn.id,
-      connectorName: conn.name,
-      discoveryMode: "entra-agent-id-graph",
-      discoveryLayer: "agent",
-      inventoryClass: "ai_cloud_agent",
-      evidenceClass: "platform_agent",
-      agentStatus: "confirmed",
-      tenantId,
-      objectId: sp.id,
-      appId: sp.appId || null,
-      servicePrincipalType: sp.servicePrincipalType,
-      publisherName: sp.publisherName || null,
-      appOwnerOrganizationId: sp.appOwnerOrganizationId || null,
-      createdDateTime: sp.createdDateTime || null,
-      tags: sp.tags || [],
-      aiRelevant: true,
-      environment: conn.environment,
-      evidence: [
-        "servicePrincipalType=ServiceIdentity (Microsoft Entra Agent ID)",
-        "Confirms a real agent identity — covers Copilot Studio agents (auto-assigned since Jul 2026) and Agent 365-onboarded agents",
-        "Does not require the object's display name to mention AI/agent/copilot"
+  return alignObservationWithDeepSurface(
+    {
+      collector_id: "identity_entra_agent",
+      fingerprint: `entra-agent-id:${tenantId}:${agentId}`,
+      name: `${displayName} (Entra Agent ID)`,
+      category: "identity",
+      provider: "entra_agent_id",
+      deployment_type: "identity",
+      region: "global",
+      running_status: sp.accountEnabled === false ? "disabled" : "unknown",
+      confidence_score: 0.95,
+      framework: "entra-agent-identity",
+      model: "microsoft-agent-identity",
+      agent: agentRuntime.agent,
+      runtime: agentRuntime.runtime,
+      metadata: {
+        connectorId: conn.id,
+        connectorName: conn.name,
+        discoveryMode: "entra-agent-id-graph",
+        discoveryLayer: "agent",
+        inventoryClass: "ai_cloud_agent",
+        evidenceClass: "platform_agent",
+        agentStatus: "confirmed",
+        tenantId,
+        objectId: sp.id,
+        appId: sp.appId || null,
+        servicePrincipalType: sp.servicePrincipalType,
+        publisherName: sp.publisherName || null,
+        appOwnerOrganizationId: sp.appOwnerOrganizationId || null,
+        createdDateTime: sp.createdDateTime || null,
+        tags: sp.tags || [],
+        aiRelevant: true,
+        environment: conn.environment,
+        evidence: [
+          "servicePrincipalType=ServiceIdentity (Microsoft Entra Agent ID)",
+          "Confirms a real agent identity — covers Copilot Studio agents (auto-assigned since Jul 2026) and Agent 365-onboarded agents",
+          "Does not require the object's display name to mention AI/agent/copilot"
+        ]
+      },
+      relationships: [
+        { rel_type: "OBSERVED_BY", to_type: "IdentityProvider", to_key: "entra-id", to_name: "Microsoft Entra ID" },
+        { rel_type: "RUNS_IN", to_type: "EntraTenant", to_key: `entra-tenant-${tenantId}`, to_name: `Entra tenant ${tenantId}` }
       ]
     },
-    relationships: [
-      { rel_type: "OBSERVED_BY", to_type: "IdentityProvider", to_key: "entra-id", to_name: "Microsoft Entra ID" },
-      { rel_type: "RUNS_IN", to_type: "EntraTenant", to_key: `entra-tenant-${tenantId}`, to_name: `Entra tenant ${tenantId}` }
-    ]
-  };
+    {
+      provider: "entra_agent_id",
+      schema: "entra-agent-id-deep.v1",
+      deepScan: "entra_agent_identity_list",
+      agentId,
+      agentName: displayName,
+      agentType: "entra_agent_identity",
+      tools: [],
+      limitations: [
+        "Entra Agent ID confirms the agent identity; tools/instructions live on Copilot Studio / Agent 365 definition planes.",
+      ],
+    }
+  );
 }
 
 export async function discoverEntraAgentIdentities(conn) {
@@ -2245,45 +2259,60 @@ function copilotStudioAgentObservation({ bot, env, conn, tenantId }) {
     runtimeName: displayName
   });
 
-  return {
-    collector_id: "saas_copilot_studio",
-    fingerprint: `power-platform:${env.environmentId}:${agentId}`,
-    name: `${displayName} (Copilot Studio)`,
-    category: "saas",
-    provider: "power_platform",
-    deployment_type: "saas",
-    region: "global",
-    running_status: runtimeStatus,
-    confidence_score: 0.94,
-    framework: "copilot-studio",
-    model: "copilot-studio-agent",
-    agent: agentRuntime.agent,
-    runtime: agentRuntime.runtime,
-    metadata: {
-      connectorId: conn.id,
-      connectorName: conn.name,
-      discoveryMode: "power-platform-dataverse",
-      discoveryLayer: "agent",
-      inventoryClass: "ai_cloud_agent",
-      evidenceClass: "platform_agent",
-      agentStatus: "confirmed",
-      tenantId,
-      environmentId: env.environmentId,
-      environmentDisplayName: env.environmentDisplayName,
-      instanceUrl: env.instanceUrl,
-      createdon: bot.createdon || null,
-      aiRelevant: true,
-      environment: conn.environment,
-      evidence: [
-        "Dataverse `bot` record returned by Power Platform environment Web API",
-        `Environment=${env.environmentDisplayName}`
+  return alignObservationWithDeepSurface(
+    {
+      collector_id: "saas_copilot_studio",
+      fingerprint: `power-platform:${env.environmentId}:${agentId}`,
+      name: `${displayName} (Copilot Studio)`,
+      category: "saas",
+      provider: "power_platform",
+      deployment_type: "saas",
+      region: "global",
+      running_status: runtimeStatus,
+      confidence_score: 0.94,
+      framework: "copilot-studio",
+      model: "copilot-studio-agent",
+      agent: agentRuntime.agent,
+      runtime: agentRuntime.runtime,
+      metadata: {
+        connectorId: conn.id,
+        connectorName: conn.name,
+        discoveryMode: "power-platform-dataverse",
+        discoveryLayer: "agent",
+        inventoryClass: "ai_cloud_agent",
+        evidenceClass: "platform_agent",
+        agentStatus: "confirmed",
+        tenantId,
+        environmentId: env.environmentId,
+        environmentDisplayName: env.environmentDisplayName,
+        instanceUrl: env.instanceUrl,
+        createdon: bot.createdon || null,
+        publishedon: bot.publishedon || null,
+        aiRelevant: true,
+        environment: conn.environment,
+        evidence: [
+          "Dataverse `bot` record returned by Power Platform environment Web API",
+          `Environment=${env.environmentDisplayName}`
+        ]
+      },
+      relationships: [
+        { rel_type: "OBSERVED_BY", to_type: "SaaSPlatform", to_key: "power-platform", to_name: "Microsoft Power Platform" },
+        { rel_type: "RUNS_IN", to_type: "PowerPlatformEnvironment", to_key: env.environmentId, to_name: env.environmentDisplayName }
       ]
     },
-    relationships: [
-      { rel_type: "OBSERVED_BY", to_type: "SaaSPlatform", to_key: "power-platform", to_name: "Microsoft Power Platform" },
-      { rel_type: "RUNS_IN", to_type: "PowerPlatformEnvironment", to_key: env.environmentId, to_name: env.environmentDisplayName }
-    ]
-  };
+    {
+      provider: "power_platform",
+      schema: "copilot-studio-deep.v1",
+      deepScan: "power_platform_dataverse_bots",
+      agentId,
+      agentName: displayName,
+      agentType: "copilot_studio_agent",
+      tools: [],
+      limitations: [
+        "Dataverse bot list confirms the Copilot Studio agent; topic/tool/action schemas need deeper Dataverse columns when available.",
+      ],
+    }
+  );
 }
 
 export async function discoverPowerPlatformAgents(conn) {
@@ -2435,7 +2464,7 @@ function teamsAgentObservation(app, definition, conn, tenantId) {
     runtimeDetected: false
   });
 
-  return {
+  const observation = {
     collector_id: "saas_teams_catalog",
     fingerprint: `teams-app:${tenantId}:${agentId}`,
     name: `${displayName} (Teams App)`,
@@ -2473,6 +2502,21 @@ function teamsAgentObservation(app, definition, conn, tenantId) {
       { rel_type: "RUNS_IN", to_type: "EntraTenant", to_key: `entra-tenant-${tenantId}`, to_name: `Entra tenant ${tenantId}` }
     ]
   };
+
+  // Only stamp deep/adversarial for confirmed Teams bots — candidates stay list-only.
+  if (!hasBot) return observation;
+  return alignObservationWithDeepSurface(observation, {
+    provider: "microsoft_teams",
+    schema: "teams-app-deep.v1",
+    deepScan: "teams_app_catalog_bot",
+    agentId,
+    agentName: displayName,
+    agentType: "teams_app",
+    tools: [],
+    limitations: [
+      "Teams catalog confirms a bot-capable app; declarative/custom-engine agent detail is not fully expanded here.",
+    ],
+  });
 }
 
 export async function discoverTeamsAgentApps(conn) {
@@ -2614,9 +2658,37 @@ export async function discoverAzureEcosystem(conn) {
     }
   });
 
+  const armStats = statsByCollector.arm || {};
+  const confirmedAgents = observations.filter((o) => o?.metadata?.agentStatus === "confirmed").length;
+  const candidateAgents = observations.filter((o) => o?.metadata?.agentStatus === "candidate").length;
+
+  // Collector-compatible rollup (ARM fields + ecosystem plane counts).
+  const stats = {
+    ...armStats,
+    totalResourcesScanned: Number(armStats.totalResourcesScanned || 0),
+    aiRelevantResources: Number(armStats.aiRelevantResources || 0),
+    cloudResourcesIngested: observations.length,
+    agentsDiscovered: confirmedAgents,
+    confirmedAgents,
+    candidateAgents,
+    runtimesDiscovered: Number(armStats.runtimesDiscovered || 0),
+    discoveryErrors: discoveryErrors.length,
+    nonAiResourcesSkipped: Number(armStats.nonAiResourcesSkipped || 0),
+    deepScanned: Number(armStats.deepScanned || 0),
+    ecosystem: {
+      entraAgentIdentities: Number(statsByCollector.entraAgentId?.agentIdentitiesFound || 0),
+      copilotStudioAgents: Number(statsByCollector.powerPlatform?.agentsFound || 0),
+      powerPlatformEnvironments: Number(statsByCollector.powerPlatform?.environmentsScanned || 0),
+      teamsAppsFlagged: Number(statsByCollector.teamsCatalog?.agentsFlagged || 0),
+      m365AgentRegistry: statsByCollector.m365AgentRegistry || {},
+    },
+    statsByCollector,
+  };
+
   return {
     observations,
     discoveryErrors,
+    stats,
     statsByCollector
   };
 }

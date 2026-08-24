@@ -9,5 +9,6 @@
  * This file re-exports everything from there so existing imports of
  * "./azureArm.js" elsewhere in the codebase keep working without changes.
  * New code should import directly from "./azureDeepScan.js".
+ * Live cloud discovery uses discoverAzureEcosystem (wired in collectors.js).
  */
 export * from "./azureDeepScan.js";
