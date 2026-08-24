@@ -8,6 +8,8 @@ export type Facets = {
   cloud?: string;
   ide?: string;
   category?: string;
+  /** Inventory quick filters: cloud = any cloud_provider; endpoint = edr/endpoint */
+  surface?: string;
   department?: string;
   evidenceClass?: string;
   agentStatus?: string;

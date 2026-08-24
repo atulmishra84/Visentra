@@ -42,9 +42,9 @@ function uniqueMetaOptions(rows: Agent[], key: string): string[] {
 }
 
 
-function categoryBadge(category: string) {
+function categoryBadge(category: string, cloudProvider = "") {
   const c = category.toLowerCase();
-  if (c === "cloud") return "cloud";
+  if (c === "cloud" || cloudProvider) return "cloud";
   if (c === "endpoint" || c === "edr") return "endpoint";
   if (["ide", "local", "local_llm", "framework", "mcp", "browser", "autonomous", "saas", "container"].includes(c)) {
     return "agent";
@@ -61,6 +61,7 @@ function facetsFromSearchParams(params: URLSearchParams): Facets {
     "cloud",
     "ide",
     "category",
+    "surface",
     "department",
     "evidenceClass",
     "agentStatus",
@@ -143,7 +144,10 @@ export function InventoryPage({ title }: { title: string }) {
   const counts = useMemo(() => {
     const out = { all: agents.length, cloud: 0, endpoint: 0, agent: 0, other: 0 };
     for (const row of agents) {
-      const kind = categoryBadge(valueAt(row, ["category"], ""));
+      const kind = categoryBadge(
+        valueAt(row, ["category"], ""),
+        valueAt(row, ["cloud_provider", "cloud"], "")
+      );
       if (kind === "cloud") out.cloud += 1;
       else if (kind === "endpoint") out.endpoint += 1;
       else if (kind === "agent") out.agent += 1;
@@ -211,8 +215,13 @@ export function InventoryPage({ title }: { title: string }) {
     }
   };
 
-  const setCategoryQuick = (category?: string) => {
-    setFacets((prev) => ({ ...prev, category: category || undefined, agentStatus: undefined }));
+  const setSurfaceQuick = (surface?: string) => {
+    setFacets((prev) => ({
+      ...prev,
+      surface: surface || undefined,
+      category: undefined,
+      agentStatus: undefined
+    }));
   };
 
   const setStatusQuick = (agentStatus?: string) => {
@@ -368,7 +377,11 @@ export function InventoryPage({ title }: { title: string }) {
       </header>
 
       <div className="toolbar" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <button className={`button ${!facets.category && !facets.agentStatus ? "primary" : "ghost"}`} type="button" onClick={() => setFacets({})}>
+        <button
+          className={`button ${!facets.category && !facets.agentStatus && !facets.surface ? "primary" : "ghost"}`}
+          type="button"
+          onClick={() => setFacets({})}
+        >
           All
         </button>
         <button
@@ -386,16 +399,16 @@ export function InventoryPage({ title }: { title: string }) {
           Candidates
         </button>
         <button
-          className={`button ${facets.category === "cloud" ? "primary" : "ghost"}`}
+          className={`button ${facets.surface === "cloud" || facets.category === "cloud" ? "primary" : "ghost"}`}
           type="button"
-          onClick={() => setCategoryQuick("cloud")}
+          onClick={() => setSurfaceQuick("cloud")}
         >
           Cloud
         </button>
         <button
-          className={`button ${facets.category === "endpoint" ? "primary" : "ghost"}`}
+          className={`button ${facets.surface === "endpoint" || facets.category === "endpoint" ? "primary" : "ghost"}`}
           type="button"
-          onClick={() => setCategoryQuick("endpoint")}
+          onClick={() => setSurfaceQuick("endpoint")}
         >
           Endpoints
         </button>

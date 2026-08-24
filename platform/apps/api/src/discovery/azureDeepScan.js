@@ -2114,10 +2114,16 @@ function dedupeById(items = []) {
  * Shared Graph GET-all-pages helper (used by Entra Agent ID + Teams catalog
  * collectors below). Never throws on HTTP failure when optional=true —
  * mirrors the armGet/dataPlaneGet convention used throughout this file.
+ *
+ * @param {object} [opts]
+ * @param {boolean} [opts.optional=true]
+ * @param {Record<string,string>} [opts.headers]
+ * @param {number} [opts.maxItems] Cap collected items (stops paging early).
  */
-async function graphGetAllPages(url, token, { optional = true, headers = {} } = {}) {
+async function graphGetAllPages(url, token, { optional = true, headers = {}, maxItems } = {}) {
   let items = [];
   let next = url;
+  const cap = Number.isFinite(Number(maxItems)) && Number(maxItems) > 0 ? Number(maxItems) : null;
   while (next) {
     assertAllowedUrl(next, GRAPH_POLICY);
     const res = await safeFetch(
@@ -2149,6 +2155,9 @@ async function graphGetAllPages(url, token, { optional = true, headers = {} } = 
       throw new Error(sanitizeAzureError(json.error?.message || `Graph request failed (${res.status})`));
     }
     items = items.concat(json.value || []);
+    if (cap != null && items.length >= cap) {
+      return { ok: true, items: items.slice(0, cap), truncated: true };
+    }
     next = json["@odata.nextLink"] || null;
   }
   return { ok: true, items };
@@ -2253,17 +2262,20 @@ export async function discoverEntraAgentIdentities(conn) {
   let items = [];
   let sourceApi = null;
 
-  // 1) Official cast endpoint (v1.0 then beta)
+  // 1) Official cast endpoint (v1.0 then beta).
+  // Only stop on a *non-empty* success — some tenants return 200 [] on v1.0 while
+  // beta (or the ServiceIdentity filter) still lists Agent identities.
   for (const url of AGENT_IDENTITY_CAST_URLS) {
     const result = await graphGetAllPages(url, token, { optional: true });
+    const count = (result.items || []).length;
     attempts.push({
       api: url.includes("/beta/") ? "agentIdentity-cast-beta" : "agentIdentity-cast-v1",
       ok: result.ok,
       status: result.status || (result.ok ? 200 : null),
-      count: (result.items || []).length,
+      count,
       error: result.error || null
     });
-    if (result.ok) {
+    if (result.ok && count > 0) {
       items = result.items || [];
       sourceApi = url.includes("/beta/") ? "agentIdentity-cast-beta" : "agentIdentity-cast-v1";
       break;
@@ -2284,7 +2296,8 @@ export async function discoverEntraAgentIdentities(conn) {
   if (!items.length) {
     const filtered = await graphGetAllPages(AGENT_IDENTITY_FILTER_URL, token, {
       optional: true,
-      headers: { ConsistencyLevel: "eventual" }
+      headers: { ConsistencyLevel: "eventual" },
+      maxItems: ENTRA_AGENT_ID_MAX
     });
     attempts.push({
       api: "servicePrincipalType-filter",
@@ -2305,14 +2318,20 @@ export async function discoverEntraAgentIdentities(conn) {
     }
   }
 
-  // 3) Client-side scan fallback when filter/cast unavailable (400) or empty
+  // 3) Client-side scan fallback when filter/cast unavailable (400) or empty.
+  // Cap pages so large tenants cannot hang the Azure scan.
   if (!items.length) {
-    const all = await graphGetAllPages(ENTRA_AGENT_ID_FALLBACK_URL, token, { optional: true });
+    const clientCap = Math.max(ENTRA_AGENT_ID_MAX * 25, 500);
+    const all = await graphGetAllPages(ENTRA_AGENT_ID_FALLBACK_URL, token, {
+      optional: true,
+      maxItems: clientCap
+    });
     attempts.push({
       api: "servicePrincipals-client-filter",
       ok: all.ok,
       status: all.status || (all.ok ? 200 : null),
       count: (all.items || []).length,
+      truncated: Boolean(all.truncated),
       error: all.error || null
     });
     if (all.ok) {
@@ -2337,6 +2356,20 @@ export async function discoverEntraAgentIdentities(conn) {
 
   items = dedupeById(items).slice(0, ENTRA_AGENT_ID_MAX);
   const observations = items.map((sp) => entraAgentIdentityObservation(sp, conn, tenantId));
+
+  // Surface empty plane even when Graph did not return 403 — otherwise scans look
+  // "healthy" while Entra UI agents never appear in inventory.
+  if (!items.length && !discoveryErrors.some((e) => e.discoveryStatus === "permission_denied" || e.discoveryStatus === "empty")) {
+    const okEmpty = attempts.filter((a) => a.ok && a.count === 0).map((a) => a.api);
+    discoveryErrors.push({
+      discoveryType: "entra-agent-id-empty",
+      discoveryStatus: "empty",
+      error:
+        okEmpty.length > 0
+          ? `Graph agentIdentity endpoints returned 0 identities (${okEmpty.join(", ")}). If Entra UI shows Agent identities, grant AgentIdentity.Read.All + admin consent on the connector app, confirm Connector Test entraAgentIdDiscovery=true, then re-scan.`
+          : "Entra Agent ID plane found 0 identities. Check AgentIdentity.Read.All + admin consent and Connector Test entraAgentIdDiscovery."
+    });
+  }
 
   return {
     observations,
@@ -2934,12 +2967,21 @@ export async function discoverAzureEcosystem(conn) {
   const entraDenied = discoveryErrors.some(
     (e) => e.collector === "entraAgentId" && e.discoveryStatus === "permission_denied"
   );
+  const entraEmpty = discoveryErrors.some(
+    (e) => e.collector === "entraAgentId" && e.discoveryStatus === "empty"
+  );
   const a365Denied = discoveryErrors.some(
     (e) => e.collector === "agent365Catalog" && e.discoveryStatus === "permission_denied"
   );
   if (stats.ecosystem.entraAgentIdentities === 0 && entraDenied) {
     stats.warning =
       "Entra Agent identities not readable — grant AgentIdentity.Read.All on the connector app (AgentRadar-SSO / Azure app registration), admin-consent, then re-scan. Entra UI agents will not appear until Graph allows GET /servicePrincipals/microsoft.graph.agentIdentity.";
+  } else if (stats.ecosystem.entraAgentIdentities === 0 && entraEmpty) {
+    const attemptSummary = (statsByCollector.entraAgentId?.attempts || [])
+      .map((a) => `${a.api}:${a.ok ? "ok" : "fail"}(${a.count ?? "?"})`)
+      .join(", ");
+    stats.warning =
+      `Entra Agent ID plane returned 0 identities${attemptSummary ? ` [${attemptSummary}]` : ""}. If Entra shows Agent identities, grant AgentIdentity.Read.All + admin consent, confirm Connector Test entraAgentIdDiscovery=true, re-scan, and use Inventory → All (Cloud filter used to hide category=identity).`;
   } else if (stats.ecosystem.agent365CatalogAgents === 0 && a365Denied) {
     stats.warning =
       "Agent 365 catalog denied — grant CopilotPackages.Read.All + Agent 365 license, admin-consent, then re-scan.";
