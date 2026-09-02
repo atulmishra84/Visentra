@@ -21,6 +21,9 @@ import { UsageDashboardPage } from "./pages/UsageDashboardPage";
 import { DiscoveryChangesPage } from "./pages/DiscoveryChangesPage";
 import { MeshPage } from "./pages/MeshPage";
 import { AiBomPage } from "./pages/AiBomPage";
+import { GovernancePage } from "./pages/GovernancePage";
+import { GovernanceAssessmentPage } from "./pages/GovernanceAssessmentPage";
+import { GovernanceCatalogPage } from "./pages/GovernanceCatalogPage";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { isAuthenticated, loading } = useAuth();
@@ -58,6 +61,9 @@ export default function App() {
         <Route path="/discovery/changes" element={<DiscoveryChangesPage />} />
         <Route path="/coverage" element={<CoveragePage />} />
         <Route path="/ai-bom" element={<AiBomPage />} />
+        <Route path="/governance" element={<GovernancePage />} />
+        <Route path="/governance/catalog" element={<GovernanceCatalogPage />} />
+        <Route path="/governance/agents/:agentId" element={<GovernanceAssessmentPage />} />
         <Route path="/inventory" element={<InventoryPage title="Asset Inventory" />} />
         <Route path="/inventory/explorer" element={<Navigate to="/inventory" replace />} />
         <Route path="/agents/:id" element={<AgentDetailPage />} />
