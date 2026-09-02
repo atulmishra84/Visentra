@@ -195,6 +195,12 @@ export function AgentDetailPage() {
           >
             AI BOM
           </Link>
+          <Link
+            className="button"
+            to={`/governance/agents/${encodeURIComponent(String(agent.id ?? id))}`}
+          >
+            Compliance
+          </Link>
           <Link className="button" to="/inventory">
             Back to inventory
           </Link>
