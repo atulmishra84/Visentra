@@ -11,6 +11,12 @@ export async function migrate(pool) {
   const sql = fs.readFileSync(schemaPath, "utf8");
   await pool.query(sql);
 
+  // Abandoned jobs from a previous API process cannot complete; fail them on boot.
+  await pool.query(`
+    UPDATE discovery_jobs
+    SET status='error', error='abandoned on API boot', finished_at=NOW()
+    WHERE status='running'
+  `);
   // At most one running discovery job per tenant (P1 concurrency)
   await pool.query(`
     UPDATE discovery_jobs SET status='error', error='superseded by concurrency guard', finished_at=NOW()
