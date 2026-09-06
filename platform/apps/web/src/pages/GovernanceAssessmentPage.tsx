@@ -116,12 +116,15 @@ export function GovernanceAssessmentPage() {
 
   return (
     <div className="page">
-      <div className="page-header">
+      <header className="page-header">
         <div>
+          <p className="eyebrow">Governance &amp; Compliance</p>
           <h1>{assessment?.agentName || "Agent compliance review"}</h1>
-          <p className="muted">Control-by-control review from discovery and deep-scan evidence (auto-assessed).</p>
+          <p className="page-description">
+            Control-by-control review from discovery and deep-scan evidence (auto-assessed).
+          </p>
         </div>
-        <div className="toolbar" style={{ gap: 8 }}>
+        <div className="toolbar" style={{ gap: 8, flexWrap: "wrap" }}>
           <select
             className="input"
             value={framework}
@@ -141,20 +144,20 @@ export function GovernanceAssessmentPage() {
             ))}
           </select>
           <button className="button ghost" type="button" onClick={() => navigate("/governance")}>
-            Back
+            Back to assessments
           </button>
           <Link className="button primary" to={`/agents/${encodeURIComponent(agentId)}`}>
             Open agent
           </Link>
         </div>
-      </div>
+      </header>
 
       {error ? <div className="error-state">{error}</div> : null}
       {loading ? <div className="loading-state">Loading control review...</div> : null}
 
       {!loading && assessment ? (
         <>
-          <div className="kpi-grid" style={{ marginBottom: 16 }}>
+          <div className="card-grid" style={{ marginBottom: 16 }}>
             <KpiCard label="Posture" value={(summary?.posture || "unknown").replace(/_/g, " ")} />
             <KpiCard label="Score" value={summary?.score == null ? "—" : `${summary.score}%`} />
             <KpiCard label="Pass" value={numberAt(summary?.counts || {}, ["pass"], 0)} tone="good" />
@@ -163,7 +166,7 @@ export function GovernanceAssessmentPage() {
           </div>
 
           <section className="panel">
-            <div className="page-header">
+            <div className="panel-heading">
               <h2>Controls</h2>
               <span className="status-pill">{findings.length} reviewed</span>
             </div>

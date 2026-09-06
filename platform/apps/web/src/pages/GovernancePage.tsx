@@ -7,9 +7,10 @@ import { apiRequest, numberAt, valueAt } from "../lib/api";
 type Framework = {
   id: string;
   name: string;
-  version?: string;
+  version?: string | null;
   description?: string;
   controlCount?: number;
+  builtin?: boolean;
 };
 
 type AssessmentSummary = {
@@ -26,7 +27,6 @@ type AssessmentRow = {
   evidenceClass?: string | null;
   agentStatus?: string | null;
   summary: AssessmentSummary;
-  byFramework?: Record<string, { summary: AssessmentSummary }>;
 };
 
 type ComplianceReport = {
@@ -66,7 +66,7 @@ export function GovernancePage() {
       query: { framework: framework || undefined, limit: 500 }
     })
       .then((report) => mounted && setData(report))
-      .catch((err) => mounted && setError(err instanceof Error ? err.message : "Failed to load governance"))
+      .catch((err) => mounted && setError(err instanceof Error ? err.message : "Failed to load assessments"))
       .finally(() => mounted && setLoading(false));
     return () => {
       mounted = false;
@@ -77,6 +77,13 @@ export function GovernancePage() {
   const assessments = data?.assessments || [];
   const rollup = data?.rollup || {};
 
+  const setFramework = (id: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (id) next.set("framework", id);
+    else next.delete("framework");
+    setSearchParams(next, { replace: true });
+  };
+
   const columns: Array<Column<AssessmentRow & Record<string, unknown>>> = useMemo(
     () => [
       {
@@ -85,7 +92,10 @@ export function GovernancePage() {
         render: (row) => (
           <>
             <strong>{row.agentName}</strong>
-            <div className="muted small">{row.category || "—"}{row.cloudProvider ? ` · ${row.cloudProvider}` : ""}</div>
+            <div className="muted small">
+              {row.category || "—"}
+              {row.cloudProvider ? ` · ${row.cloudProvider}` : ""}
+            </div>
           </>
         ),
         sortValue: (row) => row.agentName
@@ -125,7 +135,7 @@ export function GovernancePage() {
         sortValue: (row) => Number(row.summary?.counts?.pass || 0)
       },
       {
-        key: "status",
+        key: "evidence",
         header: "Evidence",
         render: (row) => row.evidenceClass?.replace(/_/g, " ") || row.agentStatus || "—",
         sortValue: (row) => row.evidenceClass || ""
@@ -136,86 +146,64 @@ export function GovernancePage() {
 
   return (
     <div className="page">
-      <div className="page-header">
+      <header className="page-header">
         <div>
-          <h1>Governance &amp; Compliance</h1>
-          <p className="muted">
-            Auto-review each discovered agent against OWASP LLM Top 10, HIPAA, and NIST AI RMF controls using
-            discovery and deep-scan evidence.
+          <p className="eyebrow">Governance &amp; Compliance</p>
+          <h1>Assessments</h1>
+          <p className="page-description">
+            Auto-review discovered agents against your control catalog using discovery and deep-scan evidence.
           </p>
         </div>
-        <div className="toolbar" style={{ gap: 8 }}>
-          <select
-            className="input"
-            value={framework}
-            onChange={(e) => {
-              const next = new URLSearchParams(searchParams);
-              if (e.target.value) next.set("framework", e.target.value);
-              else next.delete("framework");
-              setSearchParams(next, { replace: true });
-            }}
-            aria-label="Framework filter"
-          >
-            <option value="">All frameworks</option>
-            {frameworks.map((fw) => (
-              <option key={fw.id} value={fw.id}>
-                {fw.name}
-              </option>
-            ))}
-          </select>
-          <Link className="button ghost" to="/governance/catalog">
+        <div className="toolbar" style={{ gap: 8, flexWrap: "wrap" }}>
+          <Link className="button" to="/governance/catalog">
             Control catalog
           </Link>
         </div>
-      </div>
+      </header>
 
       {error ? <div className="error-state">{error}</div> : null}
 
-      <div className="kpi-grid" style={{ marginBottom: 16 }}>
+      <section className="card-grid" style={{ marginBottom: 16 }}>
         <KpiCard label="Agents assessed" value={numberAt(rollup, ["agentsAssessed"], assessments.length)} />
         <KpiCard label="Compliant" value={numberAt(rollup, ["compliant"], 0)} tone="good" />
         <KpiCard label="Partial" value={numberAt(rollup, ["partial"], 0)} tone="warn" />
         <KpiCard label="Non-compliant" value={numberAt(rollup, ["nonCompliant"], 0)} tone="bad" />
-        <KpiCard
-          label="Avg score"
-          value={rollup.avgScore == null ? "—" : `${rollup.avgScore}%`}
-        />
-      </div>
+        <KpiCard label="Avg score" value={rollup.avgScore == null ? "—" : `${rollup.avgScore}%`} />
+      </section>
 
       <section className="panel" style={{ marginBottom: 16 }}>
-        <div className="page-header">
+        <div className="panel-heading">
           <h2>Frameworks</h2>
+          <button className="button ghost" type="button" onClick={() => setFramework("")}>
+            Clear filter
+          </button>
         </div>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+        <div className="framework-chip-row">
           {frameworks.map((fw) => (
             <button
               key={fw.id}
               type="button"
-              className={`panel ${framework === fw.id ? "selected" : ""}`}
-              style={{ textAlign: "left", cursor: "pointer", boxShadow: "none" }}
-              onClick={() => {
-                const next = new URLSearchParams(searchParams);
-                next.set("framework", fw.id);
-                setSearchParams(next, { replace: true });
-              }}
+              className={`framework-chip ${framework === fw.id ? "is-active" : ""}`}
+              onClick={() => setFramework(fw.id)}
             >
               <strong>{fw.name}</strong>
-              <div className="muted small">{fw.version}</div>
-              <div className="muted small" style={{ marginTop: 6 }}>
-                {fw.controlCount ?? 0} controls
+              <div className="meta">
+                {fw.version || "—"} · {fw.controlCount ?? 0} controls
+                {fw.builtin === false ? " · custom" : ""}
               </div>
             </button>
           ))}
+          {!frameworks.length && !loading ? <p className="muted">No frameworks yet.</p> : null}
         </div>
       </section>
 
       <section className="panel">
-        <div className="page-header">
+        <div className="panel-heading">
           <h2>Agent control reviews</h2>
           <span className="status-pill">{assessments.length} agents</span>
         </div>
         {loading ? (
-          <div className="loading-state">Assessing agents against compliance controls...</div>
+          <div className="loading-state">Assessing agents against compliance controls…</div>
         ) : (
           <DataTable
             columns={columns}
@@ -226,7 +214,7 @@ export function GovernancePage() {
         )}
         {data?.generatedAt ? (
           <div className="muted small" style={{ marginTop: 8 }}>
-            Generated {valueAt(data, ["generatedAt"], "")}
+            Generated {valueAt(data as Record<string, unknown>, ["generatedAt"], "")}
           </div>
         ) : null}
       </section>

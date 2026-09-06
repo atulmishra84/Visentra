@@ -7,7 +7,9 @@ import { enrichAgentRow } from "./agentDepth.js";
 import {
   COMPLIANCE_CONTROLS,
   listFrameworks,
-  listControls
+  listControls,
+  listFrameworksForTenant,
+  listControlsForTenant
 } from "./complianceCatalog.js";
 
 const STATUSES = new Set(["pass", "fail", "partial", "unknown", "not_applicable"]);
@@ -498,12 +500,16 @@ function summarizeFindings(findings) {
   return { counts, score, posture };
 }
 
-export function assessAgent(agent, { frameworks } = {}) {
+export function assessAgent(agent, { frameworks, controls, frameworkList } = {}) {
   const frameworkFilter = frameworks?.length ? new Set(frameworks.map(String)) : null;
-  const controls = COMPLIANCE_CONTROLS.filter((c) => !frameworkFilter || frameworkFilter.has(c.framework));
-  const findings = controls.map((c) => assessControl(c, agent));
+  const allControls = Array.isArray(controls) ? controls : COMPLIANCE_CONTROLS;
+  const filteredControls = allControls.filter(
+    (c) => !frameworkFilter || frameworkFilter.has(c.framework)
+  );
+  const findings = filteredControls.map((c) => assessControl(c, agent));
   const byFramework = {};
-  for (const fw of listFrameworks()) {
+  const frameworksForReport = Array.isArray(frameworkList) ? frameworkList : listFrameworks();
+  for (const fw of frameworksForReport) {
     if (frameworkFilter && !frameworkFilter.has(fw.id)) continue;
     const fwFindings = findings.filter((f) => f.framework === fw.id);
     byFramework[fw.id] = {
@@ -547,8 +553,12 @@ export async function buildComplianceReport(pool, tenantId, options = {}) {
     limit: options.limit,
     agentId: options.agentId || null
   });
+  const frameworkList = await listFrameworksForTenant(pool, tenantId);
+  const controls = await listControlsForTenant(pool, tenantId, framework);
   const frameworks = framework ? [framework] : null;
-  const assessments = agents.map((a) => assessAgent(a, { frameworks }));
+  const assessments = agents.map((a) =>
+    assessAgent(a, { frameworks, controls, frameworkList })
+  );
 
   const rollup = {
     agentsAssessed: assessments.length,
@@ -573,7 +583,7 @@ export async function buildComplianceReport(pool, tenantId, options = {}) {
   }
   if (scoreN) rollup.avgScore = Math.round(scoreSum / scoreN);
 
-  for (const fw of listFrameworks()) {
+  for (const fw of frameworkList) {
     if (framework && fw.id !== framework) continue;
     const counts = { pass: 0, fail: 0, partial: 0, unknown: 0, not_applicable: 0 };
     for (const a of assessments) {
@@ -588,8 +598,8 @@ export async function buildComplianceReport(pool, tenantId, options = {}) {
 
   return {
     spec: { name: "Visentra-Governance", version: "1.0.0" },
-    frameworks: listFrameworks(),
-    controls: listControls(framework),
+    frameworks: frameworkList,
+    controls,
     rollup,
     assessments,
     generatedAt: new Date().toISOString()
