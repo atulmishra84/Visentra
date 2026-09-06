@@ -30,6 +30,36 @@ export async function purgeDemoInventory(pool, neo4jDriver, tenantId) {
   }
 }
 
+/** Remove every agent for a tenant (Postgres + Neo4j). Used to reset before live connector discovery. */
+export async function purgeAllInventory(pool, neo4jDriver, tenantId) {
+  const { rows } = await pool.query(`SELECT id FROM agents WHERE tenant_id=$1`, [tenantId]);
+  const ids = rows.map((r) => r.id);
+
+  await pool.query(`DELETE FROM relationships WHERE tenant_id=$1`, [tenantId]);
+  await pool.query(`DELETE FROM agent_observations WHERE tenant_id=$1`, [tenantId]);
+  await pool.query(`DELETE FROM agents WHERE tenant_id=$1`, [tenantId]);
+  await pool.query(`DELETE FROM discovery_events WHERE tenant_id=$1`, [tenantId]).catch(() => null);
+  await pool.query(
+    `UPDATE discovery_jobs SET status='cancelled', finished_at=COALESCE(finished_at, NOW()), error='inventory purged'
+     WHERE tenant_id=$1 AND status IN ('queued','running','pending')`,
+    [tenantId]
+  ).catch(() => null);
+
+  if (neo4jDriver) {
+    const session = neo4jDriver.session();
+    try {
+      await session.run(`MATCH (a:Agent {tenantId: $tenantId}) DETACH DELETE a`, { tenantId });
+    } catch (err) {
+      console.warn("Neo4j inventory purge:", err.message);
+    } finally {
+      await session.close();
+    }
+  }
+
+  console.log(`Purged all inventory for tenant ${tenantId} (${ids.length} agent(s))`);
+  return { deleted: ids.length };
+}
+
 export async function purgeNonAiInventory(pool, neo4jDriver, tenantId) {
   if (process.env.DISCOVERY_AI_ONLY !== "true") return;
 

@@ -1,5 +1,7 @@
 import { safeFetch, assertAllowedUrl, assertDnsLabel, ALLOW } from "../utils/http.js";
 import { isAiRelevantText } from "./aiRelevance.js";
+import { enrichAgent365WithDeepScan } from "./agent365DeepScan.js";
+import { alignObservationWithDeepSurface } from "./providerDeepAlign.js";
 
 /**
  * SaaS / platform agent discovery adapters.
@@ -8,12 +10,20 @@ import { isAiRelevantText } from "./aiRelevance.js";
  */
 
 const PLATFORM_LABELS = {
-  m365_copilot: "Microsoft 365 Copilot / Copilot Studio",
+  m365_copilot: "Microsoft 365 Copilot / Agent 365",
   salesforce: "Salesforce Agentforce",
   workday: "Workday Illuminate / AI",
   servicenow: "ServiceNow Now Assist / Virtual Agent",
   openai: "OpenAI / ChatGPT"
 };
+
+/** Agent 365 / Copilot admin catalog — default on. */
+const M365_AGENT365_CATALOG_SCAN =
+  String(process.env.M365_AGENT365_CATALOG_SCAN || "true").toLowerCase() !== "false";
+const M365_AGENT365_PACKAGE_LIMIT = Math.min(
+  500,
+  Math.max(1, Number(process.env.M365_AGENT365_PACKAGE_LIMIT || 200))
+);
 
 async function azureAppToken(tenantId, clientId, clientSecret, scope) {
   const body = new URLSearchParams({
@@ -142,7 +152,7 @@ function platformObservation({
     team: conn.environment || null
   };
 
-  return {
+  const observation = {
     collector_id: "saas_platform",
     fingerprint: `saas:${provider}:agent:${id}`,
     name,
@@ -199,6 +209,28 @@ function platformObservation({
         : [])
     ]
   };
+
+  // Agent 365 catalog packages get richer deep scan separately — skip list-align duplicate.
+  if (extra.source === "graph-agent365-catalog") {
+    return observation;
+  }
+
+  return alignObservationWithDeepSurface(observation, {
+    provider,
+    schema: `${provider}-deep.v1`,
+    deepScan: `${provider}_platform_list`,
+    agentId: id,
+    agentName: name,
+    agentType: framework || label,
+    foundationModel: model || null,
+    description: extra.description || extra.shortDescription || null,
+    instructionText: extra.instructions || extra.systemPrompt || null,
+    tools,
+    knowledgeBases: knowledgeSources,
+    limitations: [
+      `Aligned from ${label} list/discovery payload for AWS metadata.deep + adversarial_surface parity.`,
+    ],
+  });
 }
 
 function connectorHealthObservation(provider, conn, message, agentCount = 0) {
@@ -236,7 +268,164 @@ function connectorHealthObservation(provider, conn, message, agentCount = 0) {
   };
 }
 
-/* ---------------- Microsoft 365 Copilot / Copilot Studio ---------------- */
+/* ---------------- Microsoft 365 Copilot / Agent 365 ---------------- */
+
+/**
+ * True when a Copilot admin catalog package looks like an agent (not a plain Office add-in).
+ * Uses Microsoft-documented filters: Copilot host, agent element types, Studio/Agent Builder platform.
+ * Does not invent agents from displayName alone.
+ */
+export function isAgent365CatalogPackage(pkg = {}) {
+  const hosts = (Array.isArray(pkg.supportedHosts) ? pkg.supportedHosts : []).map((h) =>
+    String(h).toLowerCase()
+  );
+  const elements = (Array.isArray(pkg.elementTypes) ? pkg.elementTypes : []).map((e) =>
+    String(e).toLowerCase()
+  );
+  const platform = String(pkg.platform || "").toLowerCase();
+
+  if (hosts.some((h) => h === "copilot" || h === "m365" || h === "microsoft 365")) return true;
+  if (
+    elements.some((e) =>
+      /^(bots?|declarativeagents?|customengineagents?|agents?)$/.test(e.replace(/\s+/g, ""))
+    )
+  ) {
+    return true;
+  }
+  if (/copilot\s*studio|agent\s*builder|agent\s*365/.test(platform)) return true;
+  return false;
+}
+
+export function mapAgent365PackageToObservation(conn, pkg = {}) {
+  const id = String(pkg.id || pkg.manifestId || pkg.appId || "").trim();
+  if (!id) return null;
+  const name = String(pkg.displayName || pkg.shortDescription || id).trim();
+  const platform = String(pkg.platform || "Microsoft Agent 365");
+  const hosts = Array.isArray(pkg.supportedHosts) ? pkg.supportedHosts.map(String) : [];
+  const elements = Array.isArray(pkg.elementTypes) ? pkg.elementTypes.map(String) : [];
+  const owner = pkg.owner || pkg.ownerDisplayName || pkg.publisher || null;
+  const blocked = pkg.isBlocked === true;
+
+  return platformObservation({
+    provider: "m365_copilot",
+    conn,
+    id: `agent365-${id}`,
+    name,
+    owner: owner ? String(owner) : null,
+    model: "microsoft-agent-365",
+    framework: /copilot\s*studio/i.test(platform) ? "Copilot Studio → Agent 365" : platform,
+    status: blocked ? "stopped" : "unknown",
+    extra: {
+      source: "graph-agent365-catalog",
+      howIdentified: "Microsoft Graph Copilot admin catalog (Agent 365 packages)",
+      evidenceClass: "official_api",
+      agent365PackageId: id,
+      packageType: pkg.type || null,
+      shortDescription: pkg.shortDescription || null,
+      publisher: pkg.publisher || null,
+      platform,
+      elementTypes: elements,
+      supportedHosts: hosts,
+      isBlocked: blocked,
+      availableTo: pkg.availableTo || null,
+      deployedTo: pkg.deployedTo || null,
+      version: pkg.version || null,
+      manifestId: pkg.manifestId || null,
+      appId: pkg.appId || null,
+      lastModifiedDateTime: pkg.lastModifiedDateTime || null,
+      channels: hosts.length ? hosts : ["Microsoft 365", "Copilot"],
+      authMode: "entra_sso",
+      // List API does not return instruction body — deep scan may set this later.
+      hasInstructions: false,
+      instructionSource: null,
+      catalogApi: "copilot/admin/catalog/packages"
+    }
+  });
+}
+
+/**
+ * List Agent 365 / Copilot admin catalog packages.
+ * Tries Graph v1.0 first, then beta. Paginates via @odata.nextLink.
+ * If the Copilot-host filter is rejected, retries without $filter.
+ */
+export async function listAgent365CatalogPackages(
+  token,
+  {
+    discoveryErrors = [],
+    limit = M365_AGENT365_PACKAGE_LIMIT,
+    fetchFn = safeFetch,
+    preferAgentsOnly = true
+  } = {}
+) {
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
+  const bases = [
+    "https://graph.microsoft.com/v1.0/copilot/admin/catalog/packages",
+    "https://graph.microsoft.com/beta/copilot/admin/catalog/packages"
+  ];
+  const filterQs = preferAgentsOnly ? "?$filter=supportedHosts/any(h:h eq 'Copilot')" : "";
+
+  let lastError = null;
+
+  for (const base of bases) {
+    for (const qs of preferAgentsOnly ? [filterQs, ""] : [""]) {
+      const packages = [];
+      let nextUrl = `${base}${qs}`;
+      let pages = 0;
+      const usedApi = base.includes("/beta/") ? "beta" : "v1.0";
+      let attemptError = null;
+
+      try {
+        while (nextUrl && packages.length < limit && pages < 20) {
+          pages += 1;
+          const res = await fetchFn(nextUrl, { headers }, ALLOW.graphMicrosoft);
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            attemptError = {
+              status: res.status,
+              permissionDenied: res.status === 401 || res.status === 403,
+              message: json.error?.message || json.error?.code || `Agent 365 catalog failed (${res.status})`,
+              api: usedApi
+            };
+            break;
+          }
+          const batch = Array.isArray(json.value) ? json.value : [];
+          packages.push(...batch);
+          nextUrl = json["@odata.nextLink"] || null;
+        }
+      } catch (err) {
+        attemptError = {
+          status: 0,
+          permissionDenied: false,
+          message: String(err?.message || err),
+          api: usedApi
+        };
+      }
+
+      if (!attemptError) {
+        return { packages: packages.slice(0, limit), api: usedApi, discoveryErrors };
+      }
+      lastError = attemptError;
+      // Permission denied won't improve on beta/unfiltered — still try once without filter / other API.
+      if (attemptError.permissionDenied && qs === "") {
+        // keep going to other API version once
+      }
+    }
+  }
+
+  if (lastError) {
+    discoveryErrors.push({
+      discoveryType: "agent365-catalog",
+      discoveryStatus: lastError.permissionDenied ? "permission_denied" : "error",
+      error: lastError.message,
+      api: lastError.api,
+      hint: lastError.permissionDenied
+        ? "Grant CopilotPackages.Read.All (application), AI Admin/Global Admin context, and ensure the tenant has an Agent 365 license."
+        : "Agent 365 catalog call failed; Azure Foundry/Bot Service discovery will not see these agents."
+    });
+  }
+
+  return { packages: [], api: lastError?.api || null, discoveryErrors, lastError };
+}
 
 export async function validateM365Copilot({ config, secrets }) {
   const { tenantId, clientId } = config;
@@ -246,7 +435,7 @@ export async function validateM365Copilot({ config, secrets }) {
   }
   const token = await azureAppToken(tenantId, clientId, clientSecret, "https://graph.microsoft.com/.default");
 
-  // Org profile proves Graph auth; Copilot inventory needs Reports.Read.All / app catalog scopes
+  // Org profile proves Graph auth; Agent 365 inventory needs CopilotPackages.Read.All
   const org = await safeFetch("https://graph.microsoft.com/v1.0/organization?$select=id,displayName", {
     headers: { Authorization: `Bearer ${token}` }
   }, ALLOW.graphMicrosoft);
@@ -259,8 +448,8 @@ export async function validateM365Copilot({ config, secrets }) {
     ok: true,
     message:
       org.status === 403
-        ? "Copilot app token OK. Grant Organization.Read.All and Reports.Read.All for Copilot usage/agent discovery."
-        : "Microsoft Graph authenticated for Copilot / M365 discovery.",
+        ? "Copilot app token OK. Grant Organization.Read.All and CopilotPackages.Read.All for Agent 365 catalog discovery."
+        : "Microsoft Graph authenticated for Copilot / Agent 365 discovery.",
     accessToken: token
   };
 }
@@ -268,12 +457,33 @@ export async function validateM365Copilot({ config, secrets }) {
 export async function discoverM365Copilot(conn) {
   const result = await validateM365Copilot({ config: conn.config, secrets: conn.secrets });
   const observations = [connectorHealthObservation("m365_copilot", conn, result.message)];
-  if (!result.accessToken) return { observations, stats: { agents: 0, message: result.message } };
+  const discoveryErrors = [];
+  if (!result.accessToken) {
+    return { observations, stats: { agents: 0, message: result.message }, discoveryErrors };
+  }
 
   const token = result.accessToken;
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
+  let agent365Count = 0;
 
-  // Service principals that look like Copilot / Copilot Studio / Power Virtual Agents
+  // Primary: Agent 365 / Copilot admin catalog (official inventory of published agents)
+  if (M365_AGENT365_CATALOG_SCAN) {
+    const catalog = await listAgent365CatalogPackages(token, { discoveryErrors });
+    const agentPackages = (catalog.packages || []).filter(isAgent365CatalogPackage);
+    const catalogObservations = [];
+    for (const pkg of agentPackages) {
+      const obs = mapAgent365PackageToObservation(conn, pkg);
+      if (obs) {
+        catalogObservations.push(obs);
+        agent365Count += 1;
+      }
+    }
+    // Deep + adversarial enrichment (package detail) — does not invent agents.
+    const enriched = await enrichAgent365WithDeepScan(catalogObservations, token);
+    observations.push(...enriched);
+  }
+
+  // Secondary heuristics: service principals that look like Copilot / Copilot Studio / PVA
   const sp = await safeFetch(
     "https://graph.microsoft.com/v1.0/servicePrincipals?$top=50&$select=id,displayName,appId,servicePrincipalType,tags",
     { headers }
@@ -282,7 +492,7 @@ export async function discoverM365Copilot(conn) {
     const json = await sp.json().catch(() => ({}));
     const apps = (json.value || []).filter((a) =>
       isAiRelevantText(a.displayName, ...(a.tags || [])) ||
-      /copilot|power virtual agents|bot framework|openai|ai builder|copilot studio/i.test(a.displayName || "")
+      /copilot|power virtual agents|bot framework|openai|ai builder|copilot studio|agent 365/i.test(a.displayName || "")
     );
     for (const app of apps) {
       observations.push(
@@ -301,7 +511,8 @@ export async function discoverM365Copilot(conn) {
             channels: ["Teams", "Outlook", "Microsoft 365"],
             authMode: "entra_sso",
             hasInstructions: true,
-            instructionSource: "copilot_studio"
+            instructionSource: "copilot_studio",
+            confidenceNote: "Name/tag heuristic — prefer Agent 365 catalog when available"
           }
         })
       );
@@ -316,7 +527,7 @@ export async function discoverM365Copilot(conn) {
   if (teamsApps.ok) {
     const json = await teamsApps.json().catch(() => ({}));
     for (const app of json.value || []) {
-      if (!isAiRelevantText(app.displayName) && !/copilot|gpt|assistant|openai|agentforce|power virtual/i.test(app.displayName || "")) continue;
+      if (!isAiRelevantText(app.displayName) && !/copilot|gpt|assistant|openai|agentforce|power virtual|agent 365/i.test(app.displayName || "")) continue;
       observations.push(
         platformObservation({
           provider: "m365_copilot",
@@ -333,24 +544,35 @@ export async function discoverM365Copilot(conn) {
   }
 
   // Capability hint only — do not invent a confirmed tenant agent when enumeration is empty.
-  if (observations.length === 1) {
+  const hasPlatformAgent = observations.some((o) => o?.metadata?.inventoryClass === "platform_agent");
+  if (!hasPlatformAgent) {
+    const catalogDenied = discoveryErrors.some(
+      (e) => e.discoveryType === "agent365-catalog" && e.discoveryStatus === "permission_denied"
+    );
     observations.push(
       capabilityHintObservation({
         provider: "m365_copilot",
         conn,
         id: `tenant-copilot-${conn.config.tenantId}`,
-        name: "Microsoft 365 Copilot (platform capability)",
-        framework: "Microsoft 365 Copilot",
+        name: "Microsoft 365 Copilot / Agent 365 (platform capability)",
+        framework: "Microsoft 365 Copilot / Agent 365",
         model: "microsoft-copilot",
         source: "graph-inferred",
-        note: "Grant Reports.Read.All and Power Platform admin scopes for Copilot Studio bot enumeration."
+        note: catalogDenied
+          ? "Agent 365 catalog returned permission_denied. Grant CopilotPackages.Read.All, AI Admin role context, and Agent 365 license — Azure connectors cannot see these agents."
+          : "Grant CopilotPackages.Read.All to enumerate Agent 365 / Copilot Studio published agents via Graph catalog packages."
       })
     );
   }
 
   return {
     observations,
-    stats: { agents: Math.max(0, observations.length - 1), message: result.message }
+    discoveryErrors,
+    stats: {
+      agents: Math.max(0, observations.filter((o) => o?.metadata?.inventoryClass === "platform_agent").length),
+      agent365CatalogAgents: agent365Count,
+      message: result.message
+    }
   };
 }
 
@@ -850,8 +1072,18 @@ export async function discoverOpenAi(conn) {
           status: "running",
           extra: {
             source: "openai-assistants",
-            tools: (a.tools || []).map((t) => t.type).filter(Boolean),
-            description: a.description || null
+            tools: a.tools || [],
+            description: a.description || null,
+            instructions: a.instructions || null,
+            hasInstructions: Boolean(a.instructions),
+            instructionSource: a.instructions ? "openai_assistants_api" : null,
+            knowledgeSources: Array.isArray(a.tool_resources?.file_search?.vector_store_ids)
+              ? a.tool_resources.file_search.vector_store_ids.map((id) => ({
+                  id,
+                  name: id,
+                  type: "vector_store",
+                }))
+              : [],
           }
         })
       );

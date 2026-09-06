@@ -7,7 +7,6 @@ export function agentFilters(query, startIdx = 2) {
     model: "model",
     framework: "framework",
     cloud: "cloud_provider",
-    category: "category",
     department: "department",
     hostname: "hostname",
     language: "programming_language",
@@ -20,6 +19,25 @@ export function agentFilters(query, startIdx = 2) {
       params.push(`%${query[q]}%`);
       i += 1;
     }
+  }
+  // Inventory "Cloud" quick filter (surface=cloud) and legacy category=cloud must
+  // include Azure Entra Agent ID / Copilot Studio rows stamped with cloud_provider
+  // even when category is identity|saas (not literally "cloud").
+  const surface = String(query.surface || "").toLowerCase();
+  const category = String(query.category || "").toLowerCase();
+  if (surface === "cloud" || (category === "cloud" && !query.surface)) {
+    clauses.push(
+      `AND (
+         lower(COALESCE(category,'')) = 'cloud'
+         OR (cloud_provider IS NOT NULL AND btrim(cloud_provider) <> '')
+       )`
+    );
+  } else if (surface === "endpoint") {
+    clauses.push(`AND lower(COALESCE(category,'')) IN ('endpoint','edr')`);
+  } else if (query.category) {
+    clauses.push(`AND category ILIKE $${i}`);
+    params.push(`%${query.category}%`);
+    i += 1;
   }
   if (query.q) {
     clauses.push(

@@ -35,7 +35,7 @@ const PROVIDER_LABELS: Record<ProviderKey, string> = {
   intune: "Microsoft Intune",
   cortex: "Palo Alto Cortex XDR",
   netskope: "Netskope",
-  m365_copilot: "Microsoft 365 Copilot / Copilot Studio",
+  m365_copilot: "Microsoft 365 Copilot / Agent 365",
   salesforce: "Salesforce Agentforce",
   workday: "Workday Illuminate / AI",
   servicenow: "ServiceNow Now Assist / Virtual Agent",

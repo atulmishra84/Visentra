@@ -27,6 +27,13 @@ const sections = [
     items: [{ to: "/ai-bom", label: "Bill of Materials" }]
   },
   {
+    heading: "Governance & Compliance",
+    items: [
+      { to: "/governance", label: "Assessments" },
+      { to: "/governance/catalog", label: "Control catalog" }
+    ]
+  },
+  {
     heading: "Usage Analytics",
     items: [{ to: "/usage", label: "Usage Analytics" }]
   },
@@ -41,6 +48,7 @@ const sections = [
     heading: "Settings",
     items: [
       { to: "/settings/connectors", label: "Connectors" },
+      { to: "/settings/naxri", label: "NAXRI ASPM" },
       { to: "/settings/sso", label: "IAM & SSO" },
       { to: "/settings/audit", label: "Audit Log" }
     ]
@@ -51,6 +59,7 @@ const sections = [
 const sectionAliases: Array<{ heading: string; match: (pathname: string) => boolean }> = [
   { heading: "Dashboards", match: (p) => p.startsWith("/discovery/") },
   { heading: "Inventory", match: (p) => p === "/topology" || p.startsWith("/topology/") },
+  { heading: "Governance & Compliance", match: (p) => p.startsWith("/governance/") },
   { heading: "Usage Analytics", match: (p) => p.startsWith("/usage/") },
   { heading: "Activity", match: (p) => p === "/search" || p.startsWith("/search?") }
 ];

@@ -136,6 +136,65 @@ export async function migrate(pool) {
       ON ai_bom_snapshots(tenant_id, created_at DESC)
   `);
 
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS outbound_integrations (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      provider        TEXT NOT NULL DEFAULT 'naxri'
+                        CHECK (provider IN ('naxri')),
+      name            TEXT NOT NULL DEFAULT 'NAXRI ASPM',
+      enabled         BOOLEAN NOT NULL DEFAULT FALSE,
+      auto_push       BOOLEAN NOT NULL DEFAULT TRUE,
+      webhook_url     TEXT,
+      config          JSONB NOT NULL DEFAULT '{}'::jsonb,
+      secrets_enc     TEXT,
+      last_sync_at    TIMESTAMPTZ,
+      last_sync_status TEXT,
+      last_sync_error TEXT,
+      last_sync_count INT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (tenant_id, provider)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_outbound_integrations_tenant
+      ON outbound_integrations(tenant_id, provider)
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS compliance_custom_frameworks (
+      tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      id            TEXT NOT NULL,
+      name          TEXT NOT NULL,
+      version       TEXT,
+      description   TEXT NOT NULL DEFAULT '',
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (tenant_id, id)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS compliance_custom_controls (
+      tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      id              TEXT NOT NULL,
+      framework       TEXT NOT NULL,
+      code            TEXT NOT NULL,
+      title           TEXT NOT NULL,
+      description     TEXT NOT NULL DEFAULT '',
+      family          TEXT,
+      evidence_hints  JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (tenant_id, id)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_compliance_custom_controls_fw
+      ON compliance_custom_controls(tenant_id, framework)
+  `);
+
   const isProd = process.env.NODE_ENV === "production";
   const email = process.env.BOOTSTRAP_ADMIN_EMAIL || "admin@agentradar.local";
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || (isProd ? null : "AgentRadar!dev");

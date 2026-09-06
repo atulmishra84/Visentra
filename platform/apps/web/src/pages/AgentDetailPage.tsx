@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
+import { AgentDeepScanPanels } from "../components/AgentDeepScanPanels";
+import { AgentExecutionTopology } from "../components/AgentExecutionTopology";
 import { KpiCard } from "../components/KpiCard";
 import { apiRequest, compactDate, numberAt, type Agent, valueAt } from "../lib/api";
 
@@ -22,15 +24,43 @@ export function AgentDetailPage() {
   useEffect(() => {
     if (!id) return;
     let mounted = true;
-    setLoading(true);
-    apiRequest<Record<string, unknown>>(`/api/agents/${encodeURIComponent(id)}`)
-      .then((data) => mounted && setPayload(data))
-      .catch((requestError) =>
-        mounted && setError(requestError instanceof Error ? requestError.message : "Failed to load agent.")
-      )
-      .finally(() => mounted && setLoading(false));
+    const load = (opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setLoading(true);
+      apiRequest<Record<string, unknown>>(`/api/agents/${encodeURIComponent(id)}`)
+        .then((data) => {
+          if (!mounted) return;
+          setPayload(data);
+          setError(null);
+        })
+        .catch((requestError) =>
+          mounted &&
+            setError(requestError instanceof Error ? requestError.message : "Failed to load agent.")
+        )
+        .finally(() => mounted && setLoading(false));
+    };
+
+    load();
+
+    const onGraphEvent = (event: Event) => {
+      const type = String((event as CustomEvent).detail?.type || "");
+      if (
+        type === "inventory.agent.updated" ||
+        type === "discovery.job.completed" ||
+        type === "discovery.job.finished"
+      ) {
+        load({ silent: true });
+      }
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load({ silent: true });
+    };
+
+    window.addEventListener("visentra:graph-event", onGraphEvent);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       mounted = false;
+      window.removeEventListener("visentra:graph-event", onGraphEvent);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [id]);
 
@@ -84,6 +114,25 @@ export function AgentDetailPage() {
   const paths = (blast?.paths as Record<string, unknown>[] | undefined) || [];
   const ownsRels = relationships.filter((rel) => /owns|uses_identity/i.test(valueAt(rel, ["rel_type", "type"])));
   const ownershipStatus = valueAt(ownership, ["ownershipStatus"], valueAt(agent, ["owner"]) ? "owned" : "ownerless");
+  const deep = (meta.deep as Record<string, unknown> | undefined) || null;
+  const adversarialSurface =
+    (meta.adversarial_surface as Record<string, unknown> | undefined) || null;
+  const deepToolCount = numberAt(
+    deep || {},
+    ["toolCount"],
+    Array.isArray(deep?.tools) ? deep.tools.length : 0
+  );
+  const deepKbCount = numberAt(
+    deep || {},
+    ["knowledgeBaseCount"],
+    Array.isArray(deep?.knowledgeBases) ? deep.knowledgeBases.length : 0
+  );
+  const deepModel =
+    valueAt(deep || {}, ["foundationModel"]) ||
+    valueAt((adversarialSurface?.model as Record<string, unknown>) || {}, ["foundation_model", "name"]) ||
+    valueAt(meta, ["foundationModel"]);
+  const deepLifecycle = valueAt(deep || {}, ["agentStatus", "deploymentStatus"]);
+  const deepScanStatus = valueAt(meta, ["deepScanStatus"], deep ? "ok" : "—");
 
   if (loading) {
     return (
@@ -112,6 +161,25 @@ export function AgentDetailPage() {
           </p>
         </div>
         <div className="toolbar">
+          <button
+            type="button"
+            className="button"
+            onClick={() => {
+              if (!id) return;
+              setLoading(true);
+              apiRequest<Record<string, unknown>>(`/api/agents/${encodeURIComponent(id)}`)
+                .then((data) => {
+                  setPayload(data);
+                  setError(null);
+                })
+                .catch((requestError) =>
+                  setError(requestError instanceof Error ? requestError.message : "Failed to load agent.")
+                )
+                .finally(() => setLoading(false));
+            }}
+          >
+            Refresh
+          </button>
           <Link className="button primary" to={`/relationships?agentId=${encodeURIComponent(String(agent.id ?? id))}`}>
             Open anatomy
           </Link>
@@ -126,6 +194,12 @@ export function AgentDetailPage() {
             to={`/ai-bom?tab=systems&agentId=${encodeURIComponent(String(agent.id ?? id))}`}
           >
             AI BOM
+          </Link>
+          <Link
+            className="button"
+            to={`/governance/agents/${encodeURIComponent(String(agent.id ?? id))}`}
+          >
+            Compliance
           </Link>
           <Link className="button" to="/inventory">
             Back to inventory
@@ -167,6 +241,27 @@ export function AgentDetailPage() {
             valueAt(meta, ["environmentLane"], "—")
           }
         />
+        {deep || adversarialSurface || deepScanStatus !== "—" ? (
+          <>
+            <KpiCard
+              label="Deep scan"
+              value={deepScanStatus}
+              tone={
+                deepScanStatus === "ok"
+                  ? "good"
+                  : deepScanStatus === "permission_denied"
+                    ? "warn"
+                    : deep
+                      ? "good"
+                      : "warn"
+              }
+            />
+            <KpiCard label="Deep model" value={deepModel || "—"} />
+            <KpiCard label="Deep lifecycle" value={deepLifecycle || "—"} />
+            <KpiCard label="Deep tools" value={deepToolCount || "—"} />
+            <KpiCard label="Deep KBs" value={deepKbCount || "—"} />
+          </>
+        ) : null}
       </section>
 
       {agent.shadowAi ? (
@@ -187,6 +282,10 @@ export function AgentDetailPage() {
           </div>
         </section>
       ) : null}
+
+      <AgentExecutionTopology agent={agent as Record<string, unknown>} />
+
+      <AgentDeepScanPanels agent={agent as Record<string, unknown>} />
 
       <section className="split-grid">
         <div className="panel">

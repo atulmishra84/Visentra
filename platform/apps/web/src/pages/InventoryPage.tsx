@@ -42,9 +42,9 @@ function uniqueMetaOptions(rows: Agent[], key: string): string[] {
 }
 
 
-function categoryBadge(category: string) {
+function categoryBadge(category: string, cloudProvider = "") {
   const c = category.toLowerCase();
-  if (c === "cloud") return "cloud";
+  if (c === "cloud" || cloudProvider) return "cloud";
   if (c === "endpoint" || c === "edr") return "endpoint";
   if (["ide", "local", "local_llm", "framework", "mcp", "browser", "autonomous", "saas", "container"].includes(c)) {
     return "agent";
@@ -61,6 +61,7 @@ function facetsFromSearchParams(params: URLSearchParams): Facets {
     "cloud",
     "ide",
     "category",
+    "surface",
     "department",
     "evidenceClass",
     "agentStatus",
@@ -89,8 +90,24 @@ export function InventoryPage({ title }: { title: string }) {
   const [selected, setSelected] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<"csv" | "json" | null>(null);
+  const [purging, setPurging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const shadowOnly = searchParams.get("shadow") === "true";
+
+  const reloadInventory = () => {
+    setLoading(true);
+    setError(null);
+    apiRequest<unknown>("/api/agents", {
+      query: { ...facets, limit: 500, shadow: shadowOnly ? "true" : undefined }
+    })
+      .then((data) => setPayload(data))
+      .catch(
+        (requestError) =>
+          setError(requestError instanceof Error ? requestError.message : "Failed to load inventory.")
+      )
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
     const fromUrl = facetsFromSearchParams(searchParams);
@@ -143,7 +160,10 @@ export function InventoryPage({ title }: { title: string }) {
   const counts = useMemo(() => {
     const out = { all: agents.length, cloud: 0, endpoint: 0, agent: 0, other: 0 };
     for (const row of agents) {
-      const kind = categoryBadge(valueAt(row, ["category"], ""));
+      const kind = categoryBadge(
+        valueAt(row, ["category"], ""),
+        valueAt(row, ["cloud_provider", "cloud"], "")
+      );
       if (kind === "cloud") out.cloud += 1;
       else if (kind === "endpoint") out.endpoint += 1;
       else if (kind === "agent") out.agent += 1;
@@ -211,8 +231,39 @@ export function InventoryPage({ title }: { title: string }) {
     }
   };
 
-  const setCategoryQuick = (category?: string) => {
-    setFacets((prev) => ({ ...prev, category: category || undefined, agentStatus: undefined }));
+  const clearInventory = async () => {
+    if (
+      !window.confirm(
+        "Remove all discovered agents from inventory? This cannot be undone. Add cloud/SaaS connectors, then run discovery to load live data."
+      )
+    ) {
+      return;
+    }
+    setPurging(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await apiRequest<{ deleted?: number; message?: string }>("/api/agents/purge", {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      setSelected(null);
+      setNotice(result.message || `Removed ${result.deleted ?? 0} agent(s).`);
+      reloadInventory();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to clear inventory.");
+    } finally {
+      setPurging(false);
+    }
+  };
+
+  const setSurfaceQuick = (surface?: string) => {
+    setFacets((prev) => ({
+      ...prev,
+      surface: surface || undefined,
+      category: undefined,
+      agentStatus: undefined
+    }));
   };
 
   const setStatusQuick = (agentStatus?: string) => {
@@ -358,17 +409,25 @@ export function InventoryPage({ title }: { title: string }) {
           </p>
         </div>
         <div className="toolbar">
-          <button className="button" disabled={Boolean(exporting)} type="button" onClick={() => exportAgents("csv")}>
+          <button className="button" disabled={Boolean(exporting) || purging} type="button" onClick={() => exportAgents("csv")}>
             Export CSV
           </button>
-          <button className="button" disabled={Boolean(exporting)} type="button" onClick={() => exportAgents("json")}>
+          <button className="button" disabled={Boolean(exporting) || purging} type="button" onClick={() => exportAgents("json")}>
             Export JSON
+          </button>
+          <button className="button" disabled={purging || loading} type="button" onClick={() => void clearInventory()}>
+            {purging ? "Clearing…" : "Clear inventory"}
           </button>
         </div>
       </header>
 
+      {notice ? <div className="status-pill ok" style={{ marginBottom: 12 }}>{notice}</div> : null}
       <div className="toolbar" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <button className={`button ${!facets.category && !facets.agentStatus ? "primary" : "ghost"}`} type="button" onClick={() => setFacets({})}>
+        <button
+          className={`button ${!facets.category && !facets.agentStatus && !facets.surface ? "primary" : "ghost"}`}
+          type="button"
+          onClick={() => setFacets({})}
+        >
           All
         </button>
         <button
@@ -386,16 +445,16 @@ export function InventoryPage({ title }: { title: string }) {
           Candidates
         </button>
         <button
-          className={`button ${facets.category === "cloud" ? "primary" : "ghost"}`}
+          className={`button ${facets.surface === "cloud" || facets.category === "cloud" ? "primary" : "ghost"}`}
           type="button"
-          onClick={() => setCategoryQuick("cloud")}
+          onClick={() => setSurfaceQuick("cloud")}
         >
           Cloud
         </button>
         <button
-          className={`button ${facets.category === "endpoint" ? "primary" : "ghost"}`}
+          className={`button ${facets.surface === "endpoint" || facets.category === "endpoint" ? "primary" : "ghost"}`}
           type="button"
-          onClick={() => setCategoryQuick("endpoint")}
+          onClick={() => setSurfaceQuick("endpoint")}
         >
           Endpoints
         </button>

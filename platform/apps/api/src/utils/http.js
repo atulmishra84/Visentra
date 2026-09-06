@@ -16,6 +16,19 @@ export const ALLOW = {
   azureArm: {
     allowHosts: ["management.azure.com"]
   },
+  /** Azure AI Foundry / AI Services data plane (Agents API). */
+  azureAiServices: {
+    allowHostSuffixes: [".services.ai.azure.com", ".cognitiveservices.azure.com"]
+  },
+  /** Azure OpenAI Assistants API hosts. */
+  azureOpenAi: {
+    allowHostSuffixes: [".openai.azure.com"]
+  },
+  /** AKS managed cluster API servers. */
+  azureAks: {
+    allowHostSuffixes: [".azmk8s.io", ".privatelink.azmk8s.io"],
+    allowPrivate: false
+  },
   aws: {
     allowHostSuffixes: [".amazonaws.com"]
   },
@@ -46,6 +59,12 @@ export const ALLOW = {
   salesforce: {
     allowHosts: ["login.salesforce.com", "test.salesforce.com"],
     allowHostSuffixes: [".salesforce.com", ".force.com", ".my.salesforce.com"]
+  },
+  powerPlatformAdmin: {
+    allowHosts: ["api.bap.microsoft.com", "api.powerplatform.com"]
+  },
+  dataverse: {
+    allowHostSuffixes: [".dynamics.com", ".crm.dynamics.com", ".api.crm.dynamics.com"]
   },
   graphMicrosoft: {
     allowHosts: ["graph.microsoft.com"]
@@ -97,7 +116,11 @@ export function assertAllowedUrl(input, policy = {}) {
     throw new Error("Invalid outbound URL");
   }
 
-  if (parsed.protocol !== "https:") {
+  if (parsed.protocol === "http:") {
+    if (!policy.allowHttp) {
+      throw new Error("Only HTTPS outbound URLs are allowed");
+    }
+  } else if (parsed.protocol !== "https:") {
     throw new Error("Only HTTPS outbound URLs are allowed");
   }
   if (parsed.username || parsed.password) {

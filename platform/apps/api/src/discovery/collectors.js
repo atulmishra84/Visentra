@@ -339,12 +339,13 @@ export const collectors = {
       if (ctx.pool && ctx.tenantId) {
         try {
           const { listActiveCloudConnectors } = await import("../services/connectors.js");
-          const { discoverAzureConnector } = await import("./azureArm.js");
+          // Azure uses the ecosystem scanner (ARM + Entra Agent ID + Copilot Studio + Teams).
+          const { discoverAzureEcosystem } = await import("./azureArm.js");
           const { discoverAwsConnector } = await import("./awsCloud.js");
           const { discoverGcpConnector } = await import("./gcpCloud.js");
           const connectors = await listActiveCloudConnectors(ctx.pool, ctx.tenantId);
           const discoverers = {
-            azure: discoverAzureConnector,
+            azure: discoverAzureEcosystem,
             aws: discoverAwsConnector,
             gcp: discoverGcpConnector
           };
@@ -363,11 +364,13 @@ export const collectors = {
                      VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
                     [
                       ctx.tenantId,
-                      `${label} connector "${conn.name}" scanned ${stats.totalResourcesScanned || 0} resources — ingested ${stats.cloudResourcesIngested || 0} AI assets (${stats.aiRelevantResources || 0} AI-relevant${stats.nonAiResourcesSkipped != null ? `, skipped ${stats.nonAiResourcesSkipped} non-AI` : ""})`,
+                      `${label} connector "${conn.name}" scanned ${stats.totalResourcesScanned || 0} resources — ingested ${stats.cloudResourcesIngested || observations.length || 0} AI assets (${stats.aiRelevantResources || 0} AI-relevant, ${stats.agentsDiscovered || 0} agents${stats.ecosystem?.copilotStudioAgents != null ? ` incl. ${stats.ecosystem.copilotStudioAgents} Copilot Studio` : ""}${stats.ecosystem?.entraAgentIdentities != null ? `, ${stats.ecosystem.entraAgentIdentities} Entra Agent ID` : ""}${stats.ecosystem?.agent365CatalogAgents != null ? `, ${stats.ecosystem.agent365CatalogAgents} Agent 365` : ""}, ${stats.runtimesDiscovered || 0} runtimes${stats.deepScanned != null ? `, deep-scanned ${stats.deepScanned}` : ""}${stats.nonAiResourcesSkipped != null ? `, skipped ${stats.nonAiResourcesSkipped} non-AI` : ""}${stats.discoveryErrors ? `, ${stats.discoveryErrors} discovery errors` : ""})${stats.warning ? ` WARNING: ${stats.warning}` : ""}`,
                       JSON.stringify({
                         connectorId: conn.id,
                         provider: conn.provider,
                         aiOnly: DISCOVERY_AI_ONLY,
+                        discoveryErrorSamples: stats.discoveryErrorSamples || [],
+                        ecosystem: stats.ecosystem || null,
                         ...stats
                       })
                     ]
@@ -682,7 +685,7 @@ export const collectors = {
                  VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
                 [
                   ctx.tenantId,
-                  `EDR connector "${conn.name}" (${label}) scanned ${stats.devices || 0} endpoints — ingested ${stats.aiAgents || 0} AI agent hosts — ${stats.message || "ok"}`,
+                  `EDR connector "${conn.name}" (${label}) scanned ${stats.devices || 0} endpoints — ingested ${stats.endpointsIngested || stats.aiAgents || 0} AI assets (${stats.agentsDiscovered || 0} agents, ${stats.confirmedAgents || 0} confirmed, ${stats.heuristicAgents || 0} heuristic, ${stats.runtimesDiscovered || 0} host runtimes${stats.discoveryErrors ? `, ${stats.discoveryErrors} discovery errors` : ""}) — ${stats.message || "ok"}`,
                   JSON.stringify({
                     connectorId: conn.id,
                     provider: conn.provider,
@@ -752,7 +755,7 @@ export const collectors = {
         for (const conn of connectors) {
           const label =
             {
-              m365_copilot: "Microsoft 365 Copilot",
+              m365_copilot: "Microsoft 365 Copilot / Agent 365",
               salesforce: "Salesforce Agentforce",
               workday: "Workday",
               servicenow: "ServiceNow",
@@ -911,9 +914,8 @@ export const collectors = {
 };
 
 export const DEFAULT_COLLECTORS = [
-  "ide_filesystem",
-  "process",
-  "mcp",
+  // Live connectors / platforms only by default — local IDE/process/MCP scanners
+  // opt in via DISCOVERY_LOCAL_COLLECTORS=true (or pass collector ids on the job).
   "cloud_stub",
   "k8s_api",
   "git_sources",
@@ -922,6 +924,12 @@ export const DEFAULT_COLLECTORS = [
   "saas_platform",
   "ci_platform"
 ];
+
+const LOCAL_COLLECTORS = ["ide_filesystem", "process", "mcp"];
+
+if (String(process.env.DISCOVERY_LOCAL_COLLECTORS || "").toLowerCase() === "true") {
+  DEFAULT_COLLECTORS.unshift(...LOCAL_COLLECTORS);
+}
 
 /** @deprecated Use DEFAULT_COLLECTORS — kept for import compatibility */
 export const PRODUCTION_COLLECTORS = DEFAULT_COLLECTORS;
