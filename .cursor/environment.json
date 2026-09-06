@@ -1,0 +1,30 @@
+{
+  "name": "Visentra Discovery & Visibility Platform",
+  "user": "ubuntu",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "api",
+      "command": "set -a; source .cursor/dev.env; set +a; cd platform/apps/api && npm start"
+    },
+    {
+      "name": "web",
+      "command": "cd platform/apps/web && npm run dev"
+    },
+    {
+      "name": "discovery",
+      "command": "set -a; source .cursor/dev.env; set +a; cd platform/apps/discovery && npm start"
+    },
+    {
+      "name": "relationship",
+      "command": "set -a; source .cursor/dev.env; set +a; cd platform/apps/relationship && npm start"
+    }
+  ],
+  "ports": [
+    { "name": "Web (Vite)", "port": 5173 },
+    { "name": "API", "port": 8080 },
+    { "name": "Neo4j Browser", "port": 7474 },
+    { "name": "Neo4j Bolt", "port": 7687 }
+  ]
+}
