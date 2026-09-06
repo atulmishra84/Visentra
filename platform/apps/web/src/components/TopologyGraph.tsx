@@ -389,6 +389,19 @@ function TopologyGraphInner({
   }
 
   if (!graphNodes.length) {
+    if (layoutMode === "security") {
+      return (
+        <div className={["graph-shell", "is-security", "is-empty", className].filter(Boolean).join(" ")}>
+          <div className="sg-lane-rail" aria-hidden="true">
+            <span>Identity</span>
+            <span>Agent</span>
+            <span>Tools & runtime</span>
+            <span>Data & cloud</span>
+          </div>
+          <div className="empty-state sg-empty">{meta?.message || emptyMessage}</div>
+        </div>
+      );
+    }
     return <div className="empty-state">{meta?.message || emptyMessage}</div>;
   }
 
