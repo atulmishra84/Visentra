@@ -163,6 +163,38 @@ export async function migrate(pool) {
       ON outbound_integrations(tenant_id, provider)
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS compliance_custom_frameworks (
+      tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      id            TEXT NOT NULL,
+      name          TEXT NOT NULL,
+      version       TEXT,
+      description   TEXT NOT NULL DEFAULT '',
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (tenant_id, id)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS compliance_custom_controls (
+      tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      id              TEXT NOT NULL,
+      framework       TEXT NOT NULL,
+      code            TEXT NOT NULL,
+      title           TEXT NOT NULL,
+      description     TEXT NOT NULL DEFAULT '',
+      family          TEXT,
+      evidence_hints  JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (tenant_id, id)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_compliance_custom_controls_fw
+      ON compliance_custom_controls(tenant_id, framework)
+  `);
+
   const isProd = process.env.NODE_ENV === "production";
   const email = process.env.BOOTSTRAP_ADMIN_EMAIL || "admin@agentradar.local";
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || (isProd ? null : "AgentRadar!dev");

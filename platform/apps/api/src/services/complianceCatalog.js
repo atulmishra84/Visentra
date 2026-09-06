@@ -283,15 +283,207 @@ export const COMPLIANCE_CONTROLS = [
 export function listFrameworks() {
   return COMPLIANCE_FRAMEWORKS.map((f) => ({
     ...f,
+    builtin: true,
     controlCount: COMPLIANCE_CONTROLS.filter((c) => c.framework === f.id).length
   }));
 }
 
 export function listControls(frameworkId) {
-  if (!frameworkId) return COMPLIANCE_CONTROLS.slice();
-  return COMPLIANCE_CONTROLS.filter((c) => c.framework === String(frameworkId));
+  if (!frameworkId) return COMPLIANCE_CONTROLS.map((c) => ({ ...c, builtin: true }));
+  return COMPLIANCE_CONTROLS.filter((c) => c.framework === String(frameworkId)).map((c) => ({
+    ...c,
+    builtin: true
+  }));
 }
 
 export function getControl(controlId) {
-  return COMPLIANCE_CONTROLS.find((c) => c.id === controlId) || null;
+  const hit = COMPLIANCE_CONTROLS.find((c) => c.id === controlId);
+  return hit ? { ...hit, builtin: true } : null;
+}
+
+function slugify(value, fallback = "custom") {
+  const slug = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64);
+  return slug || fallback;
+}
+
+function mapCustomFramework(row, controlCount = 0) {
+  return {
+    id: row.id,
+    name: row.name,
+    version: row.version || null,
+    description: row.description || "",
+    builtin: false,
+    controlCount
+  };
+}
+
+function mapCustomControl(row) {
+  const hints = Array.isArray(row.evidence_hints)
+    ? row.evidence_hints
+    : typeof row.evidence_hints === "string"
+      ? (() => {
+          try {
+            return JSON.parse(row.evidence_hints);
+          } catch {
+            return [];
+          }
+        })()
+      : [];
+  return {
+    id: row.id,
+    framework: row.framework,
+    code: row.code,
+    title: row.title,
+    description: row.description || "",
+    family: row.family || null,
+    evidenceHints: hints.map(String),
+    builtin: false
+  };
+}
+
+/** Built-in + tenant custom frameworks/controls. */
+export async function listFrameworksForTenant(pool, tenantId) {
+  const builtin = listFrameworks();
+  if (!pool || !tenantId) return builtin;
+
+  const [fwRes, countRes] = await Promise.all([
+    pool.query(
+      `SELECT id, name, version, description FROM compliance_custom_frameworks
+       WHERE tenant_id=$1 ORDER BY name ASC`,
+      [tenantId]
+    ),
+    pool.query(
+      `SELECT framework, COUNT(*)::int AS control_count
+       FROM compliance_custom_controls WHERE tenant_id=$1
+       GROUP BY framework`,
+      [tenantId]
+    )
+  ]);
+
+  const customCounts = new Map(countRes.rows.map((r) => [r.framework, Number(r.control_count) || 0]));
+  const merged = builtin.map((f) => ({
+    ...f,
+    controlCount: f.controlCount + (customCounts.get(f.id) || 0)
+  }));
+
+  for (const row of fwRes.rows) {
+    if (merged.some((f) => f.id === row.id)) continue;
+    merged.push(mapCustomFramework(row, customCounts.get(row.id) || 0));
+  }
+  return merged;
+}
+
+export async function listControlsForTenant(pool, tenantId, frameworkId = null) {
+  const builtin = listControls(frameworkId);
+  if (!pool || !tenantId) return builtin;
+
+  const params = [tenantId];
+  let sql = `SELECT * FROM compliance_custom_controls WHERE tenant_id=$1`;
+  if (frameworkId) {
+    params.push(String(frameworkId));
+    sql += ` AND framework=$${params.length}`;
+  }
+  sql += ` ORDER BY code ASC`;
+  const custom = await pool.query(sql, params);
+  return [...builtin, ...custom.rows.map(mapCustomControl)];
+}
+
+export async function getTenantCatalog(pool, tenantId, frameworkId = null) {
+  const [frameworks, controls] = await Promise.all([
+    listFrameworksForTenant(pool, tenantId),
+    listControlsForTenant(pool, tenantId, frameworkId)
+  ]);
+  return { frameworks, controls };
+}
+
+export async function createFramework(pool, tenantId, body = {}) {
+  const name = String(body.name || "").trim();
+  if (!name) {
+    const err = new Error("Framework name is required");
+    err.status = 400;
+    throw err;
+  }
+  let id = slugify(body.id || name);
+  if (COMPLIANCE_FRAMEWORKS.some((f) => f.id === id)) {
+    const err = new Error(`Framework id "${id}" is reserved for a built-in catalog`);
+    err.status = 409;
+    throw err;
+  }
+  const version = body.version != null ? String(body.version).trim() || null : null;
+  const description = String(body.description || "").trim();
+
+  const existing = await pool.query(
+    `SELECT id FROM compliance_custom_frameworks WHERE tenant_id=$1 AND id=$2`,
+    [tenantId, id]
+  );
+  if (existing.rowCount) {
+    id = `${id}_${Date.now().toString(36).slice(-4)}`;
+  }
+
+  const inserted = await pool.query(
+    `INSERT INTO compliance_custom_frameworks (tenant_id, id, name, version, description)
+     VALUES ($1,$2,$3,$4,$5)
+     RETURNING *`,
+    [tenantId, id, name, version, description]
+  );
+  return mapCustomFramework(inserted.rows[0], 0);
+}
+
+export async function createControl(pool, tenantId, body = {}) {
+  const framework = String(body.framework || "").trim();
+  const code = String(body.code || "").trim();
+  const title = String(body.title || "").trim();
+  if (!framework || !code || !title) {
+    const err = new Error("framework, code, and title are required");
+    err.status = 400;
+    throw err;
+  }
+
+  const frameworks = await listFrameworksForTenant(pool, tenantId);
+  if (!frameworks.some((f) => f.id === framework)) {
+    const err = new Error(`Unknown framework "${framework}". Create the framework first.`);
+    err.status = 400;
+    throw err;
+  }
+
+  let id = String(body.id || "").trim() || `${framework}.${slugify(code, "control")}`;
+  if (COMPLIANCE_CONTROLS.some((c) => c.id === id)) {
+    const err = new Error(`Control id "${id}" is reserved for a built-in control`);
+    err.status = 409;
+    throw err;
+  }
+
+  const description = String(body.description || "").trim();
+  const family = body.family != null ? String(body.family).trim() || null : null;
+  let evidenceHints = [];
+  if (Array.isArray(body.evidenceHints)) {
+    evidenceHints = body.evidenceHints.map((h) => String(h).trim()).filter(Boolean);
+  } else if (typeof body.evidenceHints === "string") {
+    evidenceHints = body.evidenceHints
+      .split(/[,;\n]+/)
+      .map((h) => h.trim())
+      .filter(Boolean);
+  }
+
+  const clash = await pool.query(
+    `SELECT id FROM compliance_custom_controls WHERE tenant_id=$1 AND id=$2`,
+    [tenantId, id]
+  );
+  if (clash.rowCount) {
+    id = `${id}_${Date.now().toString(36).slice(-4)}`;
+  }
+
+  const inserted = await pool.query(
+    `INSERT INTO compliance_custom_controls
+       (tenant_id, id, framework, code, title, description, family, evidence_hints)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+     RETURNING *`,
+    [tenantId, id, framework, code, title, description, family, JSON.stringify(evidenceHints)]
+  );
+  return mapCustomControl(inserted.rows[0]);
 }
