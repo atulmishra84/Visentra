@@ -1,20 +1,24 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { AgentAnatomyPanel, type AgentAnatomy } from "../components/AgentAnatomyPanel";
 import { AgentExecutionTopology } from "../components/AgentExecutionTopology";
+import { DetailDrawer } from "../components/DetailDrawer";
 import { GraphSeedBar, type GraphSeedOption } from "../components/GraphSeedBar";
-import { apiRequest, type Agent, type GraphPayload, valueAt } from "../lib/api";
+import { TopologyGraph } from "../components/TopologyGraph";
+import { apiRequest, type Agent, type GraphNode, type GraphPayload, valueAt } from "../lib/api";
 
 function looksLikeAgentId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 export function RelationshipExplorerPage() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [seed, setSeed] = useState(() => searchParams.get("agentId") || searchParams.get("seed") || "");
   const [depth, setDepth] = useState(2);
+  const [graph, setGraph] = useState<GraphPayload | undefined>();
   const [seeds, setSeeds] = useState<GraphSeedOption[]>([]);
+  const [selected, setSelected] = useState<GraphNode | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [anatomy, setAnatomy] = useState<AgentAnatomy | null>(null);
   const [anatomyLoading, setAnatomyLoading] = useState(false);
@@ -81,6 +85,7 @@ export function RelationshipExplorerPage() {
   };
 
   const loadGraph = async (nextSeed = seed) => {
+    setLoading(true);
     setError(null);
     try {
       const payload = await apiRequest<GraphPayload>("/api/graph", {
@@ -90,6 +95,7 @@ export function RelationshipExplorerPage() {
           limit: nextSeed ? 80 : 50
         }
       });
+      setGraph(payload);
       const agentId = nextSeed ? resolveFocusedAgent(payload, nextSeed) : null;
       await loadAnatomy(agentId);
       const nextParams = new URLSearchParams();
@@ -98,17 +104,15 @@ export function RelationshipExplorerPage() {
       setSearchParams(nextParams, { replace: true });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to load relationship graph.");
+      setGraph({ nodes: [], edges: [] });
       setAnatomy(null);
       setFocusedAgent(null);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (searchParams.get("graph") === "1") {
-      const id = searchParams.get("agentId") || searchParams.get("seed") || "";
-      navigate(id ? `/neighborhood?agentId=${encodeURIComponent(id)}` : "/neighborhood", { replace: true });
-      return;
-    }
     void loadSeeds();
     void loadGraph(seed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,6 +123,16 @@ export function RelationshipExplorerPage() {
     void loadGraph(seed);
   };
 
+  const onNodeSelect = (node: GraphNode) => {
+    setSelected(node);
+    const type = String(node.type || node.category || "").toLowerCase();
+    if (type === "agent" || type.includes("agent")) {
+      setSeed(String(node.id));
+      void loadAnatomy(String(node.id));
+      setSearchParams({ agentId: String(node.id) }, { replace: true });
+    }
+  };
+
   return (
     <div className="page relationships-page">
       {!focusedAgentId ? (
@@ -127,8 +141,8 @@ export function RelationshipExplorerPage() {
             <p className="eyebrow">Relationships</p>
             <h1>Relationship Explorer</h1>
             <p className="page-description">
-              Pick an agent to open its anatomy map — users, channels, actions, data, and inherent risk around the
-              agent + LLM.
+              Pick an agent to open its neighborhood — a neural map of identities, tools, runtimes, and data around
+              the agent + LLM.
             </p>
           </div>
         </header>
@@ -139,8 +153,8 @@ export function RelationshipExplorerPage() {
         seed={seed}
         depth={depth}
         seeds={seeds}
-        submitLabel="Open anatomy"
-        clearLabel="Clear"
+        submitLabel="Focus"
+        clearLabel="Overview"
         showChips={!focusedAgentId}
         onSeedChange={setSeed}
         onDepthChange={setDepth}
@@ -155,36 +169,41 @@ export function RelationshipExplorerPage() {
         }}
         onSearchSeeds={(q) => void loadSeeds(q)}
         extraActions={
-          <>
-            <Link
-              className="button ghost"
-              to={
-                focusedAgentId
-                  ? `/neighborhood?agentId=${encodeURIComponent(focusedAgentId)}`
-                  : seed
-                    ? `/neighborhood?agentId=${encodeURIComponent(seed)}`
-                    : "/neighborhood"
-              }
-            >
-              Neighborhood graph
-            </Link>
-            <Link
-              className="button ghost"
-              to={
-                focusedAgentId
-                  ? `/topology?agentId=${encodeURIComponent(focusedAgentId)}`
-                  : seed
-                    ? `/topology?agentId=${encodeURIComponent(seed)}`
-                    : "/topology"
-              }
-            >
-              Full topology map
-            </Link>
-          </>
+          <Link
+            className="button ghost"
+            to={
+              focusedAgentId
+                ? `/topology?agentId=${encodeURIComponent(focusedAgentId)}`
+                : seed
+                  ? `/topology?agentId=${encodeURIComponent(seed)}`
+                  : "/topology"
+            }
+          >
+            Full topology map
+          </Link>
         }
       />
 
       {error ? <div className="error-state">{error}</div> : null}
+
+      <section className="nn-panel" id="neighborhood" aria-label="Neighborhood neural graph">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Neighborhood</p>
+            <h2>Neural relationship map</h2>
+          </div>
+        </div>
+        <TopologyGraph
+          graph={graph}
+          loading={loading}
+          layoutMode="neural"
+          selectedNodeId={selected ? String(selected.id) : null}
+          seedNodeId={focusedAgentId}
+          hideMinimap
+          emptyMessage="No neighborhood to plot. Run discovery, then focus an agent."
+          onNodeSelect={onNodeSelect}
+        />
+      </section>
 
       <AgentAnatomyPanel
         anatomy={anatomy}
@@ -210,6 +229,13 @@ export function RelationshipExplorerPage() {
         </div>
       ) : null}
 
+      <DetailDrawer
+        data={selected}
+        open={Boolean(selected)}
+        title={selected ? valueAt(selected, ["displayName", "name", "label", "id"], "Relationship node") : "Relationship node"}
+        subtitle={selected ? valueAt(selected, ["type", "category", "label"], "Entity") : undefined}
+        onClose={() => setSelected(null)}
+      />
     </div>
   );
 }

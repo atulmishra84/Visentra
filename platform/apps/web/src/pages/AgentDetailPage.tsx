@@ -185,7 +185,7 @@ export function AgentDetailPage() {
           </Link>
           <Link
             className="button"
-            to={`/neighborhood?agentId=${encodeURIComponent(String(agent.id ?? id))}`}
+            to={`/relationships?agentId=${encodeURIComponent(String(agent.id ?? id))}#neighborhood`}
           >
             Neighborhood graph
           </Link>

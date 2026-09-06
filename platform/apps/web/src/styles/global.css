@@ -3270,3 +3270,89 @@ tbody tr:hover {
     max-height: none;
   }
 }
+
+.nn-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.nn-panel .graph-shell.is-neural,
+.graph-shell.is-neural {
+  height: min(68vh, 720px);
+  min-height: 480px;
+  border-color: #243044;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(46, 184, 166, 0.14), transparent 18rem),
+    radial-gradient(circle at 28% 38%, rgba(88, 166, 255, 0.08), transparent 16rem),
+    radial-gradient(circle at 72% 42%, rgba(240, 171, 252, 0.08), transparent 16rem),
+    #070b12;
+}
+
+.graph-shell.is-neural.is-empty {
+  display: grid;
+  place-items: center;
+}
+
+.nn-empty-hint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.nn-empty-hint i {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 99px;
+  background: #2eb8a6;
+  box-shadow: 0 0 18px #2eb8a6;
+  opacity: 0.45;
+}
+
+.nn-empty-hint i:nth-child(1) { top: 42%; left: 50%; }
+.nn-empty-hint i:nth-child(2) { top: 28%; left: 36%; background: #58a6ff; box-shadow: 0 0 16px #58a6ff; }
+.nn-empty-hint i:nth-child(3) { top: 58%; left: 64%; background: #f0abfc; box-shadow: 0 0 16px #f0abfc; }
+
+.neural-node {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  width: 140px;
+  text-align: center;
+}
+
+.neural-orb {
+  width: 18px;
+  height: 18px;
+  border-radius: 99px;
+}
+
+.neural-node.is-nucleus .neural-orb {
+  width: 26px;
+  height: 26px;
+}
+
+.neural-node.is-dimmed {
+  opacity: 0.28;
+}
+
+.neural-label {
+  font-size: 11px;
+  line-height: 1.25;
+  color: #e8eef6;
+}
+
+.neural-kind {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.neural-handle {
+  opacity: 0 !important;
+  width: 4px !important;
+  height: 4px !important;
+  border: 0 !important;
+  background: transparent !important;
+}

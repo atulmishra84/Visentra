@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useLocation } from "react-router";
+import { Navigate, Route, Routes, useLocation, useSearchParams } from "react-router";
 import { Layout } from "./components/Layout";
 import { useAuth } from "./lib/auth";
 import { AgentDetailPage } from "./pages/AgentDetailPage";
@@ -12,7 +12,6 @@ import { RelationshipExplorerPage } from "./pages/RelationshipExplorerPage";
 import { SearchPage } from "./pages/SearchPage";
 import { TimelinePage } from "./pages/TimelinePage";
 import { TopologyMapPage } from "./pages/TopologyMapPage";
-import { NeighborhoodGraphPage } from "./pages/NeighborhoodGraphPage";
 import { ConnectorsPage } from "./pages/ConnectorsPage";
 import { SsoSettingsPage } from "./pages/SsoSettingsPage";
 import { ShadowAiPage } from "./pages/ShadowAiPage";
@@ -26,6 +25,12 @@ import { GovernancePage } from "./pages/GovernancePage";
 import { GovernanceAssessmentPage } from "./pages/GovernanceAssessmentPage";
 import { GovernanceCatalogPage } from "./pages/GovernanceCatalogPage";
 import { NaxriIntegrationPage } from "./pages/NaxriIntegrationPage";
+
+function LegacyNeighborhoodRedirect() {
+  const [params] = useSearchParams();
+  const id = params.get("agentId") || params.get("seed");
+  return <Navigate to={id ? `/relationships?agentId=${encodeURIComponent(id)}` : "/relationships"} replace />;
+}
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { isAuthenticated, loading } = useAuth();
@@ -70,7 +75,7 @@ export default function App() {
         <Route path="/inventory/explorer" element={<Navigate to="/inventory" replace />} />
         <Route path="/agents/:id" element={<AgentDetailPage />} />
         <Route path="/topology" element={<TopologyMapPage />} />
-        <Route path="/neighborhood" element={<NeighborhoodGraphPage />} />
+        <Route path="/neighborhood" element={<LegacyNeighborhoodRedirect />} />
         <Route path="/relationships" element={<RelationshipExplorerPage />} />
         <Route path="/usage" element={<Navigate to="/usage/models" replace />} />
         <Route path="/usage/models" element={<UsageDashboardPage kind="models" title="Model Usage" />} />

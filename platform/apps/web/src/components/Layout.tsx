@@ -19,7 +19,6 @@ const sections = [
     heading: "Inventory",
     items: [
       { to: "/inventory", label: "Asset Inventory" },
-      { to: "/neighborhood", label: "Neighborhood Graph" },
       { to: "/relationships", label: "Relationship Explorer" }
     ]
   },
