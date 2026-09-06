@@ -1,0 +1,25 @@
+# Local full-functionality overrides (not for production)
+services:
+  api:
+    environment:
+      NODE_ENV: development
+      CORS_ORIGIN: http://localhost:5712
+      # Keep bootstrap credentials aligned with discovery worker
+      BOOTSTRAP_ADMIN_EMAIL: admin@agentradar.local
+      BOOTSTRAP_ADMIN_PASSWORD: "AgentRadar!dev"
+    ports:
+      - "8080:8080"
+
+  discovery:
+    environment:
+      API_INTERNAL_URL: http://api:8080
+      DISCOVERY_INTERVAL_MS: "60000"
+      BOOTSTRAP_ADMIN_EMAIL: admin@agentradar.local
+      BOOTSTRAP_ADMIN_PASSWORD: "AgentRadar!dev"
+      # All collectors including IDE/process/MCP run on the API host inside the container.
+      # Local MCP/IDE configs are those present in the API container filesystem.
+
+  web:
+    ports:
+      - "5712:80"
+      - "3000:80"

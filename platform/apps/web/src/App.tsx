@@ -6,6 +6,7 @@ import { DiscoveryDashboardPage } from "./pages/DiscoveryDashboardPage";
 import { DiscoveryEventsPage } from "./pages/DiscoveryEventsPage";
 import { ExecutiveDashboardPage } from "./pages/ExecutiveDashboardPage";
 import { InventoryPage } from "./pages/InventoryPage";
+import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { OperationsDashboardPage } from "./pages/OperationsDashboardPage";
 import { RelationshipExplorerPage } from "./pages/RelationshipExplorerPage";
@@ -43,6 +44,7 @@ function RequireAuth({ children }: { children: JSX.Element }) {
 export default function App() {
   return (
     <Routes>
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route
         element={
@@ -51,7 +53,6 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<Navigate to="/executive" replace />} />
         <Route path="/executive" element={<ExecutiveDashboardPage />} />
         <Route path="/mesh" element={<MeshPage />} />
         <Route path="/operations" element={<OperationsDashboardPage />} />
@@ -83,7 +84,7 @@ export default function App() {
         <Route path="/settings/sso" element={<SsoSettingsPage />} />
         <Route path="/settings/audit" element={<AuditPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/executive" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
