@@ -57,7 +57,7 @@ See files such as `09-discovery-sources.md`, `10-collector-architecture.md`, `13
 ```bash
 cd platform/infra/compose
 docker compose up -d --build
-# Web: http://localhost:5173  API: http://localhost:8080/health
+# Web: http://localhost:5172  API: http://localhost:8080/health
 ```
 
 Default admin: `admin@agentradar.local` / `AgentRadar!dev`
