@@ -55,7 +55,7 @@ cd platform/infra/compose
 docker compose up -d --build
 ```
 
-- Web UI: http://localhost:5173
+- Web UI: http://localhost:5172
 - API health: http://localhost:8080/health
 - API ready: http://localhost:8080/ready
 - Neo4j browser: http://localhost:7474
