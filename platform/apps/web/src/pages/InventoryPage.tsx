@@ -90,8 +90,24 @@ export function InventoryPage({ title }: { title: string }) {
   const [selected, setSelected] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<"csv" | "json" | null>(null);
+  const [purging, setPurging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const shadowOnly = searchParams.get("shadow") === "true";
+
+  const reloadInventory = () => {
+    setLoading(true);
+    setError(null);
+    apiRequest<unknown>("/api/agents", {
+      query: { ...facets, limit: 500, shadow: shadowOnly ? "true" : undefined }
+    })
+      .then((data) => setPayload(data))
+      .catch(
+        (requestError) =>
+          setError(requestError instanceof Error ? requestError.message : "Failed to load inventory.")
+      )
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
     const fromUrl = facetsFromSearchParams(searchParams);
@@ -212,6 +228,32 @@ export function InventoryPage({ title }: { title: string }) {
       setError(requestError instanceof Error ? requestError.message : "Export failed.");
     } finally {
       setExporting(null);
+    }
+  };
+
+  const clearInventory = async () => {
+    if (
+      !window.confirm(
+        "Remove all discovered agents from inventory? This cannot be undone. Add cloud/SaaS connectors, then run discovery to load live data."
+      )
+    ) {
+      return;
+    }
+    setPurging(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await apiRequest<{ deleted?: number; message?: string }>("/api/agents/purge", {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      setSelected(null);
+      setNotice(result.message || `Removed ${result.deleted ?? 0} agent(s).`);
+      reloadInventory();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to clear inventory.");
+    } finally {
+      setPurging(false);
     }
   };
 
@@ -367,15 +409,19 @@ export function InventoryPage({ title }: { title: string }) {
           </p>
         </div>
         <div className="toolbar">
-          <button className="button" disabled={Boolean(exporting)} type="button" onClick={() => exportAgents("csv")}>
+          <button className="button" disabled={Boolean(exporting) || purging} type="button" onClick={() => exportAgents("csv")}>
             Export CSV
           </button>
-          <button className="button" disabled={Boolean(exporting)} type="button" onClick={() => exportAgents("json")}>
+          <button className="button" disabled={Boolean(exporting) || purging} type="button" onClick={() => exportAgents("json")}>
             Export JSON
+          </button>
+          <button className="button" disabled={purging || loading} type="button" onClick={() => void clearInventory()}>
+            {purging ? "Clearing…" : "Clear inventory"}
           </button>
         </div>
       </header>
 
+      {notice ? <div className="status-pill ok" style={{ marginBottom: 12 }}>{notice}</div> : null}
       <div className="toolbar" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         <button
           className={`button ${!facets.category && !facets.agentStatus && !facets.surface ? "primary" : "ghost"}`}

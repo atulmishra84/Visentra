@@ -32,7 +32,7 @@ export async function jobs(req, res) {
 }
 
 export async function createJob(req, res) {
-  const collectors = sanitizeCollectors(req.body?.collectors, ALL_COLLECTOR_IDS);
+  const collectors = sanitizeCollectors(req.body?.collectors, ALL_COLLECTOR_IDS, COLLECTOR_IDS);
   let job;
   try {
     job = await claimDiscoveryJob(pool, {
