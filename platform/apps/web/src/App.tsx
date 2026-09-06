@@ -12,6 +12,7 @@ import { RelationshipExplorerPage } from "./pages/RelationshipExplorerPage";
 import { SearchPage } from "./pages/SearchPage";
 import { TimelinePage } from "./pages/TimelinePage";
 import { TopologyMapPage } from "./pages/TopologyMapPage";
+import { NeighborhoodGraphPage } from "./pages/NeighborhoodGraphPage";
 import { ConnectorsPage } from "./pages/ConnectorsPage";
 import { SsoSettingsPage } from "./pages/SsoSettingsPage";
 import { ShadowAiPage } from "./pages/ShadowAiPage";
@@ -69,6 +70,7 @@ export default function App() {
         <Route path="/inventory/explorer" element={<Navigate to="/inventory" replace />} />
         <Route path="/agents/:id" element={<AgentDetailPage />} />
         <Route path="/topology" element={<TopologyMapPage />} />
+        <Route path="/neighborhood" element={<NeighborhoodGraphPage />} />
         <Route path="/relationships" element={<RelationshipExplorerPage />} />
         <Route path="/usage" element={<Navigate to="/usage/models" replace />} />
         <Route path="/usage/models" element={<UsageDashboardPage kind="models" title="Model Usage" />} />

@@ -40,6 +40,12 @@ export type GraphNode = Record<string, unknown> & {
   kindLabel?: string;
   region?: string;
   runningStatus?: string;
+  owner?: string | null;
+  framework?: string;
+  shadowAi?: boolean;
+  shadowAiScore?: number;
+  shadowAiReasons?: string[];
+  shadowAiTags?: string[];
 };
 
 export type GraphEdge = Record<string, unknown> & {

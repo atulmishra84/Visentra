@@ -1,6 +1,7 @@
 import { pool } from "../db/postgres.js";
 import { neo4jDriver } from "../db/neo4j.js";
 import { isUuid } from "./agentFilters.js";
+import { classifyShadowAi } from "../services/shadowAi.js";
 
 function asMeta(row) {
   const meta = row?.metadata;
@@ -19,6 +20,7 @@ function agentGraphNode(a) {
   const meta = asMeta(a);
   const awsType = meta.awsType || null;
   const agentStatus = meta.agentStatus || null;
+  const shadow = classifyShadowAi({ ...a, metadata: meta });
   return {
     id: a.id,
     type: "Agent",
@@ -27,6 +29,7 @@ function agentGraphNode(a) {
     category: a.category,
     framework: a.framework,
     model: a.model,
+    owner: a.owner || meta.owner || null,
     provider: a.provider || a.cloud_provider,
     cloudProvider: a.cloud_provider || null,
     region: a.region || null,
@@ -40,7 +43,11 @@ function agentGraphNode(a) {
     managedCloudAgent: Boolean(meta.managedCloudAgent),
     aliases: Array.isArray(meta.aliases) ? meta.aliases : null,
     knowledgeBaseIds: Array.isArray(meta.knowledgeBaseIds) ? meta.knowledgeBaseIds : null,
-    kindLabel: awsType || a.framework || a.category || "Agent"
+    kindLabel: awsType || a.framework || a.category || "Agent",
+    shadowAi: shadow.isShadow,
+    shadowAiScore: shadow.score,
+    shadowAiReasons: shadow.reasons,
+    shadowAiTags: shadow.tags
   };
 }
 

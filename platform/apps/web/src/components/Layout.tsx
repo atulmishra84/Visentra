@@ -19,6 +19,7 @@ const sections = [
     heading: "Inventory",
     items: [
       { to: "/inventory", label: "Asset Inventory" },
+      { to: "/neighborhood", label: "Neighborhood Graph" },
       { to: "/relationships", label: "Relationship Explorer" }
     ]
   },
@@ -58,7 +59,7 @@ const sections = [
 /** Routes kept off the sidebar but still belonging to a section for expand-on-navigate. */
 const sectionAliases: Array<{ heading: string; match: (pathname: string) => boolean }> = [
   { heading: "Dashboards", match: (p) => p.startsWith("/discovery/") },
-  { heading: "Inventory", match: (p) => p === "/topology" || p.startsWith("/topology/") },
+  { heading: "Inventory", match: (p) => p === "/topology" || p.startsWith("/topology/") || p === "/neighborhood" },
   { heading: "Governance & Compliance", match: (p) => p.startsWith("/governance/") },
   { heading: "Usage Analytics", match: (p) => p.startsWith("/usage/") },
   { heading: "Activity", match: (p) => p === "/search" || p.startsWith("/search?") }
