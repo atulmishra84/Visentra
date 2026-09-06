@@ -53,7 +53,7 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: "AgentRadar!dev"
       DISCOVERY_DEMO_SEED: "false"
       DISCOVERY_AI_ONLY: "true"
-      CORS_ORIGIN: http://localhost:5173
+      CORS_ORIGIN: http://localhost:5712
     ports:
       - "8081:8080"
     depends_on:
@@ -103,7 +103,7 @@ services:
     build:
       context: ../../apps/web
     ports:
-      - "5173:80"
+      - "5712:80"
     depends_on:
       - api
 
