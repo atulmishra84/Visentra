@@ -116,7 +116,11 @@ export function assertAllowedUrl(input, policy = {}) {
     throw new Error("Invalid outbound URL");
   }
 
-  if (parsed.protocol !== "https:") {
+  if (parsed.protocol === "http:") {
+    if (!policy.allowHttp) {
+      throw new Error("Only HTTPS outbound URLs are allowed");
+    }
+  } else if (parsed.protocol !== "https:") {
     throw new Error("Only HTTPS outbound URLs are allowed");
   }
   if (parsed.username || parsed.password) {
