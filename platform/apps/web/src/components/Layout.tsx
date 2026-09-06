@@ -48,6 +48,7 @@ const sections = [
     heading: "Settings",
     items: [
       { to: "/settings/connectors", label: "Connectors" },
+      { to: "/settings/naxri", label: "NAXRI ASPM" },
       { to: "/settings/sso", label: "IAM & SSO" },
       { to: "/settings/audit", label: "Audit Log" }
     ]

@@ -15,6 +15,7 @@ import complianceRoutes from "./compliance.js";
 import exportRoutes from "./export.js";
 import auditRoutes from "./audit.js";
 import connectorsRoutes from "./connectors.js";
+import integrationsRoutes from "./integrations.js";
 
 const router = Router();
 
@@ -36,5 +37,6 @@ router.use("/api/compliance", complianceRoutes);
 router.use("/api/export", exportRoutes);
 router.use("/api/audit", auditRoutes);
 router.use("/api/connectors", connectorsRoutes);
+router.use("/api/integrations", integrationsRoutes);
 
 export default router;

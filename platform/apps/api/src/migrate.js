@@ -136,6 +136,33 @@ export async function migrate(pool) {
       ON ai_bom_snapshots(tenant_id, created_at DESC)
   `);
 
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS outbound_integrations (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      provider        TEXT NOT NULL DEFAULT 'naxri'
+                        CHECK (provider IN ('naxri')),
+      name            TEXT NOT NULL DEFAULT 'NAXRI ASPM',
+      enabled         BOOLEAN NOT NULL DEFAULT FALSE,
+      auto_push       BOOLEAN NOT NULL DEFAULT TRUE,
+      webhook_url     TEXT,
+      config          JSONB NOT NULL DEFAULT '{}'::jsonb,
+      secrets_enc     TEXT,
+      last_sync_at    TIMESTAMPTZ,
+      last_sync_status TEXT,
+      last_sync_error TEXT,
+      last_sync_count INT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (tenant_id, provider)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_outbound_integrations_tenant
+      ON outbound_integrations(tenant_id, provider)
+  `);
+
   const isProd = process.env.NODE_ENV === "production";
   const email = process.env.BOOTSTRAP_ADMIN_EMAIL || "admin@agentradar.local";
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || (isProd ? null : "AgentRadar!dev");

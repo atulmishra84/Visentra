@@ -346,6 +346,13 @@ export async function executeDiscoveryJob(pool, neo4j, job, { tenantId, triggere
       [tenantId, `Discovery job completed — ${agentsFound} agents`, JSON.stringify({ jobId: job.id, agentsFound })]
     );
     broadcast?.(tenantId, { type: "graph.updated", jobId: job.id });
+    // Push discovered agents to NAXRI ASPM when outbound integration is enabled.
+    try {
+      const { scheduleNaxriAutoPush } = await import("../services/naxriFeed.js");
+      scheduleNaxriAutoPush(pool, tenantId, { jobId: job.id });
+    } catch (err) {
+      console.warn("NAXRI auto-push schedule failed:", err.message);
+    }
     return { ...job, status: "complete", agents_found: agentsFound };
   } catch (err) {
     await pool.query(
