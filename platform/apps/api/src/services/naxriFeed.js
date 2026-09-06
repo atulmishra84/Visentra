@@ -9,6 +9,41 @@ import { assertAllowedUrl, safeFetch } from "../utils/http.js";
 
 const PROVIDER = "naxri";
 const FEED_SPEC = "visentra.naxri.agent_feed/1.0";
+const PLACEHOLDER_HOSTS = new Set(["example.com", "www.example.com", "naxri.example.com"]);
+
+function assertRealWebhookUrl(webhookUrl) {
+  let parsed;
+  try {
+    parsed = new URL(webhookUrl);
+  } catch {
+    const err = new Error("NAXRI webhook URL is invalid");
+    err.status = 400;
+    throw err;
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (PLACEHOLDER_HOSTS.has(host) || host.endsWith(".example.com")) {
+    const err = new Error(
+      "Replace the placeholder webhook with your real NAXRI AISPM ingest URL (example.com is not a NAXRI endpoint)"
+    );
+    err.status = 400;
+    throw err;
+  }
+}
+
+function summarizeNaxriFailure(status, body) {
+  const text = String(body || "").trim();
+  const lower = text.toLowerCase();
+  if (
+    lower.includes("example domain") ||
+    lower.includes("<!doctype html") ||
+    lower.includes("<html")
+  ) {
+    return `NAXRI returned HTTP ${status}: webhook hit a non-API page (often a placeholder like example.com). Set Settings → NAXRI ASPM to your real AISPM ingest URL.`;
+  }
+  if (!text) return `NAXRI returned HTTP ${status}: empty body`;
+  const snippet = text.replace(/\s+/g, " ").slice(0, 240);
+  return `NAXRI returned HTTP ${status}: ${snippet}`;
+}
 
 function naxriPolicy(webhookUrl) {
   const host = new URL(webhookUrl).hostname.toLowerCase();
@@ -131,6 +166,7 @@ export async function upsertNaxriIntegration(pool, tenantId, body = {}) {
   const webhookUrl =
     body.webhookUrl != null ? String(body.webhookUrl || "").trim() : prev?.webhook_url || "";
   if (webhookUrl) {
+    assertRealWebhookUrl(webhookUrl);
     assertAllowedUrl(webhookUrl, naxriPolicy(webhookUrl));
   }
 
@@ -176,7 +212,10 @@ async function postFeed(webhookUrl, apiKey, feed) {
     "user-agent": "Visentra-NAXRI-Feed/1.0",
     "x-visentra-feed-spec": FEED_SPEC
   };
-  if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+  if (apiKey) {
+    headers.authorization = `Bearer ${apiKey}`;
+    headers["x-api-key"] = apiKey;
+  }
 
   if (policy.allowHttp && String(webhookUrl).toLowerCase().startsWith("http://")) {
     assertAllowedUrl(webhookUrl, policy);
@@ -260,7 +299,7 @@ export async function pushAgentsToNaxri(pool, tenantId, { jobId = null, since = 
   try {
     const result = await postFeed(row.webhook_url, apiKey, feed);
     if (!result.ok) {
-      const message = `NAXRI returned HTTP ${result.status}: ${result.body || "no body"}`;
+      const message = summarizeNaxriFailure(result.status, result.body);
       await markSync(pool, tenantId, { status: "error", error: message, count: feed.agent_count });
       await logDiscoveryEvent(pool, tenantId, "integration.naxri.push.error", "error", message, {
         jobId,
@@ -321,11 +360,14 @@ export async function testNaxriConnection(pool, tenantId) {
     agent_count: 0,
     agents: []
   };
+  assertRealWebhookUrl(row.webhook_url);
   const result = await postFeed(row.webhook_url, apiKey, probe);
+  const ok = result.ok || result.status === 202 || result.status === 204;
   return {
-    ok: result.ok || result.status === 202 || result.status === 204,
+    ok,
     status: result.status,
-    body: result.body
+    body: result.body,
+    message: ok ? null : summarizeNaxriFailure(result.status, result.body)
   };
 }
 

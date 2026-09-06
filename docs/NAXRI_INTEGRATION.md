@@ -10,10 +10,13 @@ Visentra discovers AI agents. NAXRI consumes that inventory for AI Security Post
 ## Configure in Visentra
 
 1. Open **Settings → NAXRI ASPM**
-2. Set NAXRI webhook URL, e.g. `https://<naxri-host>/api/v1/visentra/agents`
-3. Optional API key (sent as `Authorization: Bearer …`)
+2. Set your **real** NAXRI AISPM webhook URL, e.g. `https://<naxri-host>/api/v1/visentra/agents`  
+   Do **not** use `example.com` placeholders — Test/Sync will fail with HTTP 405/HTML.
+3. Optional API key (sent as `Authorization: Bearer …` and `X-Api-Key`)
 4. Enable integration + auto-push
 5. **Test connection**, then **Sync now**
+
+If Test fails with HTML / “Example Domain”, the webhook is wrong — paste the ingest URL from NAXRI AISPM settings.
 
 ## API
 

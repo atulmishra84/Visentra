@@ -85,14 +85,15 @@ export function NaxriIntegrationPage() {
     setMessage(null);
     setError(null);
     try {
-      const result = await apiRequest<{ ok?: boolean; status?: number; body?: string }>(
+      const result = await apiRequest<{ ok?: boolean; status?: number; body?: string; message?: string }>(
         "/api/integrations/naxri/test",
         { method: "POST", body: "{}" }
       );
       setMessage(
         result.ok
           ? `Connection OK (HTTP ${result.status}).`
-          : `Connection failed (HTTP ${result.status}): ${result.body || "no body"}`
+          : result.message ||
+              `Connection failed (HTTP ${result.status}): ${result.body || "no body"}`
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Test failed");
@@ -162,10 +163,13 @@ export function NaxriIntegrationPage() {
             NAXRI webhook URL
             <input
               className="input"
-              placeholder="https://naxri.example.com/api/v1/visentra/agents"
+              placeholder="https://<your-naxri-host>/api/v1/visentra/agents"
               value={webhookUrl}
               onChange={(e) => setWebhookUrl(e.target.value)}
             />
+            <span className="muted" style={{ display: "block", marginTop: 6, fontSize: 13 }}>
+              Must be your real NAXRI AISPM ingest endpoint — not example.com.
+            </span>
           </label>
           <label>
             API key / bearer token {integration?.hasApiKey ? `(saved: ${integration.apiKeyMasked})` : ""}
