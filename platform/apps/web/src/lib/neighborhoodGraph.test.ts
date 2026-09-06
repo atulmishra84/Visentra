@@ -4,6 +4,7 @@ import type { GraphEdge, GraphNode } from "./api";
 import {
   filterNeighborhood,
   neighborhoodKpis,
+  neuralLayout,
   nodeLayer,
   nodeRisk,
   securityLayout
@@ -74,6 +75,16 @@ describe("neighborhoodGraph", () => {
       ["a1", "t1"]
     );
     assert.equal(filtered.edges.length, 1);
+  });
+
+  it("places the seed agent at the neural-network center", () => {
+    const laid = neuralLayout([agent, identity, tool, kb], edges, "a1");
+    const byId = Object.fromEntries(laid.map((node) => [node.id, node]));
+    assert.equal(byId.a1.ring, 0);
+    const dist = (id: string) => Math.hypot(byId[id].x - byId.a1.x, byId[id].y - byId.a1.y);
+    assert.ok(dist("i1") > 80);
+    assert.ok(dist("t1") > 80);
+    assert.ok(dist("d1") > 80);
   });
 
   it("counts shadow and critical KPIs", () => {

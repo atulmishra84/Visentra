@@ -1,5 +1,6 @@
 import {
   Background,
+  BackgroundVariant,
   Controls,
   Handle,
   MiniMap,
@@ -18,6 +19,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { type GraphEdge, type GraphNode, type GraphPayload, valueAt } from "../lib/api";
 import {
   neighborIds,
+  neuralLayout,
   nodeLayer,
   nodeRisk,
   RISK_COLORS,
@@ -30,9 +32,11 @@ type TopologyGraphProps = {
   loading?: boolean;
   emptyMessage?: string;
   onNodeSelect?: (node: GraphNode) => void;
-  layoutMode?: "grid" | "security";
+  layoutMode?: "grid" | "security" | "neural";
   selectedNodeId?: string | null;
+  seedNodeId?: string | null;
   hideMeta?: boolean;
+  hideMinimap?: boolean;
   className?: string;
 };
 
@@ -194,7 +198,40 @@ const TopologyNode = memo(function TopologyNode({ data, selected }: NodeProps & 
   );
 });
 
-const nodeTypes = { topology: TopologyNode };
+const NeuralNode = memo(function NeuralNode({ data, selected }: NodeProps & { data: TopologyNodeData }) {
+  return (
+    <div
+      className={[
+        "neural-node",
+        selected ? "is-selected" : "",
+        data.dimmed ? "is-dimmed" : "",
+        data.hot ? "is-hot" : "",
+        data.shadow ? "is-shadow" : "",
+        data.layer === "agent" ? "is-nucleus" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <Handle type="target" position={Position.Top} className="neural-handle" />
+      <Handle type="source" position={Position.Bottom} className="neural-handle" />
+      <span
+        className="neural-orb"
+        style={{
+          background: `radial-gradient(circle at 35% 30%, #fff6, ${data.color} 46%, ${data.color}aa)`,
+          boxShadow: selected
+            ? `0 0 0 2px ${data.color}, 0 0 28px ${data.color}`
+            : `0 0 16px ${data.color}99`
+        }}
+      />
+      <strong className="neural-label">{data.title}</strong>
+      <span className="neural-kind" style={{ color: data.color }}>
+        {data.kind}
+      </span>
+    </div>
+  );
+});
+
+const nodeTypes = { topology: TopologyNode, neural: NeuralNode };
 
 function layoutNodes(nodes: GraphNode[]): Node[] {
   const agents = nodes.filter((n) => String(n.type).toLowerCase() === "agent");
@@ -280,6 +317,56 @@ function layoutEdges(edges: GraphEdge[], highlightIds?: Set<string>): Edge[] {
   });
 }
 
+function layoutNeuralNodes(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  selectedId?: string | null,
+  highlightIds?: Set<string>,
+  seedId?: string | null
+): Node[] {
+  const placed = neuralLayout(nodes, edges, seedId || selectedId);
+  const byId = new Map(nodes.map((node) => [String(node.id), node]));
+  return placed.map((slot) => {
+    const node = byId.get(slot.id);
+    if (!node) {
+      return {
+        id: slot.id,
+        type: "neural",
+        position: { x: slot.x, y: slot.y },
+        data: {
+          title: slot.id,
+          subtitle: "",
+          color: RISK_COLORS[slot.risk],
+          kind: "node",
+          payload: { id: slot.id }
+        }
+      };
+    }
+    const status = valueAt(node, ["agentStatus"], "");
+    const selected = selectedId === slot.id;
+    const hot = Boolean(highlightIds?.has(slot.id));
+    return {
+      id: slot.id,
+      type: "neural",
+      data: {
+        title: nodeTitle(node),
+        subtitle: nodeSubtitle(node),
+        color: RISK_COLORS[slot.risk],
+        kind: nodeKindLabel(node),
+        status,
+        managed: Boolean(node.managedCloudAgent),
+        payload: node,
+        risk: slot.risk,
+        layer: nodeLayer(node),
+        dimmed: Boolean(highlightIds?.size && !hot),
+        hot: hot && !selected,
+        shadow: node.shadowAi === true || status.toLowerCase() === "candidate"
+      },
+      position: { x: slot.x, y: slot.y }
+    };
+  });
+}
+
 function layoutSecurityNodes(nodes: GraphNode[], selectedId?: string | null, highlightIds?: Set<string>): Node[] {
   const placed = securityLayout(nodes);
   const byId = new Map(nodes.map((node) => [String(node.id), node]));
@@ -338,7 +425,9 @@ function TopologyGraphInner({
   onNodeSelect,
   layoutMode = "grid",
   selectedNodeId = null,
+  seedNodeId = null,
   hideMeta = false,
+  hideMinimap = false,
   className
 }: TopologyGraphProps) {
   const [themeTick, setThemeTick] = useState(0);
@@ -361,8 +450,8 @@ function TopologyGraphInner({
   }, [graphEdges, selectedNodeId]);
   const layoutNonce = useMemo(
     () =>
-      `${layoutMode}|${graphNodes.map((n) => n.id).join("|")}|${graphEdges.length}|${selectedNodeId || ""}|${themeTick}`,
-    [layoutMode, graphNodes, graphEdges.length, selectedNodeId, themeTick]
+      `${layoutMode}|${graphNodes.map((n) => n.id).join("|")}|${graphEdges.length}|${selectedNodeId || ""}|${seedNodeId || ""}|${themeTick}`,
+    [layoutMode, graphNodes, graphEdges.length, selectedNodeId, seedNodeId, themeTick]
   );
 
   useEffect(() => {
@@ -371,9 +460,14 @@ function TopologyGraphInner({
       setEdges(layoutEdges(graphEdges, highlightIds));
       return;
     }
+    if (layoutMode === "neural") {
+      setNodes(layoutNeuralNodes(graphNodes, graphEdges, selectedNodeId, highlightIds, seedNodeId));
+      setEdges(layoutEdges(graphEdges, highlightIds));
+      return;
+    }
     setNodes(layoutNodes(graphNodes));
     setEdges(layoutEdges(graphEdges));
-  }, [graphNodes, graphEdges, highlightIds, layoutMode, selectedNodeId, themeTick, setNodes, setEdges]);
+  }, [graphNodes, graphEdges, highlightIds, layoutMode, seedNodeId, selectedNodeId, themeTick, setNodes, setEdges]);
 
   const theme = useMemo(() => graphTheme(), [themeTick]);
   const meta = (graph as GraphPayload & { meta?: { message?: string; nodeCount?: number; edgeCount?: number } })
@@ -389,15 +483,27 @@ function TopologyGraphInner({
   }
 
   if (!graphNodes.length) {
-    if (layoutMode === "security") {
+    if (layoutMode === "security" || layoutMode === "neural") {
       return (
-        <div className={["graph-shell", "is-security", "is-empty", className].filter(Boolean).join(" ")}>
-          <div className="sg-lane-rail" aria-hidden="true">
-            <span>Identity</span>
-            <span>Agent</span>
-            <span>Tools & runtime</span>
-            <span>Data & cloud</span>
-          </div>
+        <div
+          className={["graph-shell", layoutMode === "security" ? "is-security" : "is-neural", "is-empty", className]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          {layoutMode === "security" ? (
+            <div className="sg-lane-rail" aria-hidden="true">
+              <span>Identity</span>
+              <span>Agent</span>
+              <span>Tools & runtime</span>
+              <span>Data & cloud</span>
+            </div>
+          ) : (
+            <div className="nn-empty-hint" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </div>
+          )}
           <div className="empty-state sg-empty">{meta?.message || emptyMessage}</div>
         </div>
       );
@@ -406,7 +512,16 @@ function TopologyGraphInner({
   }
 
   return (
-    <div className={["graph-shell", layoutMode === "security" ? "is-security" : "", className].filter(Boolean).join(" ")}>
+    <div
+      className={[
+        "graph-shell",
+        layoutMode === "security" ? "is-security" : "",
+        layoutMode === "neural" ? "is-neural" : "",
+        className
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       {hideMeta ? null : (
         <div className="graph-meta">
           {graphNodes.length} nodes · {graphEdges.length} edges
@@ -437,15 +552,21 @@ function TopologyGraphInner({
         proOptions={{ hideAttribution: true }}
         panOnScroll
         selectionOnDrag={false}
-        defaultEdgeOptions={{ type: "smoothstep" }}
+        defaultEdgeOptions={{ type: layoutMode === "neural" ? "default" : "smoothstep" }}
       >
         <FitViewOnData nonce={layoutNonce} />
-        <Background color={theme.grid} gap={28} />
-        <MiniMap
-          pannable
-          zoomable
-          nodeColor={(node) => String((node.data as TopologyNodeData | undefined)?.color ?? theme.brand)}
+        <Background
+          color={theme.grid}
+          gap={layoutMode === "neural" ? 22 : 28}
+          variant={layoutMode === "neural" ? BackgroundVariant.Dots : BackgroundVariant.Lines}
         />
+        {hideMinimap ? null : (
+          <MiniMap
+            pannable
+            zoomable
+            nodeColor={(node) => String((node.data as TopologyNodeData | undefined)?.color ?? theme.brand)}
+          />
+        )}
         <Controls showInteractive={false} />
       </ReactFlow>
     </div>
