@@ -223,7 +223,7 @@ curl http://localhost:8081/ready
 ### Manual Verification
 - `docker compose up -d --build` must succeed with zero errors.
 - `GET /api/auth/login` (via Postman or curl) with correct credentials should return a JWT token.
-- The frontend at `http://localhost:5173` must load and be fully functional.
+- The frontend at `http://localhost:5172` must load and be fully functional.
 
 ---
 
