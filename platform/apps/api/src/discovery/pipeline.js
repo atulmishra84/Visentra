@@ -264,6 +264,33 @@ export async function ingestObservations(pool, neo4j, tenantId, jobId, observati
   return agentsFound;
 }
 
+export function discoveryJobStaleMs(env = process.env) {
+  const raw = Number(env.DISCOVERY_JOB_STALE_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 10 * 60 * 1000;
+}
+
+/**
+ * Fail abandoned `running` jobs (API restart or hung collector) so a new scan can start.
+ */
+export async function expireStaleDiscoveryJobs(pool, { maxAgeMs, reason } = {}) {
+  const ageMs = maxAgeMs == null ? discoveryJobStaleMs() : Number(maxAgeMs);
+  const message = reason || "stale running job expired (process restarted or scan hung)";
+  const result = await pool.query(
+    `UPDATE discovery_jobs
+     SET status='error', error=$2, finished_at=NOW()
+     WHERE status='running'
+       AND COALESCE(started_at, created_at) < NOW() - ($1 * INTERVAL '1 millisecond')
+     RETURNING id, tenant_id`,
+    [ageMs, message]
+  );
+  if (result.rows.length) {
+    console.warn(
+      `Expired ${result.rows.length} stale discovery job(s): ${result.rows.map((r) => r.id).join(", ")}`
+    );
+  }
+  return result.rows;
+}
+
 /**
  * Atomically claim one running discovery job per tenant (advisory lock + insert).
  * Throws err.status=409 if a job is already running.
@@ -275,6 +302,14 @@ export async function claimDiscoveryJob(pool, { tenantId, collectorIds, triggere
     await client.query("BEGIN");
     // Serialize claim attempts per tenant (key namespace 872314 = "Visentra discovery")
     await client.query(`SELECT pg_advisory_xact_lock(872314, hashtext($1::text))`, [tenantId]);
+    await client.query(
+      `UPDATE discovery_jobs
+       SET status='error', error=$2, finished_at=NOW()
+       WHERE tenant_id=$1
+         AND status='running'
+         AND COALESCE(started_at, created_at) < NOW() - ($3 * INTERVAL '1 millisecond')`,
+      [tenantId, "stale running job expired (process restarted or scan hung)", discoveryJobStaleMs()]
+    );
     const running = await client.query(
       `SELECT id FROM discovery_jobs WHERE tenant_id=$1 AND status='running' ORDER BY created_at DESC LIMIT 1`,
       [tenantId]
