@@ -96,6 +96,12 @@ export function TopologyMapPage() {
         <div className="toolbar">
           <Link
             className="button ghost"
+            to={agentId ? `/neighborhood?agentId=${encodeURIComponent(agentId)}` : "/neighborhood"}
+          >
+            Neighborhood graph
+          </Link>
+          <Link
+            className="button ghost"
             to={agentId ? `/relationships?agentId=${encodeURIComponent(agentId)}` : "/relationships"}
           >
             Relationship Explorer

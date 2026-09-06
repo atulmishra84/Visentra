@@ -16,12 +16,24 @@ import {
 } from "@xyflow/react";
 import { memo, useEffect, useMemo, useState } from "react";
 import { type GraphEdge, type GraphNode, type GraphPayload, valueAt } from "../lib/api";
+import {
+  neighborIds,
+  nodeLayer,
+  nodeRisk,
+  RISK_COLORS,
+  securityLayout,
+  type RiskLevel
+} from "../lib/neighborhoodGraph";
 
 type TopologyGraphProps = {
   graph?: GraphPayload;
   loading?: boolean;
   emptyMessage?: string;
   onNodeSelect?: (node: GraphNode) => void;
+  layoutMode?: "grid" | "security";
+  selectedNodeId?: string | null;
+  hideMeta?: boolean;
+  className?: string;
 };
 
 const palette: Record<string, string> = {
@@ -129,34 +141,55 @@ type TopologyNodeData = {
   status?: string;
   managed?: boolean;
   payload: GraphNode;
+  handles?: "vertical" | "horizontal";
+  risk?: RiskLevel;
+  layer?: string;
+  dimmed?: boolean;
+  hot?: boolean;
+  shadow?: boolean;
 };
 
 const TopologyNode = memo(function TopologyNode({ data, selected }: NodeProps & { data: TopologyNodeData }) {
   const theme = graphTheme();
   const isCandidate = String(data.status || "").toLowerCase() === "candidate";
+  const targetPos = data.handles === "horizontal" ? Position.Left : Position.Top;
+  const sourcePos = data.handles === "horizontal" ? Position.Right : Position.Bottom;
   return (
     <div
-      className={`topology-node ${selected ? "is-selected" : ""} ${isCandidate ? "is-candidate" : ""} ${
-        data.managed ? "is-managed" : ""
-      }`}
+      className={[
+        "topology-node",
+        selected ? "is-selected" : "",
+        isCandidate ? "is-candidate" : "",
+        data.managed ? "is-managed" : "",
+        data.dimmed ? "is-dimmed" : "",
+        data.hot ? "is-hot" : "",
+        data.shadow ? "is-shadow" : "",
+        data.risk ? `risk-${data.risk}` : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
       style={{
         borderColor: data.color,
-        borderStyle: isCandidate ? "dashed" : "solid",
-        opacity: isCandidate ? 0.88 : 1,
+        borderStyle: isCandidate || data.shadow ? "dashed" : "solid",
         background: theme.nodeBg,
-        boxShadow: selected ? `0 0 0 2px ${data.color}, 0 0 28px ${data.color}33` : `0 0 20px ${data.color}18`,
+        boxShadow: selected
+          ? `0 0 0 2px ${data.color}, 0 0 28px ${data.color}55`
+          : data.hot
+            ? `0 0 0 1px ${data.color}, 0 0 18px ${data.color}33`
+            : `0 0 20px ${data.color}18`,
         color: theme.text
       }}
     >
-      <Handle type="target" position={Position.Top} className="topology-handle" />
+      <Handle type="target" position={targetPos} className="topology-handle" />
       <div className="topology-node-kind" style={{ color: data.color }}>
         {data.kind}
+        {data.risk ? <span className="topology-node-risk">{data.risk}</span> : null}
       </div>
       <strong className="topology-node-title">{data.title}</strong>
       <div className="topology-node-sub" style={{ color: theme.muted }}>
         {data.subtitle}
       </div>
-      <Handle type="source" position={Position.Bottom} className="topology-handle" />
+      <Handle type="source" position={sourcePos} className="topology-handle" />
     </div>
   );
 });
@@ -218,26 +251,71 @@ function layoutNodes(nodes: GraphNode[]): Node[] {
   return positioned;
 }
 
-function layoutEdges(edges: GraphEdge[]): Edge[] {
+function layoutEdges(edges: GraphEdge[], highlightIds?: Set<string>): Edge[] {
   const theme = graphTheme();
   const emphasis = new Set(["USES_KNOWLEDGE_BASE", "EXPOSES_ALIAS", "OBSERVED_BY"]);
   return edges.map((edge, index) => {
     const rel = String(edge.type ?? edge.label ?? "");
+    const source = String(edge.source ?? edge.from);
+    const target = String(edge.target ?? edge.to);
     const strong = emphasis.has(rel);
+    const hot = Boolean(highlightIds?.size && highlightIds.has(source) && highlightIds.has(target));
+    const dimmed = Boolean(highlightIds?.size && !hot);
     return {
       id: String(edge.id ?? `${edge.from ?? edge.source}-${edge.to ?? edge.target}-${index}`),
-      source: String(edge.source ?? edge.from),
-      target: String(edge.target ?? edge.to),
+      source,
+      target,
       label: rel.replace(/_/g, " "),
-      animated: strong || edges.length < 80,
+      animated: hot || ((strong || edges.length < 80) && !dimmed),
       style: {
-        stroke: strong ? theme.brand : theme.edge,
-        strokeWidth: strong ? 2 : 1.5
+        stroke: hot ? theme.brand : dimmed ? "rgba(139, 163, 190, 0.18)" : strong ? theme.brand : theme.edge,
+        strokeWidth: hot ? 2.4 : strong ? 2 : 1.5,
+        opacity: dimmed ? 0.35 : 1
       },
       labelStyle: { fill: theme.muted, fontWeight: 600, fontSize: 10 },
       labelBgStyle: { fill: theme.labelBg },
       labelBgPadding: [4, 6] as [number, number],
       labelBgBorderRadius: 6
+    };
+  });
+}
+
+function layoutSecurityNodes(nodes: GraphNode[], selectedId?: string | null, highlightIds?: Set<string>): Node[] {
+  const placed = securityLayout(nodes);
+  const byId = new Map(nodes.map((node) => [String(node.id), node]));
+  return placed.map((slot) => {
+    const node = byId.get(slot.id);
+    if (!node) {
+      return {
+        id: slot.id,
+        type: "topology",
+        position: { x: slot.x, y: slot.y },
+        data: { title: slot.id, subtitle: slot.layer, color: RISK_COLORS[slot.risk], kind: slot.layer, payload: { id: slot.id } }
+      };
+    }
+    const status = valueAt(node, ["agentStatus"], "");
+    const selected = selectedId === slot.id;
+    const hot = Boolean(highlightIds?.has(slot.id));
+    const dimmed = Boolean(highlightIds?.size && !hot);
+    return {
+      id: slot.id,
+      type: "topology",
+      data: {
+        title: nodeTitle(node),
+        subtitle: nodeSubtitle(node),
+        color: RISK_COLORS[slot.risk],
+        kind: nodeKindLabel(node),
+        status,
+        managed: Boolean(node.managedCloudAgent),
+        payload: node,
+        handles: "horizontal",
+        risk: slot.risk,
+        layer: nodeLayer(node),
+        dimmed,
+        hot: hot && !selected,
+        shadow: node.shadowAi === true || status.toLowerCase() === "candidate"
+      },
+      position: { x: slot.x, y: slot.y }
     };
   });
 }
@@ -257,7 +335,11 @@ function TopologyGraphInner({
   graph,
   loading,
   emptyMessage = "No graph relationships are available for the current scope.",
-  onNodeSelect
+  onNodeSelect,
+  layoutMode = "grid",
+  selectedNodeId = null,
+  hideMeta = false,
+  className
 }: TopologyGraphProps) {
   const [themeTick, setThemeTick] = useState(0);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -271,15 +353,27 @@ function TopologyGraphInner({
 
   const graphNodes = useMemo(() => normalizeNodes(graph), [graph]);
   const graphEdges = useMemo(() => normalizeEdges(graph), [graph]);
+  const highlightIds = useMemo(() => {
+    if (!selectedNodeId) return new Set<string>();
+    const next = neighborIds(graphEdges, selectedNodeId);
+    next.add(selectedNodeId);
+    return next;
+  }, [graphEdges, selectedNodeId]);
   const layoutNonce = useMemo(
-    () => `${graphNodes.map((n) => n.id).join("|")}|${graphEdges.length}|${themeTick}`,
-    [graphNodes, graphEdges.length, themeTick]
+    () =>
+      `${layoutMode}|${graphNodes.map((n) => n.id).join("|")}|${graphEdges.length}|${selectedNodeId || ""}|${themeTick}`,
+    [layoutMode, graphNodes, graphEdges.length, selectedNodeId, themeTick]
   );
 
   useEffect(() => {
+    if (layoutMode === "security") {
+      setNodes(layoutSecurityNodes(graphNodes, selectedNodeId, highlightIds));
+      setEdges(layoutEdges(graphEdges, highlightIds));
+      return;
+    }
     setNodes(layoutNodes(graphNodes));
     setEdges(layoutEdges(graphEdges));
-  }, [graphNodes, graphEdges, themeTick, setNodes, setEdges]);
+  }, [graphNodes, graphEdges, highlightIds, layoutMode, selectedNodeId, themeTick, setNodes, setEdges]);
 
   const theme = useMemo(() => graphTheme(), [themeTick]);
   const meta = (graph as GraphPayload & { meta?: { message?: string; nodeCount?: number; edgeCount?: number } })
@@ -295,15 +389,38 @@ function TopologyGraphInner({
   }
 
   if (!graphNodes.length) {
+    if (layoutMode === "security") {
+      return (
+        <div className={["graph-shell", "is-security", "is-empty", className].filter(Boolean).join(" ")}>
+          <div className="sg-lane-rail" aria-hidden="true">
+            <span>Identity</span>
+            <span>Agent</span>
+            <span>Tools & runtime</span>
+            <span>Data & cloud</span>
+          </div>
+          <div className="empty-state sg-empty">{meta?.message || emptyMessage}</div>
+        </div>
+      );
+    }
     return <div className="empty-state">{meta?.message || emptyMessage}</div>;
   }
 
   return (
-    <div className="graph-shell">
-      <div className="graph-meta">
-        {graphNodes.length} nodes · {graphEdges.length} edges
-        {meta?.message ? ` · ${meta.message}` : ""}
-      </div>
+    <div className={["graph-shell", layoutMode === "security" ? "is-security" : "", className].filter(Boolean).join(" ")}>
+      {hideMeta ? null : (
+        <div className="graph-meta">
+          {graphNodes.length} nodes · {graphEdges.length} edges
+          {meta?.message ? ` · ${meta.message}` : ""}
+        </div>
+      )}
+      {layoutMode === "security" ? (
+        <div className="sg-lane-rail" aria-hidden="true">
+          <span>Identity</span>
+          <span>Agent</span>
+          <span>Tools & runtime</span>
+          <span>Data & cloud</span>
+        </div>
+      ) : null}
       <ReactFlow
         nodes={nodes}
         edges={edges}
