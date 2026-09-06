@@ -310,6 +310,101 @@ const COL_X: Record<GraphLayer, number> = {
   data: 880
 };
 
+function hashUnit(input: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) / 4294967296;
+}
+
+export function pickNeuralSeed(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  preferred?: string | null
+): string | null {
+  const preferredId = String(preferred || "");
+  if (preferredId && nodes.some((node) => String(node.id) === preferredId)) return preferredId;
+  const agents = nodes.filter((node) => nodeLayer(node) === "agent");
+  const pool = agents.length ? agents : nodes;
+  const degree = adjacencyMap(edges);
+  let best: GraphNode | null = null;
+  let bestDegree = -1;
+  for (const node of pool) {
+    const next = degree.get(String(node.id))?.size ?? 0;
+    if (next > bestDegree) {
+      best = node;
+      bestDegree = next;
+    }
+  }
+  return best ? String(best.id) : null;
+}
+
+export type NeuralLayoutNode = {
+  id: string;
+  x: number;
+  y: number;
+  ring: number;
+  risk: RiskLevel;
+};
+
+export function neuralLayout(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  seedId?: string | null
+): NeuralLayoutNode[] {
+  const seed = pickNeuralSeed(nodes, edges, seedId);
+  const adj = adjacencyMap(edges);
+  const ring = new Map<string, number>();
+  if (seed) {
+    const queue = [seed];
+    ring.set(seed, 0);
+    for (let index = 0; index < queue.length; index += 1) {
+      const current = queue[index];
+      const depth = ring.get(current) ?? 0;
+      for (const next of adj.get(current) ?? []) {
+        if (ring.has(next)) continue;
+        ring.set(next, depth + 1);
+        queue.push(next);
+      }
+    }
+  }
+
+  const byRing = new Map<number, GraphNode[]>();
+  const maxKnown = ring.size ? Math.max(...ring.values()) : 0;
+  for (const node of nodes) {
+    const depth = ring.has(String(node.id)) ? (ring.get(String(node.id)) as number) : maxKnown + 1;
+    const list = byRing.get(depth) || [];
+    list.push(node);
+    byRing.set(depth, list);
+  }
+
+  const cx = 520;
+  const cy = 380;
+  const positioned: NeuralLayoutNode[] = [];
+  for (const [depth, list] of [...byRing.entries()].sort((a, b) => a[0] - b[0])) {
+    list.sort((a, b) => graphNodeTitle(a).localeCompare(graphNodeTitle(b)));
+    list.forEach((node, index) => {
+      if (depth === 0) {
+        positioned.push({ id: String(node.id), x: cx, y: cy, ring: 0, risk: nodeRisk(node) });
+        return;
+      }
+      const slice = (index / Math.max(list.length, 1)) * Math.PI * 2 - Math.PI / 2;
+      const jitter = (hashUnit(String(node.id)) - 0.5) * 0.42;
+      const radius = 150 + depth * 158 + hashUnit(`${node.id}:r`) * 34;
+      positioned.push({
+        id: String(node.id),
+        x: cx + Math.cos(slice + jitter) * radius,
+        y: cy + Math.sin(slice + jitter) * radius * 0.84,
+        ring: depth,
+        risk: nodeRisk(node)
+      });
+    });
+  }
+  return positioned;
+}
+
 export function securityLayout(nodes: GraphNode[]): SecurityLayoutNode[] {
   const buckets: Record<GraphLayer, GraphNode[]> = {
     identity: [],
