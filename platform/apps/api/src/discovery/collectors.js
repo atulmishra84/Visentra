@@ -914,9 +914,8 @@ export const collectors = {
 };
 
 export const DEFAULT_COLLECTORS = [
-  "ide_filesystem",
-  "process",
-  "mcp",
+  // Live connectors / platforms only by default — local IDE/process/MCP scanners
+  // opt in via DISCOVERY_LOCAL_COLLECTORS=true (or pass collector ids on the job).
   "cloud_stub",
   "k8s_api",
   "git_sources",
@@ -925,6 +924,12 @@ export const DEFAULT_COLLECTORS = [
   "saas_platform",
   "ci_platform"
 ];
+
+const LOCAL_COLLECTORS = ["ide_filesystem", "process", "mcp"];
+
+if (String(process.env.DISCOVERY_LOCAL_COLLECTORS || "").toLowerCase() === "true") {
+  DEFAULT_COLLECTORS.unshift(...LOCAL_COLLECTORS);
+}
 
 /** @deprecated Use DEFAULT_COLLECTORS — kept for import compatibility */
 export const PRODUCTION_COLLECTORS = DEFAULT_COLLECTORS;

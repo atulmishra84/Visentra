@@ -60,10 +60,14 @@ export function productionCollectors(defaultList) {
   return defaultList;
 }
 
-export function sanitizeCollectors(requested, allowed) {
+export function sanitizeCollectors(requested, allowed, fallback = null) {
   const allow = new Set(allowed);
   const list = (requested || []).filter((id) => allow.has(id));
-  return list.length ? list : [...allow];
+  if (list.length) return list;
+  if (Array.isArray(fallback) && fallback.length) {
+    return fallback.filter((id) => allow.has(id));
+  }
+  return [...allow];
 }
 
 /** Simple in-memory login rate limiter */

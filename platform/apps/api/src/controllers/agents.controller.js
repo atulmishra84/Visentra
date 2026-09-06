@@ -1,8 +1,11 @@
 import { pool } from "../db/postgres.js";
+import { neo4jDriver } from "../db/neo4j.js";
 import { agentFilters } from "../lib/agentFilters.js";
 import { enrichAgentRow, summarizeAgentDepth, computeBlastRadius, computeAgentAnatomy } from "../services/agentDepth.js";
 import { classifyShadowAi } from "../services/shadowAi.js";
 import { publicErrorMessage } from "../utils/http.js";
+import { purgeAllInventory } from "../lib/inventoryPurge.js";
+import { writeAudit } from "../services/audit.js";
 
 export async function list(req, res) {
   const limit = Math.min(Number(req.query.limit) || 50, 500);
@@ -93,6 +96,31 @@ export async function anatomy(req, res) {
     res.json({ anatomy: payload, ...payload });
   } catch (err) {
     res.status(500).json({ error: { message: publicErrorMessage(err, "Agent anatomy query failed") } });
+  }
+}
+
+/** Clear all discovered agents so inventory can be rebuilt from live connectors. */
+export async function purgeInventory(req, res) {
+  try {
+    const result = await purgeAllInventory(pool, neo4jDriver, req.tenantId);
+    await writeAudit(pool, {
+      tenantId: req.tenantId,
+      actorId: req.user?.sub || null,
+      actorEmail: req.user?.email || null,
+      action: "inventory.purge",
+      resourceType: "agents",
+      resourceId: null,
+      details: { deleted: result.deleted },
+      ip: req.ip
+    }).catch(() => null);
+    res.json({
+      ok: true,
+      deleted: result.deleted,
+      message: `Removed ${result.deleted} agent(s). Add connectors, then run discovery for live inventory.`
+    });
+  } catch (err) {
+    console.error("inventory purge failed:", err);
+    res.status(500).json({ error: { message: publicErrorMessage(err, "Failed to purge inventory") } });
   }
 }
 
