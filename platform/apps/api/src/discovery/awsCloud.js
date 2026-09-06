@@ -199,6 +199,55 @@ function cloudRelationship(id, name, extra = []) {
   ];
 }
 
+/** Richer topology edges for graph explorer (account, connector, aliases, KBs). */
+function awsTopologyRelationships(conn, { resourceId, resourceName, aliases = [], knowledgeBases = [] }) {
+  const accountId = String(conn.config?.accountId || "").trim();
+  const rels = [
+    {
+      rel_type: "DEPLOYED_IN",
+      to_type: "CloudAccount",
+      to_key: `aws-account-${accountId}`,
+      to_name: `AWS account ${accountId}`
+    },
+    {
+      rel_type: "OBSERVED_BY",
+      to_type: "Connector",
+      to_key: `aws-connector-${conn.id}`,
+      to_name: conn.name || "AWS connector"
+    },
+    {
+      rel_type: "DEPLOYED_IN",
+      to_type: "CloudResource",
+      to_key: resourceId,
+      to_name: resourceName
+    }
+  ];
+  for (const alias of aliases.slice(0, 8)) {
+    const aliasId = alias.agentAliasId || alias.agentAliasName;
+    if (!aliasId) continue;
+    rels.push({
+      rel_type: "EXPOSES_ALIAS",
+      to_type: "AgentAlias",
+      to_key: `aws-alias:${alias.agentId || "agent"}:${aliasId}`,
+      to_name: alias.agentAliasName || aliasId
+    });
+  }
+  for (const kb of knowledgeBases.slice(0, 12)) {
+    const kbId = kb.knowledgeBaseId || kb.id;
+    if (!kbId) continue;
+    const kbArn =
+      kb.knowledgeBaseArn ||
+      `arn:aws:bedrock:${conn.config?.region || "us-east-1"}:${accountId}:knowledge-base/${kbId}`;
+    rels.push({
+      rel_type: "USES_KNOWLEDGE_BASE",
+      to_type: "CloudResource",
+      to_key: kbArn,
+      to_name: kb.name || kbId
+    });
+  }
+  return rels;
+}
+
 /**
  * Map Bedrock agent lifecycle to deployment status. Agents are request-driven —
  * PREPARED ≠ continuously running.
@@ -619,6 +668,28 @@ async function listBedrockAgentAliases(conn, region, agentId, discoveryErrors) {
   });
 }
 
+async function listBedrockAgentKnowledgeBases(
+  conn,
+  region,
+  agentId,
+  discoveryErrors,
+  agentVersion = "DRAFT"
+) {
+  if (!agentId) return [];
+  const version = String(agentVersion || "DRAFT").trim() || "DRAFT";
+  return listBedrockPaginated({
+    conn,
+    region,
+    path: `/agents/${encodeURIComponent(agentId)}/agentversions/${encodeURIComponent(version)}/knowledgebases/`,
+    discoveryType: "bedrock-agent-knowledge-bases",
+    discoveryErrors,
+    resultKey: "agentKnowledgeBaseSummaries",
+    pageSize: 50,
+    maxPages: 5,
+    resourceId: agentId
+  });
+}
+
 async function listAiEcsServices(conn, region, discoveryErrors) {
   const clustersJson = await awsJson(
     {
@@ -809,17 +880,24 @@ export async function discoverAwsConnector(conn) {
     const aliases = await listBedrockAgentAliases(conn, creds.region, agent.agentId, discoveryErrors).catch(
       () => []
     );
+    const linkedKnowledgeBases = await listBedrockAgentKnowledgeBases(
+      conn,
+      creds.region,
+      agent.agentId,
+      discoveryErrors
+    ).catch(() => []);
     const lifecycle = mapBedrockAgentLifecycle(agent.agentStatus);
     const classification = classifyAwsResource({
       awsType: "BedrockAgent",
       name: agent.agentName || agentId,
       service: "bedrock-agent"
     });
+    const agentName = agent.agentName || agentId || "Bedrock Agent";
     observations.push(
       awsObservation({
         conn,
         id,
-        name: agent.agentName || agentId || "Bedrock Agent",
+        name: agentName,
         awsType: "BedrockAgent",
         service: "bedrock-agent",
         region: creds.region,
@@ -832,7 +910,10 @@ export async function discoverAwsConnector(conn) {
         evidence: [
           "Agent returned by Bedrock Agents API (ListAgents)",
           lifecycle.reason,
-          aliases.length ? `Alias count=${aliases.length}` : "No aliases listed"
+          aliases.length ? `Alias count=${aliases.length}` : "No aliases listed",
+          linkedKnowledgeBases.length
+            ? `Linked knowledge bases=${linkedKnowledgeBases.length}`
+            : "No linked knowledge bases listed"
         ],
         runtimeStatusReason: lifecycle.reason,
         agentRuntime: buildAgentAndRuntime({
@@ -854,14 +935,23 @@ export async function discoverAwsConnector(conn) {
           resourceId: id,
           region: creds.region
         }),
-        relationships: cloudRelationship(id, agent.agentName || agentId, [
-          { rel_type: "HOSTED_BY", to_type: "CloudResource", to_key: id, to_name: agent.agentName || agentId }
-        ]),
+        relationships: awsTopologyRelationships(conn, {
+          resourceId: id,
+          resourceName: agentName,
+          aliases: aliases.map((a) => ({ ...a, agentId: a.agentId || agent.agentId || agentId })),
+          knowledgeBases: linkedKnowledgeBases
+        }),
         extra: {
           agentId,
           updatedAt: agent.updatedAt || null,
+          awsLifecycleStatus: agent.agentStatus || null,
           aliasCount: aliases.length,
-          aliases: aliases.slice(0, 5).map((a) => a.agentAliasName || a.agentAliasId)
+          aliases: aliases.slice(0, 5).map((a) => a.agentAliasName || a.agentAliasId),
+          knowledgeBaseIds: linkedKnowledgeBases
+            .map((kb) => kb.knowledgeBaseId || kb.id)
+            .filter(Boolean)
+            .slice(0, 12),
+          knowledgeBaseCount: linkedKnowledgeBases.length
         }
       })
     );

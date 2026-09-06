@@ -1111,6 +1111,14 @@ tbody tr:hover {
   line-height: 1.35;
 }
 
+.topology-node.is-managed {
+  border-width: 2px;
+}
+
+.topology-node.is-candidate {
+  border-style: dashed;
+}
+
 .topology-node-kind {
   font-size: 10px;
   font-weight: 800;

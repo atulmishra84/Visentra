@@ -2,6 +2,48 @@ import { pool } from "../db/postgres.js";
 import { neo4jDriver } from "../db/neo4j.js";
 import { isUuid } from "./agentFilters.js";
 
+function asMeta(row) {
+  const meta = row?.metadata;
+  if (!meta) return {};
+  if (typeof meta === "string") {
+    try {
+      return JSON.parse(meta) || {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof meta === "object" ? meta : {};
+}
+
+function agentGraphNode(a) {
+  const meta = asMeta(a);
+  const awsType = meta.awsType || null;
+  const agentStatus = meta.agentStatus || null;
+  return {
+    id: a.id,
+    type: "Agent",
+    label: a.name,
+    name: a.name,
+    category: a.category,
+    framework: a.framework,
+    model: a.model,
+    provider: a.provider || a.cloud_provider,
+    cloudProvider: a.cloud_provider || null,
+    region: a.region || null,
+    runningStatus: a.running_status || null,
+    awsType,
+    agentStatus,
+    awsLifecycleStatus: meta.awsLifecycleStatus || null,
+    accountId: meta.accountId || null,
+    connectorId: meta.connectorId || null,
+    connectorName: meta.connectorName || null,
+    managedCloudAgent: Boolean(meta.managedCloudAgent),
+    aliases: Array.isArray(meta.aliases) ? meta.aliases : null,
+    knowledgeBaseIds: Array.isArray(meta.knowledgeBaseIds) ? meta.knowledgeBaseIds : null,
+    kindLabel: awsType || a.framework || a.category || "Agent"
+  };
+}
+
 export async function resolveSeedAgents(tenantId, seed) {
   const q = String(seed || "").trim();
   if (!q) return [];
@@ -30,6 +72,98 @@ export async function resolveSeedAgents(tenantId, seed) {
     [tenantId, `%${q}%`]
   );
   return fuzzy.rows;
+}
+
+function pushAttrEdge(nodes, edges, agent, type, value, rel, maxNodes) {
+  if (!value) return;
+  const key = `${String(type).toLowerCase()}:${String(value).toLowerCase()}`;
+  if (!nodes.has(key) && nodes.size < maxNodes * 2) {
+    nodes.set(key, {
+      id: key,
+      type,
+      label: String(value),
+      name: String(value),
+      category: String(type).toLowerCase(),
+      kindLabel: type
+    });
+  }
+  if (nodes.has(key)) {
+    edges.push({
+      id: `${agent.id}:${rel}:${key}`,
+      source: agent.id,
+      target: key,
+      from: agent.id,
+      to: key,
+      type: rel,
+      label: rel
+    });
+  }
+}
+
+function linkBedrockAgentsToKnowledgeBases(nodes, edges, agentRows) {
+  const kbById = new Map();
+  for (const row of agentRows) {
+    const meta = asMeta(row);
+    if (meta.awsType === "BedrockKnowledgeBase" && meta.knowledgeBaseId) {
+      kbById.set(String(meta.knowledgeBaseId), row.id);
+    }
+  }
+  for (const row of agentRows) {
+    const meta = asMeta(row);
+    if (meta.awsType !== "BedrockAgent") continue;
+    const kbIds = Array.isArray(meta.knowledgeBaseIds) ? meta.knowledgeBaseIds : [];
+    for (const kbId of kbIds) {
+      const targetId = kbById.get(String(kbId));
+      if (!targetId || !nodes.has(row.id) || !nodes.has(targetId)) continue;
+      edges.push({
+        id: `${row.id}:USES_KNOWLEDGE_BASE:${targetId}`,
+        source: row.id,
+        target: targetId,
+        from: row.id,
+        to: targetId,
+        type: "USES_KNOWLEDGE_BASE",
+        label: "USES_KNOWLEDGE_BASE"
+      });
+    }
+  }
+}
+
+function linkAliasesFromMetadata(nodes, edges, agentRows, maxNodes) {
+  const agentsWithAliasEdges = new Set(
+    edges.filter((e) => e.type === "EXPOSES_ALIAS").map((e) => String(e.source || e.from))
+  );
+  for (const row of agentRows) {
+    if (agentsWithAliasEdges.has(String(row.id))) continue;
+    const meta = asMeta(row);
+    const aliases = Array.isArray(meta.aliases) ? meta.aliases : [];
+    const agentId = meta.agentId || row.id;
+    for (const alias of aliases.slice(0, 6)) {
+      const aliasName = String(alias || "").trim();
+      if (!aliasName) continue;
+      const key = `aws-alias:${agentId}:${aliasName}`;
+      if (!nodes.has(key) && nodes.size < maxNodes * 2) {
+        nodes.set(key, {
+          id: key,
+          type: "AgentAlias",
+          label: aliasName,
+          name: aliasName,
+          category: "agentalias",
+          kindLabel: "AgentAlias"
+        });
+      }
+      if (nodes.has(key) && nodes.has(row.id)) {
+        edges.push({
+          id: `${row.id}:EXPOSES_ALIAS:${key}`,
+          source: row.id,
+          target: key,
+          from: row.id,
+          to: key,
+          type: "EXPOSES_ALIAS",
+          label: "EXPOSES_ALIAS"
+        });
+      }
+    }
+  }
 }
 
 export async function graphFromSql(tenantId, { agentId, depth = 2, limit = 60 } = {}) {
@@ -76,51 +210,69 @@ export async function graphFromSql(tenantId, { agentId, depth = 2, limit = 60 } 
     }
   }
 
-  for (const a of agents.rows) {
-    nodes.set(a.id, {
-      id: a.id,
-      type: "Agent",
-      label: a.name,
-      name: a.name,
-      category: a.category,
-      framework: a.framework,
-      model: a.model,
-      provider: a.provider || a.cloud_provider
-    });
-
-    // Attribute edges so Topology Map is useful even when SQL relationships are sparse
-    const attrs = [
-      ["Model", a.model, "INVOKES_MODEL"],
-      ["Framework", a.framework, "USES_FRAMEWORK"],
-      ["Cloud", a.cloud_provider || (a.provider === "azure" || a.provider === "aws" || a.provider === "gcp" ? a.provider : null), "DEPLOYED_IN"],
-      ["IDE", a.ide, "RUNS_IN"],
-      ["Provider", a.provider && a.provider !== a.cloud_provider ? a.provider : null, "PROVIDED_BY"]
-    ];
-    for (const [type, value, rel] of attrs) {
-      if (!value) continue;
-      const key = `${String(type).toLowerCase()}:${String(value).toLowerCase()}`;
-      if (!nodes.has(key) && nodes.size < maxNodes * 2) {
-        nodes.set(key, {
-          id: key,
-          type,
-          label: String(value),
-          name: String(value),
-          category: String(type).toLowerCase()
-        });
-      }
-      if (nodes.has(key)) {
-        edges.push({
-          id: `${a.id}:${rel}:${key}`,
-          source: a.id,
-          target: key,
-          from: a.id,
-          to: key,
-          type: rel,
-          label: rel
-        });
-      }
+  // When seeding on a Bedrock agent, pull sibling AWS agents in the same account for KB links
+  if (seedMode && agents.rows.length) {
+    const seedMeta = asMeta(agents.rows[0]);
+    if (seedMeta.accountId && seedMeta.awsType) {
+      const siblings = await pool.query(
+        `SELECT * FROM agents
+         WHERE tenant_id=$1
+           AND cloud_provider='aws'
+           AND metadata->>'accountId'=$2
+         ORDER BY last_seen DESC
+         LIMIT 80`,
+        [tenantId, String(seedMeta.accountId)]
+      );
+      const byId = new Map(agents.rows.map((r) => [r.id, r]));
+      for (const row of siblings.rows) byId.set(row.id, row);
+      agents = { rows: [...byId.values()] };
     }
   }
+
+  for (const a of agents.rows) {
+    const meta = asMeta(a);
+    nodes.set(a.id, agentGraphNode(a));
+
+    // Attribute edges so Topology Map is useful even when SQL relationships are sparse
+    pushAttrEdge(nodes, edges, a, "Model", a.model, "INVOKES_MODEL", maxNodes);
+    pushAttrEdge(nodes, edges, a, "Framework", meta.awsType || a.framework, "USES_FRAMEWORK", maxNodes);
+    pushAttrEdge(
+      nodes,
+      edges,
+      a,
+      "Cloud",
+      a.cloud_provider ||
+        (a.provider === "azure" || a.provider === "aws" || a.provider === "gcp" ? a.provider : null),
+      "DEPLOYED_IN",
+      maxNodes
+    );
+    pushAttrEdge(nodes, edges, a, "IDE", a.ide, "RUNS_IN", maxNodes);
+    pushAttrEdge(
+      nodes,
+      edges,
+      a,
+      "Provider",
+      a.provider && a.provider !== a.cloud_provider ? a.provider : null,
+      "PROVIDED_BY",
+      maxNodes
+    );
+    if (meta.accountId) {
+      pushAttrEdge(nodes, edges, a, "CloudAccount", `AWS ${meta.accountId}`, "DEPLOYED_IN", maxNodes);
+    }
+    if (meta.connectorName || meta.connectorId) {
+      pushAttrEdge(
+        nodes,
+        edges,
+        a,
+        "Connector",
+        meta.connectorName || meta.connectorId,
+        "OBSERVED_BY",
+        maxNodes
+      );
+    }
+  }
+
+  linkBedrockAgentsToKnowledgeBases(nodes, edges, agents.rows);
 
   const agentIds = agents.rows.map((a) => a.id);
   if (!agentIds.length) {
@@ -128,7 +280,7 @@ export async function graphFromSql(tenantId, { agentId, depth = 2, limit = 60 } 
   }
 
   const rels = await pool.query(
-    `SELECT r.*, a.name AS from_name, s.name AS to_name, s.asset_type
+    `SELECT r.*, a.name AS from_name, s.name AS to_name, s.asset_type, s.external_key
      FROM relationships r
      JOIN agents a ON a.id = r.from_id
      JOIN assets s ON s.id = r.to_id
@@ -140,12 +292,15 @@ export async function graphFromSql(tenantId, { agentId, depth = 2, limit = 60 } 
 
   for (const r of rels.rows) {
     if (nodes.size >= maxNodes * 2 && !nodes.has(r.to_id)) continue;
+    const assetType = r.to_type || r.asset_type || "Asset";
     nodes.set(r.to_id, {
       id: r.to_id,
-      type: r.to_type || r.asset_type || "Asset",
+      type: assetType,
       label: r.to_name,
       name: r.to_name,
-      category: r.asset_type || r.to_type
+      category: r.asset_type || r.to_type,
+      kindLabel: assetType,
+      externalKey: r.external_key || null
     });
     edges.push({
       id: r.id,
@@ -158,6 +313,9 @@ export async function graphFromSql(tenantId, { agentId, depth = 2, limit = 60 } 
       confidence: r.confidence
     });
   }
+
+  // Fallback aliases only when discovery has not yet projected EXPOSES_ALIAS assets
+  linkAliasesFromMetadata(nodes, edges, agents.rows, maxNodes);
 
   // Optional Neo4j enrichment (SQL graph is primary for MVP)
   if (neo4jDriver && seedMode && hopDepth > 1 && agentIds.length === 1) {
