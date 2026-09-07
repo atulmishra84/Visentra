@@ -52,17 +52,22 @@ export function GraphSeedBar({
             className="input"
             id={`${idPrefix}-seed`}
             list={`${idPrefix}-seeds`}
-            placeholder="Search name or paste agent ID"
-            value={seed}
+            placeholder="Search by agent name"
+            value={seeds.find((option) => option.id === seed)?.name || seed}
             onChange={(event) => {
-              onSeedChange(event.target.value);
-              onSearchSeeds?.(event.target.value);
+              const typed = event.target.value;
+              const match = seeds.find(
+                (option) => option.name === typed || option.id === typed
+              );
+              onSeedChange(match?.id || typed);
+              onSearchSeeds?.(typed);
             }}
           />
           <datalist id={`${idPrefix}-seeds`}>
             {seeds.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.name} ({option.category || "asset"})
+              <option key={option.id} value={option.name || option.id}>
+                {option.category || "asset"}
+                {option.edge_count ? ` · ${option.edge_count}` : ""}
               </option>
             ))}
           </datalist>
@@ -94,6 +99,7 @@ export function GraphSeedBar({
           {seeds.slice(0, 8).map((option) => (
             <button key={option.id} className="button ghost" type="button" onClick={() => onPickSeed(option)}>
               {valueAt(option as Record<string, unknown>, ["name"], option.id).slice(0, 36)}
+              {option.category ? ` · ${option.category}` : ""}
               {option.edge_count ? ` · ${option.edge_count}` : ""}
             </button>
           ))}

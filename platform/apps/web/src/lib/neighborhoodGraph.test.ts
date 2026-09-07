@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { GraphEdge, GraphNode } from "./api";
 import {
+  blastRadius,
   filterNeighborhood,
   neighborhoodKpis,
   neuralLayout,
@@ -85,6 +86,19 @@ describe("neighborhoodGraph", () => {
     assert.ok(dist("i1") > 80);
     assert.ok(dist("t1") > 80);
     assert.ok(dist("d1") > 80);
+  });
+
+  it("keeps a 1-hop blast radius around the selected node", () => {
+    const scoped = blastRadius([agent, identity, tool, kb], edges, "t1");
+    assert.deepEqual(scoped.nodes.map((node) => node.id).sort(), ["a1", "t1"]);
+    assert.equal(scoped.edges.length, 1);
+  });
+
+  it("filters shadow-only and high-or-worse risk", () => {
+    const shadow = filterNeighborhood([agent, identity, tool, kb], edges, { shadowOnly: true });
+    assert.deepEqual(shadow.nodes.map((node) => node.id), ["a1"]);
+    const high = filterNeighborhood([agent, identity, tool, kb], edges, { minRisk: "high" });
+    assert.deepEqual(high.nodes.map((node) => node.id), ["a1"]);
   });
 
   it("counts shadow and critical KPIs", () => {

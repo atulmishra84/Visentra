@@ -3313,7 +3313,54 @@ tbody tr:hover {
 .nn-empty-hint i:nth-child(2) { top: 28%; left: 36%; background: #58a6ff; box-shadow: 0 0 16px #58a6ff; }
 .nn-empty-hint i:nth-child(3) { top: 58%; left: 64%; background: #f0abfc; box-shadow: 0 0 16px #f0abfc; }
 
+.neural-node.is-compact .neural-label,
+.neural-node.is-compact .neural-kind {
+  opacity: 0;
+}
+
+.neural-node.is-compact:hover .neural-label,
+.neural-node.is-compact:hover .neural-kind,
+.neural-node.is-compact.is-hot .neural-label,
+.neural-node.is-compact.is-hot .neural-kind,
+.neural-node.is-compact.is-selected .neural-label,
+.neural-node.is-compact.is-selected .neural-kind {
+  opacity: 1;
+}
+
+.neural-tip {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translate(-50%, 6px);
+  z-index: 3;
+  min-width: 120px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(7, 11, 18, 0.94);
+  color: #e8eef6;
+  font-size: 11px;
+  line-height: 1.3;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.neural-tip em {
+  display: block;
+  margin-top: 2px;
+  color: #9aabbf;
+  font-style: normal;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.neural-node:hover .neural-tip,
+.neural-node.is-hot .neural-tip {
+  display: block;
+}
+
 .neural-node {
+  position: relative;
   display: grid;
   justify-items: center;
   gap: 4px;
@@ -3359,7 +3406,6 @@ tbody tr:hover {
 
 .rx-page {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 10px;
   min-height: calc(100vh - 48px);
   padding-bottom: 12px;
@@ -3387,6 +3433,37 @@ tbody tr:hover {
   position: relative;
   min-width: 0;
   min-height: 0;
+}
+
+.rx-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.rx-kpis strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  margin-right: 4px;
+}
+
+.rx-map-bar {
+  position: absolute;
+  z-index: 6;
+  top: 10px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rx-map-bar .sg-chip {
+  background: rgba(7, 11, 18, 0.82);
+  color: #e8eef6;
+  pointer-events: auto;
 }
 
 .rx-page .graph-shell.is-neural {
@@ -3529,4 +3606,33 @@ tbody tr:hover {
   .rx-page .graph-shell.is-neural {
     min-height: 420px;
   }
+}
+
+[data-theme="light"] .graph-shell.is-neural {
+  border-color: var(--panel-border);
+  background:
+    radial-gradient(circle at 50% 46%, rgba(15, 143, 128, 0.12), transparent 18rem),
+    radial-gradient(circle at 28% 38%, rgba(26, 111, 212, 0.08), transparent 16rem),
+    radial-gradient(circle at 72% 42%, rgba(168, 85, 247, 0.08), transparent 16rem),
+    var(--graph-bg);
+}
+
+[data-theme="light"] .neural-label,
+[data-theme="light"] .rx-empty,
+[data-theme="light"] .rx-empty h3 {
+  color: var(--text);
+}
+
+[data-theme="light"] .neural-kind,
+[data-theme="light"] .rx-empty p,
+[data-theme="light"] .rx-legend-row {
+  color: var(--text-muted);
+}
+
+[data-theme="light"] .rx-legend,
+[data-theme="light"] .neural-tip,
+[data-theme="light"] .rx-map-bar .sg-chip {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+  border-color: var(--panel-border);
 }

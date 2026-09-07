@@ -86,11 +86,11 @@ export function TopologyMapPage() {
     <div className="page">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Topology</p>
-          <h1>Topology Map</h1>
+          <p className="eyebrow">Tenant</p>
+          <h1>Tenant overview</h1>
           <p className="page-description">
-            Interactive map of agents and related models, frameworks, cloud resources, and tools. Pan, zoom, and click
-            a node for details.
+            Tenant-wide map of agents and related models, frameworks, cloud resources, and tools. Use Relationship
+            Explorer for a focused neighborhood.
           </p>
         </div>
         <div className="toolbar">
@@ -98,7 +98,7 @@ export function TopologyMapPage() {
             className="button ghost"
             to={agentId ? `/relationships?agentId=${encodeURIComponent(agentId)}` : "/relationships"}
           >
-            Relationship Explorer
+            Neighborhood
           </Link>
           <button className="button" type="button" onClick={() => void loadGraph(seed, depth)}>
             Refresh graph

@@ -7,16 +7,21 @@ import { NeighborhoodInspector } from "../components/NeighborhoodInspector";
 import { TopologyGraph } from "../components/TopologyGraph";
 import { apiRequest, type Agent, type GraphNode, type GraphPayload, valueAt } from "../lib/api";
 import {
+  blastRadius,
+  filterNeighborhood,
   GRAPH_LAYERS,
   LAYER_COLORS,
   LAYER_LABELS,
+  neighborhoodKpis,
   normalizeGraphEdges,
   normalizeGraphNodes,
   RISK_COLORS,
-  RISK_LABELS
+  RISK_LABELS,
+  uniqueRelations
 } from "../lib/neighborhoodGraph";
 
 type SideTab = "node" | "anatomy" | "path";
+type ViewMode = "full" | "radius";
 
 function looksLikeAgentId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -37,6 +42,12 @@ export function RelationshipExplorerPage() {
   const [focusedAgentId, setFocusedAgentId] = useState<string | null>(() => searchParams.get("agentId") || null);
   const [focusedAgent, setFocusedAgent] = useState<Agent | null>(null);
   const [sideTab, setSideTab] = useState<SideTab>("node");
+  const [viewMode, setViewMode] = useState<ViewMode>("full");
+  const [shadowOnly, setShadowOnly] = useState(false);
+  const [highPlus, setHighPlus] = useState(false);
+  const [relTypes, setRelTypes] = useState<string[]>([]);
+  const [showLabels, setShowLabels] = useState<boolean | null>(null);
+  const [latestAgent, setLatestAgent] = useState<{ id: string; name: string } | null>(null);
 
   const loadSeeds = async (q = "") => {
     try {
@@ -46,6 +57,23 @@ export function RelationshipExplorerPage() {
       setSeeds(payload.seeds || []);
     } catch {
       /* non-blocking */
+    }
+  };
+
+  const loadLatest = async () => {
+    try {
+      const payload = await apiRequest<{ agents?: Agent[] }>("/api/agents", { query: { limit: 1 } });
+      const agent = payload.agents?.[0];
+      if (agent?.id) {
+        setLatestAgent({
+          id: String(agent.id),
+          name: valueAt(agent, ["displayName", "name"], String(agent.id))
+        });
+      } else {
+        setLatestAgent(null);
+      }
+    } catch {
+      setLatestAgent(null);
     }
   };
 
@@ -127,9 +155,24 @@ export function RelationshipExplorerPage() {
 
   useEffect(() => {
     void loadSeeds();
+    void loadLatest();
     void loadGraph(seed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const type = String((event as CustomEvent).detail?.type || "");
+      if (!type || type === "connected") return;
+      void loadSeeds();
+      void loadLatest();
+      if (type === "discovery.job.completed" || type === "inventory.agent.updated") {
+        void loadGraph(seed);
+      }
+    };
+    window.addEventListener("visentra:graph-event", listener);
+    return () => window.removeEventListener("visentra:graph-event", listener);
+  }, [seed]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -147,27 +190,60 @@ export function RelationshipExplorerPage() {
     }
   };
 
-  const graphNodes = useMemo(() => normalizeGraphNodes(graph), [graph]);
-  const graphEdges = useMemo(() => normalizeGraphEdges(graph), [graph]);
+  const rawNodes = useMemo(() => normalizeGraphNodes(graph), [graph]);
+  const rawEdges = useMemo(() => normalizeGraphEdges(graph), [graph]);
+  const relations = useMemo(() => uniqueRelations(rawEdges), [rawEdges]);
+  const filtered = useMemo(() => {
+    let next = filterNeighborhood(rawNodes, rawEdges, {
+      relTypes,
+      shadowOnly,
+      minRisk: highPlus ? "high" : undefined
+    });
+    if (viewMode === "radius") {
+      next = blastRadius(next.nodes, next.edges, selected?.id || focusedAgentId);
+    }
+    return next;
+  }, [rawNodes, rawEdges, relTypes, shadowOnly, highPlus, viewMode, selected?.id, focusedAgentId]);
+  const scopedGraph = useMemo<GraphPayload>(
+    () => ({ nodes: filtered.nodes, edges: filtered.edges, meta: graph?.meta }),
+    [filtered, graph?.meta]
+  );
+  const kpis = useMemo(() => neighborhoodKpis(filtered.nodes, filtered.edges), [filtered]);
+  const compactLabels = showLabels === null ? filtered.nodes.length > 12 : !showLabels;
   const focusedName =
     (focusedAgent && valueAt(focusedAgent, ["displayName", "name"], "")) ||
     (anatomy?.center && valueAt(anatomy.center as Record<string, unknown>, ["name"], "")) ||
     seeds.find((item) => item.id === focusedAgentId)?.name ||
     "";
 
+  const toggleRel = (rel: string) => {
+    setRelTypes((current) => (current.includes(rel) ? current.filter((item) => item !== rel) : [...current, rel]));
+  };
+
+  const focusLatest = () => {
+    if (!latestAgent) return;
+    setSeed(latestAgent.id);
+    void loadGraph(latestAgent.id);
+  };
+
   return (
     <div className="page rx-page">
       <header className="rx-header">
         <div>
-          <p className="eyebrow">Relationships</p>
+          <p className="eyebrow">Neighborhood</p>
           <h1>{focusedName ? `Neighborhood · ${focusedName}` : "Relationship Explorer"}</h1>
           <p className="page-description">
             {focusedName
               ? `${depth} hop${depth === 1 ? "" : "s"} around this agent — identities, tools, runtimes, and data it can reach.`
-              : "Focus an agent to open its neural neighborhood. Anatomy and execution path stay in the inspector."}
+              : "Focus an agent to open its neural neighborhood. Anatomy is the agent internals tab; tenant overview is a separate map."}
           </p>
         </div>
         <div className="toolbar">
+          {latestAgent && latestAgent.id !== focusedAgentId ? (
+            <button className="button" type="button" onClick={focusLatest}>
+              Focus latest · {latestAgent.name.slice(0, 28)}
+            </button>
+          ) : null}
           {focusedAgentId ? (
             <Link className="button ghost" to={`/agents/${encodeURIComponent(focusedAgentId)}`}>
               Open agent
@@ -183,7 +259,7 @@ export function RelationshipExplorerPage() {
                   : "/topology"
             }
           >
-            Tenant topology
+            Tenant overview
           </Link>
         </div>
       </header>
@@ -195,7 +271,7 @@ export function RelationshipExplorerPage() {
         seeds={seeds}
         submitLabel="Focus"
         clearLabel="Overview"
-        showChips={!focusedAgentId}
+        showChips
         onSeedChange={setSeed}
         onDepthChange={setDepth}
         onSubmit={submit}
@@ -212,27 +288,102 @@ export function RelationshipExplorerPage() {
 
       {error ? <div className="error-state">{error}</div> : null}
 
+      <div className="rx-kpis" aria-label="Neighborhood counts">
+        <span>
+          <strong>{kpis.nodes}</strong> nodes
+        </span>
+        <span>
+          <strong>{kpis.edges}</strong> edges
+        </span>
+        <span>
+          <strong>{kpis.shadow}</strong> shadow
+        </span>
+        <span>
+          <strong>{kpis.critical}</strong> critical
+        </span>
+      </div>
+
       <div className="rx-stage" id="neighborhood">
         <section className="rx-canvas" aria-label="Neighborhood neural graph">
+          <div className="rx-map-bar" aria-label="Map filters">
+            <button
+              className={`sg-chip ${viewMode === "full" ? "is-on" : ""}`}
+              type="button"
+              onClick={() => setViewMode("full")}
+            >
+              Full neighborhood
+            </button>
+            <button
+              className={`sg-chip ${viewMode === "radius" ? "is-on" : ""}`}
+              type="button"
+              onClick={() => setViewMode("radius")}
+            >
+              Blast radius
+            </button>
+            <button
+              className={`sg-chip ${shadowOnly ? "is-on" : ""}`}
+              type="button"
+              onClick={() => setShadowOnly((value) => !value)}
+            >
+              Shadow
+            </button>
+            <button
+              className={`sg-chip ${highPlus ? "is-on" : ""}`}
+              type="button"
+              onClick={() => setHighPlus((value) => !value)}
+            >
+              High+
+            </button>
+            <button
+              className={`sg-chip ${compactLabels ? "" : "is-on"}`}
+              type="button"
+              onClick={() => setShowLabels(compactLabels)}
+            >
+              Labels
+            </button>
+            {relations.map((rel) => (
+              <button
+                key={rel}
+                className={`sg-chip ${relTypes.includes(rel) ? "is-on" : ""}`}
+                type="button"
+                onClick={() => toggleRel(rel)}
+              >
+                {rel.replace(/_/g, " ")}
+              </button>
+            ))}
+          </div>
           <TopologyGraph
-            graph={graph}
+            graph={scopedGraph}
             loading={loading}
             layoutMode="neural"
             selectedNodeId={selected ? String(selected.id) : null}
             seedNodeId={focusedAgentId}
             hideMinimap
             hideMeta
+            compactLabels={compactLabels}
             emptyContent={
+              rawNodes.length ? (
+                <div className="rx-empty">
+                  <h3>No nodes match these filters</h3>
+                  <p>Clear Shadow, High+, blast radius, or relationship chips to widen the neighborhood.</p>
+                </div>
+              ) : (
               <div className="rx-empty">
                 <h3>No neighborhood to plot</h3>
                 <p>
                   This map shows the identities, tools, runtimes, and data around a focused agent. Run discovery, then
-                  pick an agent from Inventory.
+                  focus the latest agent or pick one from Inventory.
                 </p>
                 <div className="toolbar">
-                  <Link className="button primary" to="/discovery">
-                    Open Discovery
-                  </Link>
+                  {latestAgent ? (
+                    <button className="button primary" type="button" onClick={focusLatest}>
+                      Focus latest · {latestAgent.name.slice(0, 24)}
+                    </button>
+                  ) : (
+                    <Link className="button primary" to="/discovery">
+                      Open Discovery
+                    </Link>
+                  )}
                   <Link className="button" to="/settings/connectors">
                     Connectors
                   </Link>
@@ -241,6 +392,7 @@ export function RelationshipExplorerPage() {
                   </Link>
                 </div>
               </div>
+              )
             }
             onNodeSelect={onNodeSelect}
           />
@@ -298,8 +450,8 @@ export function RelationshipExplorerPage() {
             {sideTab === "node" ? (
               <NeighborhoodInspector
                 node={selected}
-                nodes={graphNodes}
-                edges={graphEdges}
+                nodes={filtered.nodes}
+                edges={filtered.edges}
                 onSelectPeer={(peer) => {
                   setSelected(peer);
                 }}
