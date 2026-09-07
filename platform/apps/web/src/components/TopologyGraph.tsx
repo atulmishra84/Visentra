@@ -15,7 +15,7 @@ import {
   type NodeMouseHandler,
   type NodeProps
 } from "@xyflow/react";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
 import { type GraphEdge, type GraphNode, type GraphPayload, valueAt } from "../lib/api";
 import {
   neighborIds,
@@ -37,6 +37,7 @@ type TopologyGraphProps = {
   seedNodeId?: string | null;
   hideMeta?: boolean;
   hideMinimap?: boolean;
+  emptyContent?: ReactNode;
   className?: string;
 };
 
@@ -428,6 +429,7 @@ function TopologyGraphInner({
   seedNodeId = null,
   hideMeta = false,
   hideMinimap = false,
+  emptyContent,
   className
 }: TopologyGraphProps) {
   const [themeTick, setThemeTick] = useState(0);
@@ -504,7 +506,9 @@ function TopologyGraphInner({
               <i />
             </div>
           )}
-          <div className="empty-state sg-empty">{meta?.message || emptyMessage}</div>
+          <div className="empty-state sg-empty">
+            {emptyContent || meta?.message || emptyMessage}
+          </div>
         </div>
       );
     }
