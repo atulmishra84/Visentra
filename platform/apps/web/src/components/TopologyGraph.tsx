@@ -38,6 +38,7 @@ type TopologyGraphProps = {
   hideMeta?: boolean;
   hideMinimap?: boolean;
   emptyContent?: ReactNode;
+  compactLabels?: boolean;
   className?: string;
 };
 
@@ -152,6 +153,7 @@ type TopologyNodeData = {
   dimmed?: boolean;
   hot?: boolean;
   shadow?: boolean;
+  compact?: boolean;
 };
 
 const TopologyNode = memo(function TopologyNode({ data, selected }: NodeProps & { data: TopologyNodeData }) {
@@ -200,6 +202,7 @@ const TopologyNode = memo(function TopologyNode({ data, selected }: NodeProps & 
 });
 
 const NeuralNode = memo(function NeuralNode({ data, selected }: NodeProps & { data: TopologyNodeData }) {
+  const compact = Boolean(data.compact) && !selected && !data.hot && data.layer !== "agent";
   return (
     <div
       className={[
@@ -208,10 +211,12 @@ const NeuralNode = memo(function NeuralNode({ data, selected }: NodeProps & { da
         data.dimmed ? "is-dimmed" : "",
         data.hot ? "is-hot" : "",
         data.shadow ? "is-shadow" : "",
-        data.layer === "agent" ? "is-nucleus" : ""
+        data.layer === "agent" ? "is-nucleus" : "",
+        compact ? "is-compact" : ""
       ]
         .filter(Boolean)
         .join(" ")}
+      title={`${data.title} · ${data.kind}${data.risk ? ` · ${data.risk}` : ""}`}
     >
       <Handle type="target" position={Position.Top} className="neural-handle" />
       <Handle type="source" position={Position.Bottom} className="neural-handle" />
@@ -221,12 +226,21 @@ const NeuralNode = memo(function NeuralNode({ data, selected }: NodeProps & { da
           background: `radial-gradient(circle at 35% 30%, #fff6, ${data.color} 46%, ${data.color}aa)`,
           boxShadow: selected
             ? `0 0 0 2px ${data.color}, 0 0 28px ${data.color}`
-            : `0 0 16px ${data.color}99`
+            : data.hot
+              ? `0 0 0 1px ${data.color}, 0 0 18px ${data.color}`
+              : `0 0 16px ${data.color}99`
         }}
       />
       <strong className="neural-label">{data.title}</strong>
       <span className="neural-kind" style={{ color: data.color }}>
         {data.kind}
+      </span>
+      <span className="neural-tip">
+        {data.title}
+        <em>
+          {data.kind}
+          {data.risk ? ` · ${data.risk}` : ""}
+        </em>
       </span>
     </div>
   );
@@ -289,7 +303,7 @@ function layoutNodes(nodes: GraphNode[]): Node[] {
   return positioned;
 }
 
-function layoutEdges(edges: GraphEdge[], highlightIds?: Set<string>): Edge[] {
+function layoutEdges(edges: GraphEdge[], highlightIds?: Set<string>, hideLabels?: boolean): Edge[] {
   const theme = graphTheme();
   const emphasis = new Set(["USES_KNOWLEDGE_BASE", "EXPOSES_ALIAS", "OBSERVED_BY"]);
   return edges.map((edge, index) => {
@@ -303,7 +317,7 @@ function layoutEdges(edges: GraphEdge[], highlightIds?: Set<string>): Edge[] {
       id: String(edge.id ?? `${edge.from ?? edge.source}-${edge.to ?? edge.target}-${index}`),
       source,
       target,
-      label: rel.replace(/_/g, " "),
+      label: hideLabels && !hot ? undefined : rel.replace(/_/g, " "),
       animated: hot || ((strong || edges.length < 80) && !dimmed),
       style: {
         stroke: hot ? theme.brand : dimmed ? "rgba(139, 163, 190, 0.18)" : strong ? theme.brand : theme.edge,
@@ -323,7 +337,8 @@ function layoutNeuralNodes(
   edges: GraphEdge[],
   selectedId?: string | null,
   highlightIds?: Set<string>,
-  seedId?: string | null
+  seedId?: string | null,
+  compact?: boolean
 ): Node[] {
   const placed = neuralLayout(nodes, edges, seedId || selectedId);
   const byId = new Map(nodes.map((node) => [String(node.id), node]));
@@ -361,7 +376,8 @@ function layoutNeuralNodes(
         layer: nodeLayer(node),
         dimmed: Boolean(highlightIds?.size && !hot),
         hot: hot && !selected,
-        shadow: node.shadowAi === true || status.toLowerCase() === "candidate"
+        shadow: node.shadowAi === true || status.toLowerCase() === "candidate",
+        compact
       },
       position: { x: slot.x, y: slot.y }
     };
@@ -430,9 +446,11 @@ function TopologyGraphInner({
   hideMeta = false,
   hideMinimap = false,
   emptyContent,
+  compactLabels = false,
   className
 }: TopologyGraphProps) {
   const [themeTick, setThemeTick] = useState(0);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
@@ -445,15 +463,16 @@ function TopologyGraphInner({
   const graphNodes = useMemo(() => normalizeNodes(graph), [graph]);
   const graphEdges = useMemo(() => normalizeEdges(graph), [graph]);
   const highlightIds = useMemo(() => {
-    if (!selectedNodeId) return new Set<string>();
-    const next = neighborIds(graphEdges, selectedNodeId);
-    next.add(selectedNodeId);
+    const focusId = hoveredId || selectedNodeId;
+    if (!focusId) return new Set<string>();
+    const next = neighborIds(graphEdges, focusId);
+    next.add(focusId);
     return next;
-  }, [graphEdges, selectedNodeId]);
+  }, [graphEdges, hoveredId, selectedNodeId]);
   const layoutNonce = useMemo(
     () =>
-      `${layoutMode}|${graphNodes.map((n) => n.id).join("|")}|${graphEdges.length}|${selectedNodeId || ""}|${seedNodeId || ""}|${themeTick}`,
-    [layoutMode, graphNodes, graphEdges.length, selectedNodeId, seedNodeId, themeTick]
+      `${layoutMode}|${graphNodes.map((n) => n.id).join("|")}|${graphEdges.length}|${selectedNodeId || ""}|${seedNodeId || ""}|${compactLabels ? "c" : "f"}|${themeTick}`,
+    [layoutMode, graphNodes, graphEdges.length, selectedNodeId, seedNodeId, compactLabels, themeTick]
   );
 
   useEffect(() => {
@@ -463,13 +482,24 @@ function TopologyGraphInner({
       return;
     }
     if (layoutMode === "neural") {
-      setNodes(layoutNeuralNodes(graphNodes, graphEdges, selectedNodeId, highlightIds, seedNodeId));
-      setEdges(layoutEdges(graphEdges, highlightIds));
+      setNodes(layoutNeuralNodes(graphNodes, graphEdges, selectedNodeId, highlightIds, seedNodeId, compactLabels));
+      setEdges(layoutEdges(graphEdges, highlightIds, compactLabels));
       return;
     }
     setNodes(layoutNodes(graphNodes));
     setEdges(layoutEdges(graphEdges));
-  }, [graphNodes, graphEdges, highlightIds, layoutMode, seedNodeId, selectedNodeId, themeTick, setNodes, setEdges]);
+  }, [
+    graphNodes,
+    graphEdges,
+    highlightIds,
+    layoutMode,
+    seedNodeId,
+    selectedNodeId,
+    compactLabels,
+    themeTick,
+    setNodes,
+    setEdges
+  ]);
 
   const theme = useMemo(() => graphTheme(), [themeTick]);
   const meta = (graph as GraphPayload & { meta?: { message?: string; nodeCount?: number; edgeCount?: number } })
@@ -478,6 +508,12 @@ function TopologyGraphInner({
   const handleNodeClick: NodeMouseHandler = (_event, node) => {
     const payload = (node.data as TopologyNodeData | undefined)?.payload;
     if (payload) onNodeSelect?.(payload);
+  };
+  const handleNodeEnter: NodeMouseHandler = (_event, node) => {
+    setHoveredId(String(node.id));
+  };
+  const handleNodeLeave: NodeMouseHandler = () => {
+    setHoveredId(null);
   };
 
   if (loading) {
@@ -547,6 +583,8 @@ function TopologyGraphInner({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
+        onNodeMouseEnter={handleNodeEnter}
+        onNodeMouseLeave={handleNodeLeave}
         nodesConnectable={false}
         edgesReconnectable={false}
         fitView

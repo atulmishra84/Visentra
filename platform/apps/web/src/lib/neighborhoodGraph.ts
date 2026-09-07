@@ -204,7 +204,35 @@ export type NeighborhoodFilter = {
   relTypes?: string[];
   layers?: GraphLayer[];
   query?: string;
+  shadowOnly?: boolean;
+  minRisk?: RiskLevel;
 };
+
+const RISK_RANK: Record<RiskLevel, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  info: 4
+};
+
+export function blastRadius(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  centerId: string | null | undefined
+): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  const id = String(centerId || "");
+  if (!id) return { nodes, edges };
+  const keep = neighborIds(edges, id);
+  keep.add(id);
+  const nextNodes = nodes.filter((node) => keep.has(String(node.id)));
+  const visible = new Set(nextNodes.map((node) => String(node.id)));
+  const nextEdges = edges.filter((edge) => {
+    const { source, target } = edgeEndpoints(edge);
+    return visible.has(source) && visible.has(target);
+  });
+  return { nodes: nextNodes, edges: nextEdges };
+}
 
 export function filterNeighborhood(
   nodes: GraphNode[],
@@ -216,6 +244,7 @@ export function filterNeighborhood(
   const query = String(filter.query || "")
     .trim()
     .toLowerCase();
+  const minRank = filter.minRisk ? RISK_RANK[filter.minRisk] : null;
 
   let nextEdges = edges;
   if (relAllow.size) {
@@ -231,6 +260,8 @@ export function filterNeighborhood(
 
   let nextNodes = nodes.filter((node) => {
     if (layerAllow.size && !layerAllow.has(nodeLayer(node))) return false;
+    if (filter.shadowOnly && !isShadowNode(node)) return false;
+    if (minRank != null && RISK_RANK[nodeRisk(node)] > minRank) return false;
     if (nextEdges.length && !connected.has(String(node.id)) && nodes.length > 1) {
       // Keep isolates only when no relationship filter removed their edges.
       if (relAllow.size) return false;
