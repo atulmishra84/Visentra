@@ -108,9 +108,10 @@ type AgentAnatomyPanelProps = {
   loading?: boolean;
   error?: string | null;
   onClear?: () => void;
+  embedded?: boolean;
 };
 
-export function AgentAnatomyPanel({ anatomy, loading, error, onClear }: AgentAnatomyPanelProps) {
+export function AgentAnatomyPanel({ anatomy, loading, error, onClear, embedded }: AgentAnatomyPanelProps) {
   const [tab, setTab] = useState<TabId>("anatomy");
   const [hotItem, setHotItem] = useState<string | null>(null);
 
@@ -130,7 +131,7 @@ export function AgentAnatomyPanel({ anatomy, loading, error, onClear }: AgentAna
 
   if (loading) {
     return (
-      <section className="panel anatomy-shell">
+      <section className={`anatomy-shell ${embedded ? "is-embedded" : "panel"}`}>
         <div className="loading-state">Loading agent anatomy...</div>
       </section>
     );
@@ -138,7 +139,7 @@ export function AgentAnatomyPanel({ anatomy, loading, error, onClear }: AgentAna
 
   if (error) {
     return (
-      <section className="panel anatomy-shell">
+      <section className={`anatomy-shell ${embedded ? "is-embedded" : "panel"}`}>
         <div className="error-state">{error}</div>
       </section>
     );
@@ -146,11 +147,12 @@ export function AgentAnatomyPanel({ anatomy, loading, error, onClear }: AgentAna
 
   if (!anatomy?.center) {
     return (
-      <section className="panel anatomy-shell anatomy-empty-state">
-        <h2>Relationship Explorer</h2>
+      <section className={`anatomy-shell anatomy-empty-state ${embedded ? "is-embedded" : "panel"}`}>
+        {embedded ? <h2>Anatomy</h2> : <h2>Relationship Explorer</h2>}
         <p className="muted">
-          Select an agent to open its anatomy map — users &amp; inputs, channels, actions, data — with inherent risk
-          profiling around the agent and LLM.
+          {embedded
+            ? "Focus an agent on the map to open users, channels, actions, and data around the LLM."
+            : "Select an agent to open its anatomy map — users & inputs, channels, actions, data — with inherent risk profiling around the agent and LLM."}
         </p>
       </section>
     );
@@ -168,7 +170,7 @@ export function AgentAnatomyPanel({ anatomy, loading, error, onClear }: AgentAna
   const hubY = 360;
 
   return (
-    <section className="anatomy-shell">
+    <section className={`anatomy-shell ${embedded ? "is-embedded" : ""}`}>
       <header className="anatomy-topbar">
         <div>
           <p className="anatomy-crumb">

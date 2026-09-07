@@ -3356,3 +3356,177 @@ tbody tr:hover {
   border: 0 !important;
   background: transparent !important;
 }
+
+.rx-page {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+  min-height: calc(100vh - 48px);
+  padding-bottom: 12px;
+}
+
+.rx-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rx-header h1 {
+  margin-bottom: 4px;
+}
+
+.rx-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 10px;
+  min-height: 0;
+}
+
+.rx-canvas {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.rx-page .graph-shell.is-neural {
+  height: 100%;
+  min-height: 520px;
+}
+
+.rx-legend {
+  position: absolute;
+  z-index: 6;
+  left: 12px;
+  bottom: 12px;
+  min-width: 148px;
+  padding: 10px 12px;
+  border: 1px solid #243044;
+  border-radius: 10px;
+  background: rgba(7, 11, 18, 0.88);
+  color: #e8eef6;
+  pointer-events: none;
+}
+
+.rx-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #9aabbf;
+}
+
+.rx-legend-row i {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  flex: 0 0 auto;
+}
+
+.rx-empty {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  max-width: 46ch;
+  color: #c5d4e8;
+}
+
+.rx-empty h3 {
+  margin: 0;
+  color: #e8eef6;
+}
+
+.rx-empty p {
+  margin: 0;
+  color: #9aabbf;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.graph-shell.is-neural .empty-state.sg-empty {
+  border: 0;
+  background: transparent;
+  min-height: 0;
+  padding: 0;
+}
+
+.rx-side {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+}
+
+.rx-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.rx-tab {
+  appearance: none;
+  flex: 1;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 10px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.rx-tab.is-on {
+  color: var(--text);
+  border-bottom-color: var(--brand);
+}
+
+.rx-side-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+.rx-inspector-empty h2,
+.rx-inspector h2 {
+  margin-bottom: 4px;
+}
+
+.rx-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.anatomy-shell.is-embedded {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  min-height: 0;
+}
+
+.anatomy-shell.is-embedded .anatomy-topbar {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 1100px) {
+  .rx-page {
+    grid-template-rows: auto;
+    min-height: 0;
+  }
+
+  .rx-stage {
+    grid-template-columns: 1fr;
+  }
+
+  .rx-page .graph-shell.is-neural {
+    min-height: 420px;
+  }
+}
