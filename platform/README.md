@@ -58,7 +58,7 @@ docker compose up -d --build
 - Web UI: http://localhost:5172
 - API health: http://localhost:8080/health
 - API ready: http://localhost:8080/ready
-- Neo4j browser: http://localhost:7474
+- Neo4j browser: http://localhost:7475
 
 **Local/dev login:** set `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` (defaults in compose).  
 **Local / production:** inventory comes from connectors and live discovery only (`DISCOVERY_DEMO_SEED` is off). See [`PRODUCTION.md`](./PRODUCTION.md).
@@ -79,7 +79,7 @@ cd platform/infra/compose && docker compose up -d postgres neo4j redis nats
 
 cd platform/apps/api
 POSTGRES_URL=postgres://agentradar:agentradar@localhost:5433/agentradar \
-NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=agentradar \
+NEO4J_URI=bolt://localhost:7688 NEO4J_USER=neo4j NEO4J_PASSWORD=agentradar \
 JWT_SECRET=dev npm run dev
 ```
 

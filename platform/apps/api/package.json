@@ -9,8 +9,8 @@
     "start:prod": "NODE_ENV=production node src/server.js",
     "dev": "node --watch src/server.js",
     "migrate": "node src/migrate.js",
-    "test": "node --test src/discovery/__tests__/*.test.js src/services/__tests__/*.test.js",
-    "lint": "node --check src/discovery/azureArm.js && node --check src/discovery/azureDeepScan.js && node --check src/discovery/awsCloud.js && node --check src/discovery/awsDeepScan.js && node --check src/discovery/adversarialInventory.js && node --check src/discovery/gcpCloud.js && node --check src/discovery/edrIntegrations.js && node --check src/discovery/aiRelevance.js && node --check src/discovery/agentEvidence.js && node --check src/discovery/cloudDiscoveryCommon.js && node --check src/services/agentDepth.js && node --check src/services/complianceCatalog.js && node --check src/services/complianceAssess.js && node --check src/utils/http.js && node --check src/services/connectors.js",
+    "test": "node --test src/discovery/__tests__/*.test.js src/services/__tests__/*.test.js src/db/__tests__/*.test.js",
+    "lint": "node --check src/discovery/azureArm.js && node --check src/discovery/azureDeepScan.js && node --check src/discovery/awsCloud.js && node --check src/discovery/awsDeepScan.js && node --check src/discovery/adversarialInventory.js && node --check src/discovery/gcpCloud.js && node --check src/discovery/edrIntegrations.js && node --check src/discovery/aiRelevance.js && node --check src/discovery/agentEvidence.js && node --check src/discovery/cloudDiscoveryCommon.js && node --check src/discovery/pipeline.js && node --check src/db/neo4j.js && node --check src/services/agentDepth.js && node --check src/services/complianceCatalog.js && node --check src/services/complianceAssess.js && node --check src/utils/http.js && node --check src/services/connectors.js",
     "validate:env": "node -e \"import('./src/config.js').then(m=>m.assertProductionConfig()).then(()=>console.log('ok')).catch(e=>{console.error(e.message);process.exit(1)})\""
   },
   "engines": {

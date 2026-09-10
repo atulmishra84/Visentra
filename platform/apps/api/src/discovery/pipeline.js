@@ -3,6 +3,7 @@ import { runCollectors, DEFAULT_COLLECTORS } from "./collectors.js";
 import { applyShadowAiToObservation } from "../services/shadowAi.js";
 import { enrichObservationWithEvidence } from "./agentEvidence.js";
 import { promoteCorrelatedCandidates } from "./evidenceCorrelation.js";
+import { cypherIdent } from "../db/neo4j.js";
 
 function asArray(v) {
   if (!v) return [];
@@ -44,14 +45,15 @@ async function projectNeo4j(neo4j, tenantId, agent, assetIdsByKey, relationships
 
     for (const rel of relationships) {
       const toId = assetIdsByKey[`${rel.to_type}:${rel.to_key}`];
-      if (!toId) continue;
-      const label = rel.to_type;
+      const label = cypherIdent(rel.to_type);
+      const relType = cypherIdent(rel.rel_type);
+      if (!toId || !label || !relType) continue;
       await session.run(
-        `MERGE (n:${label} {tenantId: $tenantId, id: $toId})
+        `MERGE (n:\`${label}\` {tenantId: $tenantId, id: $toId})
          SET n.name = $toName, n.lastSeen = datetime()
          WITH n
          MATCH (a:Agent {tenantId: $tenantId, id: $agentId})
-         MERGE (a)-[r:${rel.rel_type}]->(n)
+         MERGE (a)-[r:\`${relType}\`]->(n)
          SET r.confidence = $confidence, r.lastSeen = datetime()`,
         {
           tenantId,
@@ -62,6 +64,8 @@ async function projectNeo4j(neo4j, tenantId, agent, assetIdsByKey, relationships
         }
       );
     }
+  } catch (err) {
+    console.warn("Neo4j project:", err.message);
   } finally {
     await session.close();
   }

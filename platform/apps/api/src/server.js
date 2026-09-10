@@ -1,5 +1,5 @@
 import { pool, waitForPostgres } from "./db/postgres.js";
-import { neo4jDriver, initNeo4jConstraints } from "./db/neo4j.js";
+import { neo4jDriver, waitForNeo4j, initNeo4jConstraints } from "./db/neo4j.js";
 import { purgeDemoInventory, purgeNonAiInventory } from "./lib/inventoryPurge.js";
 import { migrate } from "./migrate.js";
 import { migrateConnectorEncryption } from "./utils/crypto.js";
@@ -12,6 +12,7 @@ const PORT = Number(process.env.PORT || 8080);
 
 async function boot() {
   await waitForPostgres();
+  await waitForNeo4j();
 
   const tenantId = await migrate(pool);
   await migrateConnectorEncryption(pool);
