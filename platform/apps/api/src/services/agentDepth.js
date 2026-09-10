@@ -10,6 +10,7 @@ import {
   PLANE_LABELS,
   LANE_LABELS
 } from "../meshConstants.js";
+import { stampAgentIdentification, buildAgentIdentification } from "./agentIdentification.js";
 
 export { AGENT_PLANES, ENVIRONMENT_LANES, PLANE_LABELS, LANE_LABELS };
 
@@ -406,11 +407,23 @@ export function buildOwnership(obs = {}) {
     meta.department ||
     meta.businessUnit ||
     null;
+  const entraSignals = Boolean(
+    meta.objectId ||
+      meta.appId ||
+      existing.objectId ||
+      existing.appId ||
+      meta.identityProvider === "entra" ||
+      String(obs.provider || "").includes("entra") ||
+      meta.source === "graph-agent365-catalog"
+  );
   const identityProvider =
     existing.identityProvider ||
     meta.identityProvider ||
-    (meta.tenantId ? "entra" : null) ||
-    (String(obs.provider || "").includes("entra") ? "entra" : null);
+    (entraSignals ? "entra" : null) ||
+    (meta.awsType || String(obs.cloud_provider || obs.provider || "") === "aws" ? "aws_iam" : null) ||
+    (meta.azureType || meta.foundrySource || String(obs.cloud_provider || "") === "azure"
+      ? "azure"
+      : null);
   const ownershipStatus = owner && String(owner).trim() ? "owned" : "ownerless";
 
   return {
@@ -425,7 +438,13 @@ export function buildOwnership(obs = {}) {
     ownershipStatus,
     objectId: meta.objectId || existing.objectId || null,
     appId: meta.appId || existing.appId || null,
-    tenantId: meta.tenantId || existing.tenantId || null
+    tenantId: meta.tenantId || existing.tenantId || null,
+    accountId: meta.accountId || existing.accountId || null,
+    subscriptionId: meta.subscriptionId || existing.subscriptionId || null,
+    resourceGroup: meta.resourceGroup || existing.resourceGroup || null,
+    agentId: meta.agentId || existing.agentId || null,
+    agentArn: meta.agentArn || existing.agentArn || null,
+    azureResourceId: meta.azureResourceId || existing.azureResourceId || null
   };
 }
 
@@ -915,15 +934,16 @@ export function flattenDepthMetadata(meta = {}, depth = {}) {
  * Enrich observation with normalized agentConfig + agentAccess before ingest.
  */
 export function enrichObservationWithDepth(obs) {
-  const agentConfig = buildAgentConfig(obs);
-  const agentAccess = buildAgentAccess(obs);
-  const ownership = buildOwnership(obs);
-  const dataAccessClassification = buildDataAccessClassification(obs, agentAccess, agentConfig);
-  const mesh = buildAgentMeshPlacement(obs);
+  const identified = stampAgentIdentification(obs);
+  const agentConfig = buildAgentConfig(identified);
+  const agentAccess = buildAgentAccess(identified);
+  const ownership = buildOwnership(identified);
+  const dataAccessClassification = buildDataAccessClassification(identified, agentAccess, agentConfig);
+  const mesh = buildAgentMeshPlacement(identified);
   const howIdentified =
-    (obs.metadata && obs.metadata.howIdentified) ||
+    (identified.metadata && identified.metadata.howIdentified) ||
     agentConfig.howConfigured ||
-    `${obs.collector_id || "collector"}:${(obs.metadata && obs.metadata.evidenceClass) || "unknown"}`;
+    `${identified.collector_id || "collector"}:${(identified.metadata && identified.metadata.evidenceClass) || "unknown"}`;
 
   const depth = {
     agentConfig,
@@ -935,8 +955,8 @@ export function enrichObservationWithDepth(obs) {
   };
 
   return {
-    ...obs,
-    metadata: flattenDepthMetadata(obs.metadata || {}, depth)
+    ...identified,
+    metadata: flattenDepthMetadata(identified.metadata || {}, depth)
   };
 }
 
@@ -967,6 +987,7 @@ export function summarizeAgentDepth(agent) {
     ownership,
     dataAccessClassification,
     mesh,
+    identification: buildAgentIdentification({ ...agent, metadata: meta, ownership }),
     howIdentified: meta.howIdentified || null,
     evidenceClass: meta.evidenceClass || null,
     agentStatus: meta.agentStatus || null,

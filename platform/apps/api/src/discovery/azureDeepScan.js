@@ -1171,6 +1171,9 @@ function agentObservationFromFinding(finding, resource, conn, classification) {
         projectEndpoint: finding.projectEndpoint || null,
         foundrySource: finding.source,
         description: finding.description || null,
+        agentId,
+        agentName: finding.agentName || null,
+        agentType: finding.agentType || null
       }
     }),
     {
@@ -2374,6 +2377,7 @@ function entraAgentIdentityObservation(sp, conn, tenantId) {
         agentStatus: "confirmed",
         cloudProvider: "azure",
         tenantId,
+        agentId,
         objectId: sp.id,
         appId: sp.appId || null,
         servicePrincipalType: sp.servicePrincipalType || "ServiceIdentity",

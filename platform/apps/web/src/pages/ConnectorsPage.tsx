@@ -534,10 +534,21 @@ export function ConnectorsPage() {
                       </span>
                     </div>
                     <div className="muted mono" style={{ fontSize: 12, marginTop: 8 }}>
-                      Secrets: {(connector.secretFields as string[] | undefined)?.join(", ") || "configured"}
+                      {(connector.config as Record<string, string> | undefined)?.accountId
+                        ? `Account ${(connector.config as Record<string, string>).accountId}`
+                        : (connector.config as Record<string, string> | undefined)?.subscriptionId
+                          ? `Subscription ${(connector.config as Record<string, string>).subscriptionId}`
+                          : (connector.config as Record<string, string> | undefined)?.tenantId
+                            ? `Tenant ${(connector.config as Record<string, string>).tenantId}`
+                            : (connector.config as Record<string, string> | undefined)?.region
+                              ? `Region ${(connector.config as Record<string, string>).region}`
+                              : "No account / subscription saved"}
                       {connector.lastTestedAt
                         ? ` · Last tested ${compactDate(connector.lastTestedAt)}`
                         : " · Not tested"}
+                    </div>
+                    <div className="muted mono" style={{ fontSize: 12, marginTop: 4 }}>
+                      Secrets: {(connector.secretFields as string[] | undefined)?.join(", ") || "configured"}
                     </div>
                     {connector.lastError ? (
                       <div className="error-state" style={{ marginTop: 8 }}>

@@ -34,6 +34,12 @@ export type GraphNode = Record<string, unknown> & {
   agentStatus?: string;
   awsLifecycleStatus?: string;
   accountId?: string;
+  subscriptionId?: string;
+  tenantId?: string;
+  resourceGroup?: string;
+  agentId?: string;
+  agentArn?: string;
+  azureResourceId?: string;
   connectorId?: string;
   connectorName?: string;
   managedCloudAgent?: boolean;

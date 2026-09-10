@@ -114,7 +114,7 @@ function nodeSubtitle(node: GraphNode): string {
   const parts: string[] = [];
   const status = valueAt(node, ["agentStatus"], "");
   const lifecycle = valueAt(node, ["awsLifecycleStatus", "runningStatus"], "");
-  const account = valueAt(node, ["accountId"], "");
+  const account = valueAt(node, ["accountId", "subscriptionId"], "");
   const region = valueAt(node, ["region"], "");
   if (status) parts.push(status);
   if (lifecycle && lifecycle.toLowerCase() !== status.toLowerCase()) parts.push(lifecycle);

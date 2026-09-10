@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { AgentDeepScanPanels } from "../components/AgentDeepScanPanels";
 import { AgentExecutionTopology } from "../components/AgentExecutionTopology";
+import { AgentIdentificationPanel } from "../components/AgentIdentificationPanel";
 import { KpiCard } from "../components/KpiCard";
+import { resolveAgentIdentification } from "../lib/agentIdentification";
 import { apiRequest, compactDate, numberAt, type Agent, valueAt } from "../lib/api";
 
 function metaOf(agent: Agent): Record<string, unknown> {
@@ -90,6 +92,11 @@ export function AgentDetailPage() {
     (payload?.blastRadius as Record<string, unknown> | undefined) ||
     (agent.blastRadius as Record<string, unknown> | undefined) ||
     null;
+  const identification =
+    (payload?.identification as Record<string, unknown> | undefined) ||
+    (agent.identification as Record<string, unknown> | undefined) ||
+    {};
+  const ids = resolveAgentIdentification(agent, { ownership, identification });
   const relationships = (payload?.relationships as Record<string, unknown>[] | undefined) || [];
   const granted = listOf(agentAccess.granted);
   const tools = listOf(agentConfig.tools);
@@ -215,6 +222,7 @@ export function AgentDetailPage() {
           tone={ownershipStatus === "owned" ? "good" : "warn"}
         />
         <KpiCard label="Evidence" value={String(meta.evidenceClass || "—").replace(/_/g, " ")} />
+        <KpiCard label="Agent ID" value={ids.agentId || "—"} />
         <KpiCard label="Status" value={String(meta.agentStatus || "—")} tone={meta.agentStatus === "confirmed" ? "good" : "warn"} />
         <KpiCard
           label="Blast radius"
@@ -284,6 +292,11 @@ export function AgentDetailPage() {
       ) : null}
 
       <AgentExecutionTopology agent={agent as Record<string, unknown>} />
+
+      <AgentIdentificationPanel
+        agent={agent}
+        extras={{ ownership, identification, howIdentified: payload?.howIdentified }}
+      />
 
       <AgentDeepScanPanels agent={agent as Record<string, unknown>} />
 
@@ -401,10 +414,17 @@ export function AgentDetailPage() {
             <div className="bar-row">
               <span>Object / app</span>
               <span className="mono">
-                {valueAt(ownership, ["objectId", "appId"], "—")}
+                {valueAt(ownership, ["objectId", "appId"], ids.agentId || "—")}
               </span>
               <span />
             </div>
+            {ids.accountId || ids.subscriptionId ? (
+              <div className="bar-row">
+                <span>{ids.accountId ? "AWS account" : "Azure subscription"}</span>
+                <span className="mono">{ids.accountId || ids.subscriptionId}</span>
+                <span />
+              </div>
+            ) : null}
           </div>
           <div className="chip-row">
             {listOf(ownership.identities).length ? (
