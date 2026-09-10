@@ -76,7 +76,15 @@ export function NeighborhoodInspector({
         </div>
         <div>
           <dt>Account</dt>
-          <dd>{valueAt(node, ["accountId", "connectorName"], "—")}</dd>
+          <dd>{valueAt(node, ["accountId", "subscriptionId", "connectorName"], "—")}</dd>
+        </div>
+        <div>
+          <dt>Agent ID</dt>
+          <dd>{valueAt(node, ["agentId"], "—")}</dd>
+        </div>
+        <div>
+          <dt>Resource group</dt>
+          <dd>{valueAt(node, ["resourceGroup"], "—")}</dd>
         </div>
         <div>
           <dt>Region</dt>

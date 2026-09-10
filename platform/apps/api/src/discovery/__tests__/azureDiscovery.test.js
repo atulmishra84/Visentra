@@ -15,6 +15,7 @@ import {
   parseResourceId
 } from "../azureDeepScan.js";
 import { classifyAgentEvidence } from "../agentEvidence.js";
+import { enrichObservationWithDepth } from "../../services/agentDepth.js";
 
 const conn = {
   id: "conn-1",
@@ -220,6 +221,11 @@ describe("resourceToObservation semantics", () => {
     assert.equal(obs.metadata.agentStatus, "confirmed");
     assert.equal(obs.metadata.managedCloudAgent, true);
     assert.equal(obs.running_status, "unknown");
+    const enriched = enrichObservationWithDepth(obs);
+    assert.equal(enriched.metadata.agentId, "agent-123");
+    assert.equal(enriched.metadata.subscriptionId, "sub-1");
+    assert.equal(enriched.metadata.resourceGroup, "rg1");
+    assert.match(String(enriched.metadata.howIdentified), /agent-123/);
   });
 
   it("keeps stable fingerprints across calls", () => {

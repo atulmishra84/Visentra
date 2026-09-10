@@ -13,6 +13,7 @@ import {
   valueAt
 } from "../lib/api";
 import { AGENT_PLANES, ENVIRONMENT_LANES, meshBadgeLabel } from "../lib/mesh";
+import { inventoryCloudId } from "../lib/agentIdentification";
 
 function uniqueOptions(rows: Agent[], key: string): string[] {
   const values = new Set<string>();
@@ -341,6 +342,12 @@ export function InventoryPage({ title }: { title: string }) {
         );
       },
       sortValue: (agent) => `${metaAt(agent, "agentPlane")}:${metaAt(agent, "environmentLane")}`
+    },
+    {
+      key: "cloudId",
+      header: "Cloud ID",
+      render: (agent) => <span className="mono">{inventoryCloudId(agent) || "—"}</span>,
+      sortValue: (agent) => inventoryCloudId(agent)
     },
     {
       key: "how",

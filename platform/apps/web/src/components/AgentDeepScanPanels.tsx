@@ -317,6 +317,22 @@ export function AgentDeepScanPanels({ agent }: { agent: AnyRec }) {
           <div className="deep-grid">
             <div>
               <h3 className="deep-subhead">Identity &amp; controls</h3>
+              {first(deep?.agentId, meta.agentId, asRec(meta.agent)?.agentId) ? (
+                <MetaRow
+                  label="Agent ID"
+                  value={String(first(deep?.agentId, meta.agentId, asRec(meta.agent)?.agentId))}
+                />
+              ) : null}
+              {first(deep?.agentArn, meta.agentArn) ? (
+                <MetaRow label="Agent ARN" value={String(first(deep?.agentArn, meta.agentArn))} />
+              ) : null}
+              {meta.accountId ? <MetaRow label="AWS account" value={String(meta.accountId)} /> : null}
+              {meta.subscriptionId ? (
+                <MetaRow label="Azure subscription" value={String(meta.subscriptionId)} />
+              ) : null}
+              {meta.resourceGroup ? (
+                <MetaRow label="Resource group" value={String(meta.resourceGroup)} />
+              ) : null}
               <MetaRow label="Execution role" value={executionRole} />
               <MetaRow
                 label="Guardrails"

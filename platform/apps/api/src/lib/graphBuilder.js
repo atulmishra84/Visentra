@@ -38,6 +38,12 @@ function agentGraphNode(a) {
     agentStatus,
     awsLifecycleStatus: meta.awsLifecycleStatus || null,
     accountId: meta.accountId || null,
+    subscriptionId: meta.subscriptionId || null,
+    tenantId: meta.tenantId || null,
+    resourceGroup: meta.resourceGroup || null,
+    agentId: meta.agentId || null,
+    agentArn: meta.agentArn || meta.azureResourceId || null,
+    azureResourceId: meta.azureResourceId || null,
     connectorId: meta.connectorId || null,
     connectorName: meta.connectorName || null,
     managedCloudAgent: Boolean(meta.managedCloudAgent),
@@ -265,6 +271,17 @@ export async function graphFromSql(tenantId, { agentId, depth = 2, limit = 60 } 
     );
     if (meta.accountId) {
       pushAttrEdge(nodes, edges, a, "CloudAccount", `AWS ${meta.accountId}`, "DEPLOYED_IN", maxNodes);
+    }
+    if (meta.subscriptionId) {
+      pushAttrEdge(
+        nodes,
+        edges,
+        a,
+        "CloudAccount",
+        `Azure ${meta.subscriptionId}`,
+        "DEPLOYED_IN",
+        maxNodes
+      );
     }
     if (meta.connectorName || meta.connectorId) {
       pushAttrEdge(
