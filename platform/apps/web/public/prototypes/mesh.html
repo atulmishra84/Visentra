@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Global Agent Mesh · Visentra</title>
+    <link rel="stylesheet" href="prototypes.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="app-shell">
+      <div class="main">
+        <div class="page gm-page">
+          <header class="page-header gm-header">
+            <div>
+              <h1 class="gm-title">Global Mesh</h1>
+              <p class="gm-subtitle">128 agents across environments · 21 flagged · 14 shadow</p>
+            </div>
+            <div class="gm-legend" aria-label="Mesh legend">
+              <span><i class="gm-glyph active"></i> Active</span>
+              <span><i class="gm-glyph flagged"></i> Flagged</span>
+              <span><i class="gm-glyph inactive"></i> Inactive</span>
+              <span><i class="gm-glyph shadow"></i> Shadow</span>
+              <span><i class="gm-glyph device"></i> Device</span>
+            </div>
+            <div class="toolbar">
+              <button class="button ghost" type="button" id="shadow-toggle">Shadow only</button>
+              <a class="button ghost" href="inventory.html">Inventory</a>
+            </div>
+          </header>
+
+          <div class="gm-canvas" role="img" aria-label="Global agent mesh constellation">
+            <div class="gm-dotgrid"></div>
+
+            <section class="gm-cluster lane-saas">
+              <div class="gm-cluster-core">
+                <h2>SaaS / Cloud</h2>
+                <p><strong>62</strong> Agents, <em>9 Flagged</em>, <span class="gm-shadow-count">8 Shadow</span></p>
+              </div>
+              <div class="gm-category" style="left:50%;top:18%">Bedrock</div>
+              <div class="gm-category" style="left:78%;top:42%">Copilot Studio</div>
+              <div class="gm-category" style="left:68%;top:78%">Vertex</div>
+              <div class="gm-category" style="left:28%;top:72%">SageMaker</div>
+              <div class="gm-category" style="left:22%;top:38%">OpenAI</div>
+              <button class="gm-node" style="left:42%;top:32%" type="button" title="claims-intake-bedrock"><i class="gm-glyph flagged"></i></button>
+              <button class="gm-node" style="left:58%;top:28%" type="button" title="hr-copilot-studio"><i class="gm-glyph active"></i></button>
+              <button class="gm-node" style="left:70%;top:55%" type="button" title="support-rag-kb"><i class="gm-glyph active"></i></button>
+              <button class="gm-node" style="left:55%;top:68%" type="button" title="vertex-doc-agent"><i class="gm-glyph active"></i></button>
+              <button class="gm-node" style="left:35%;top:58%" type="button" title="sm-inference-ep"><i class="gm-glyph inactive"></i></button>
+              <button class="gm-node" style="left:30%;top:40%" type="button" title="chatgpt-enterprise"><i class="gm-glyph shadow"></i></button>
+              <button class="gm-node" style="left:48%;top:48%" type="button" title="finance-orchestrator"><i class="gm-glyph flagged"></i></button>
+            </section>
+
+            <section class="gm-cluster lane-serverless">
+              <div class="gm-cluster-core">
+                <h2>Serverless</h2>
+                <p><strong>24</strong> Agents, <em>4 Flagged</em></p>
+              </div>
+              <div class="gm-category" style="left:50%;top:20%">Lambda</div>
+              <div class="gm-category" style="left:78%;top:50%">Functions</div>
+              <div class="gm-category" style="left:30%;top:72%">Step Functions</div>
+              <button class="gm-node" style="left:40%;top:35%" type="button" title="finance-lambda-agent"><i class="gm-glyph flagged"></i></button>
+              <button class="gm-node" style="left:62%;top:38%" type="button" title="ingest-fn-agent"><i class="gm-glyph active"></i></button>
+              <button class="gm-node" style="left:55%;top:62%" type="button" title="notify-orchestrator"><i class="gm-glyph active"></i></button>
+              <button class="gm-node" style="left:35%;top:55%" type="button" title="etl-agent-fn"><i class="gm-glyph inactive"></i></button>
+            </section>
+
+            <section class="gm-cluster lane-endpoints">
+              <div class="gm-cluster-core">
+                <h2>Endpoints</h2>
+                <p><strong>42</strong> Devices</p>
+              </div>
+              <div class="gm-category" style="left:50%;top:18%">EDR</div>
+              <div class="gm-category" style="left:78%;top:48%">IDE</div>
+              <div class="gm-category" style="left:22%;top:55%">Intune</div>
+              <button class="gm-node" style="left:35%;top:30%" type="button" title="laptop-0421"><i class="gm-glyph device"></i></button>
+              <button class="gm-node" style="left:55%;top:28%" type="button" title="laptop-1188"><i class="gm-glyph device"></i></button>
+              <button class="gm-node" style="left:72%;top:40%" type="button" title="dev-workstation"><i class="gm-glyph device"></i></button>
+              <button class="gm-node" style="left:68%;top:62%" type="button" title="local-cursor-agent"><i class="gm-glyph shadow"></i></button>
+              <button class="gm-node" style="left:40%;top:68%" type="button" title="corp-mac-09"><i class="gm-glyph device"></i></button>
+              <button class="gm-node" style="left:28%;top:45%" type="button" title="vdi-pool-a"><i class="gm-glyph device"></i></button>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script src="shell.js"></script>
+    <script>
+      document.querySelectorAll(".gm-node").forEach((node) => {
+        node.addEventListener("mouseenter", () => {
+          const tip = document.createElement("span");
+          tip.className = "gm-tooltip";
+          tip.textContent = node.getAttribute("title") || "Agent";
+          node.appendChild(tip);
+        });
+        node.addEventListener("mouseleave", () => {
+          node.querySelector(".gm-tooltip")?.remove();
+        });
+      });
+      const toggle = document.getElementById("shadow-toggle");
+      let on = false;
+      toggle.addEventListener("click", () => {
+        on = !on;
+        toggle.classList.toggle("primary", on);
+        toggle.classList.toggle("ghost", !on);
+        toggle.textContent = on ? "Shadow only · on" : "Shadow only";
+        document.querySelectorAll(".gm-node").forEach((n) => {
+          const isShadow = n.querySelector(".gm-glyph.shadow");
+          n.style.opacity = !on || isShadow ? "1" : "0.18";
+        });
+      });
+    </script>
+  </body>
+</html>

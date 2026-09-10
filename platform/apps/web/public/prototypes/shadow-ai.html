@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shadow AI · Visentra</title>
+    <link rel="stylesheet" href="prototypes.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="app-shell">
+      <div class="main">
+        <div class="page">
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Shadow AI</p>
+              <h1>Unmanaged agent surface</h1>
+              <p class="page-description">
+                Agents lacking sanctioning, ownership, or managed deployment signals — prioritized for
+                attribution and policy review.
+              </p>
+            </div>
+            <div class="toolbar">
+              <a class="button" href="operations.html">Operations queue</a>
+              <a class="button primary" href="inventory.html">Open inventory</a>
+            </div>
+          </header>
+
+          <section class="card-grid">
+            <article class="kpi warn"><div class="kpi-label">Shadow agents</div><div class="kpi-value">14</div><div class="kpi-trend">Unmanaged / unsanctioned</div></article>
+            <article class="kpi warn"><div class="kpi-label">Ownerless</div><div class="kpi-value">9</div><div class="kpi-trend">Of shadow set</div></article>
+            <article class="kpi"><div class="kpi-label">IDE / local</div><div class="kpi-value">5</div><div class="kpi-trend">Endpoint plane</div></article>
+            <article class="kpi"><div class="kpi-label">SaaS copilots</div><div class="kpi-value">6</div><div class="kpi-trend">Third-party</div></article>
+            <article class="kpi bad"><div class="kpi-label">High sensitivity</div><div class="kpi-value">3</div><div class="kpi-trend">PII / secrets reach</div></article>
+          </section>
+
+          <section class="panel">
+            <h2>Shadow findings</h2>
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Plane</th>
+                    <th>Signal</th>
+                    <th>Owner</th>
+                    <th>Risk</th>
+                    <th>First seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>local-cursor-agent</strong></td>
+                    <td>Endpoint</td>
+                    <td>IDE process · no inventory match</td>
+                    <td>—</td>
+                    <td><span class="badge warn">Medium</span></td>
+                    <td class="mono">2026-08-09</td>
+                  </tr>
+                  <tr>
+                    <td><strong>chatgpt-enterprise-workspace</strong></td>
+                    <td>SaaS</td>
+                    <td>Browser / Netskope app</td>
+                    <td>—</td>
+                    <td><span class="badge warn">Medium</span></td>
+                    <td class="mono">2026-07-28</td>
+                  </tr>
+                  <tr>
+                    <td><strong>personal-claude-desktop</strong></td>
+                    <td>Endpoint</td>
+                    <td>Unmanaged install</td>
+                    <td>—</td>
+                    <td><span class="badge bad">High</span></td>
+                    <td class="mono">2026-08-02</td>
+                  </tr>
+                  <tr>
+                    <td><strong>rogue-bedrock-alias</strong></td>
+                    <td>SaaS</td>
+                    <td>AWS agent · no CMDB owner</td>
+                    <td>—</td>
+                    <td><span class="badge bad">High</span></td>
+                    <td class="mono">2026-08-11</td>
+                  </tr>
+                  <tr>
+                    <td><strong>slack-gpt-bot</strong></td>
+                    <td>SaaS</td>
+                    <td>Workspace app · unsanctioned</td>
+                    <td>marketing</td>
+                    <td><span class="badge warn">Medium</span></td>
+                    <td class="mono">2026-06-14</td>
+                  </tr>
+                  <tr>
+                    <td><strong>colab-notebook-agent</strong></td>
+                    <td>SaaS</td>
+                    <td>GCP Colab · shared drive</td>
+                    <td>—</td>
+                    <td><span class="badge brand">Low</span></td>
+                    <td class="mono">2026-08-05</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script src="shell.js"></script>
+  </body>
+</html>

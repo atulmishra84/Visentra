@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Operations Workbench · Visentra</title>
+    <link rel="stylesheet" href="prototypes.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="app-shell">
+      <div class="main">
+        <div class="page">
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Operations</p>
+              <h1>Analyst Workbench</h1>
+              <p class="page-description">
+                Config drift, disappeared agents, owner changes, high blast-radius, and Shadow AI findings.
+              </p>
+            </div>
+            <div class="toolbar">
+              <a class="button" href="discovery.html">Change intelligence</a>
+              <a class="button primary" href="shadow-ai.html">Open Shadow AI</a>
+            </div>
+          </header>
+
+          <section class="card-grid">
+            <article class="kpi warn"><div class="kpi-label">Disappeared</div><div class="kpi-value">7</div></article>
+            <article class="kpi warn"><div class="kpi-label">Owner changes</div><div class="kpi-value">11</div></article>
+            <article class="kpi warn"><div class="kpi-label">Data class escalations</div><div class="kpi-value">4</div></article>
+            <article class="kpi warn"><div class="kpi-label">Config drift</div><div class="kpi-value">9</div></article>
+            <article class="kpi warn"><div class="kpi-label">High blast radius</div><div class="kpi-value">6</div></article>
+            <article class="kpi warn"><div class="kpi-label">Shadow AI</div><div class="kpi-value">14</div></article>
+            <article class="kpi warn"><div class="kpi-label">Ownerless</div><div class="kpi-value">23</div></article>
+          </section>
+
+          <div class="toolbar" style="margin-bottom:12px" id="queue-filters">
+            <button class="button primary" type="button" data-filter="all" aria-pressed="true">All</button>
+            <button class="button ghost" type="button" data-filter="disappeared">Disappeared</button>
+            <button class="button ghost" type="button" data-filter="owner_changed">Owner changes</button>
+            <button class="button ghost" type="button" data-filter="data_class">Data class</button>
+            <button class="button ghost" type="button" data-filter="config_drift">Config drift</button>
+            <button class="button ghost" type="button" data-filter="blast_radius">Blast radius</button>
+            <button class="button ghost" type="button" data-filter="shadow_ai">Shadow AI</button>
+          </div>
+
+          <section class="panel">
+            <h2>Investigation Queue</h2>
+            <p class="muted" style="margin-top:-4px;margin-bottom:12px">Click a row for context. Prototype uses static sample findings.</p>
+            <div class="table-wrap">
+              <table class="data" id="queue-table">
+                <thead>
+                  <tr>
+                    <th>Agent / Finding</th>
+                    <th>Queue</th>
+                    <th>Severity</th>
+                    <th>Owner</th>
+                    <th>Last seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr data-queue="blast_radius">
+                    <td><strong>claims-intake-bedrock</strong></td>
+                    <td><span class="badge bad">blast_radius</span></td>
+                    <td>High</td>
+                    <td>platform-sec</td>
+                    <td class="mono">2026-08-12</td>
+                  </tr>
+                  <tr data-queue="config_drift">
+                    <td><strong>hr-copilot-studio</strong></td>
+                    <td><span class="badge warn">config_drift</span></td>
+                    <td>Medium</td>
+                    <td>hr-ops</td>
+                    <td class="mono">2026-08-13</td>
+                  </tr>
+                  <tr data-queue="shadow_ai">
+                    <td><strong>local-cursor-agent</strong></td>
+                    <td><span class="badge warn">shadow_ai</span></td>
+                    <td>Medium</td>
+                    <td>—</td>
+                    <td class="mono">2026-08-14</td>
+                  </tr>
+                  <tr data-queue="disappeared">
+                    <td><strong>legacy-sagemaker-endpoint</strong></td>
+                    <td><span class="badge bad">disappeared</span></td>
+                    <td>High</td>
+                    <td>ml-platform</td>
+                    <td class="mono">2026-08-01</td>
+                  </tr>
+                  <tr data-queue="owner_changed">
+                    <td><strong>support-rag-kb</strong></td>
+                    <td><span class="badge warn">owner_changed</span></td>
+                    <td>Low</td>
+                    <td>cx-eng → data-eng</td>
+                    <td class="mono">2026-08-11</td>
+                  </tr>
+                  <tr data-queue="data_class">
+                    <td><strong>phi-summary-agent</strong></td>
+                    <td><span class="badge bad">data_class_escalated</span></td>
+                    <td>High</td>
+                    <td>clinical-it</td>
+                    <td class="mono">2026-08-13</td>
+                  </tr>
+                  <tr data-queue="blast_radius">
+                    <td><strong>finance-lambda-agent</strong></td>
+                    <td><span class="badge bad">blast_radius</span></td>
+                    <td>High</td>
+                    <td>finops</td>
+                    <td class="mono">2026-08-10</td>
+                  </tr>
+                  <tr data-queue="shadow_ai">
+                    <td><strong>chatgpt-enterprise-workspace</strong></td>
+                    <td><span class="badge warn">shadow_ai</span></td>
+                    <td>Medium</td>
+                    <td>—</td>
+                    <td class="mono">2026-08-14</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script src="shell.js"></script>
+    <script>
+      (function () {
+        const filters = document.getElementById("queue-filters");
+        const rows = [...document.querySelectorAll("#queue-table tbody tr")];
+        filters.addEventListener("click", (event) => {
+          const btn = event.target.closest("button[data-filter]");
+          if (!btn) return;
+          filters.querySelectorAll("button").forEach((b) => {
+            b.classList.toggle("primary", b === btn);
+            b.classList.toggle("ghost", b !== btn);
+            b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+          });
+          const f = btn.dataset.filter;
+          rows.forEach((row) => {
+            row.style.display = f === "all" || row.dataset.queue === f ? "" : "none";
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>
