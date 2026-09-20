@@ -74,6 +74,29 @@ Outputs (non-secret) are written to `.last-deploy.env` (gitignored). The admin p
 
 See also [`../../PRODUCTION.md`](../../PRODUCTION.md).
 
+## Custom domain (`aiauthpro.com`)
+
+Point the GoDaddy zone at this Container Apps environment, then bind a managed cert:
+
+| Type | Name | Value |
+|------|------|-------|
+| TXT | `asuid` | `5F5776FBB2831BF5D1CBDB3B437CB84E7AA29EECF96079BFD318D8451DF50C7F` |
+| TXT | `asuid.www` | *(same value)* |
+| A | `@` | `4.156.205.224` (environment static IP) |
+| CNAME | `www` | `web-arqsrvr46epnpok.victorioushill-8876b2dd.eastus.azurecontainerapps.io` |
+
+Remove GoDaddy parking/forwarding A records (`13.248.243.5`, `76.223.105.230`) so only the Azure static IP remains.
+
+Then:
+
+```bash
+cd platform/infra/azure
+chmod +x bind-aiauthpro-domain.sh
+./bind-aiauthpro-domain.sh
+```
+
+The script verifies DNS, binds HTTPS certificates for `aiauthpro.com` + `www`, and sets API `CORS_ORIGIN` / `ENTRA_REDIRECT_URI`. After bind, also add `https://aiauthpro.com/login` as an allowed redirect URI in your IdP.
+
 ## Tear down
 
 ```bash
