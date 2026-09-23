@@ -128,7 +128,21 @@ export function GovernanceCatalogPage() {
       header: "Applies to",
       render: (c) =>
         (c.relevantFunctionTypes || []).length
-          ? (c.relevantFunctionTypes || []).map((id) => id.replace(/_/g, " ")).join(", ")
+          ? (c.relevantFunctionTypes || [])
+              .map((id) =>
+                ({
+                  conversational: "Conversational",
+                  rag_knowledge: "Knowledge / RAG",
+                  code_execution: "Code execution",
+                  workflow_orchestration: "Workflow / automation",
+                  identity_broker: "Identity / access",
+                  data_access: "Data access",
+                  tool_operator: "Tool operator",
+                  platform_runtime: "Platform runtime",
+                  autonomous_operator: "Autonomous operator"
+                }[id] || id.replace(/_/g, " "))
+              )
+              .join(", ")
           : "All function types",
       sortValue: (c) => (c.relevantFunctionTypes || []).join(",")
     }
