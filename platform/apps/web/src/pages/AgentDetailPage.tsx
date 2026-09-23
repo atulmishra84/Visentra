@@ -215,6 +215,10 @@ export function AgentDetailPage() {
           tone={ownershipStatus === "owned" ? "good" : "warn"}
         />
         <KpiCard label="Evidence" value={String(meta.evidenceClass || "—").replace(/_/g, " ")} />
+        <KpiCard
+          label="Function type"
+          value={String(meta.functionTypeLabel || meta.functionType || "—").replace(/_/g, " ")}
+        />
         <KpiCard label="Status" value={String(meta.agentStatus || "—")} tone={meta.agentStatus === "confirmed" ? "good" : "warn"} />
         <KpiCard
           label="Blast radius"
@@ -263,6 +267,32 @@ export function AgentDetailPage() {
           </>
         ) : null}
       </section>
+
+      {meta.functionType || meta.functionTypeLabel ? (
+        <section className="panel" style={{ marginBottom: 16 }}>
+          <h2>Function type</h2>
+          <p className="muted">
+            Classified from discovered tools, knowledge, identity, and runtime signals for compliance scoping.
+            {meta.functionTypeConfidence ? ` · ${String(meta.functionTypeConfidence)} confidence` : ""}
+          </p>
+          <div className="chip-row">
+            {(
+              (Array.isArray(meta.functionTypeLabels) && meta.functionTypeLabels.length
+                ? (meta.functionTypeLabels as string[])
+                : [String(meta.functionTypeLabel || meta.functionType || "Unclassified")]) as string[]
+            ).map((label) => (
+              <span className="badge" key={label}>
+                {label}
+              </span>
+            ))}
+          </div>
+          {Array.isArray(meta.functionTypeEvidence) && (meta.functionTypeEvidence as unknown[]).length ? (
+            <p className="muted small" style={{ marginTop: 8 }}>
+              Evidence: {(meta.functionTypeEvidence as unknown[]).map(String).join(" · ")}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
       {agent.shadowAi ? (
         <section className="panel" style={{ marginBottom: 16 }}>

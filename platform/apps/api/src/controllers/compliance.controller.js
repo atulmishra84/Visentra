@@ -9,6 +9,7 @@ import {
   listFrameworksForTenant,
   listControlsForTenant
 } from "../services/complianceCatalog.js";
+import { listFunctionTypes } from "../services/agentFunctionTypes.js";
 import { buildComplianceReport, assessAgent, loadTenantAgents } from "../services/complianceAssess.js";
 
 export async function getCatalog(req, res) {
@@ -18,6 +19,7 @@ export async function getCatalog(req, res) {
     res.json({
       frameworks: catalog.frameworks,
       controls: catalog.controls,
+      functionTypes: listFunctionTypes(),
       control: req.query.controlId ? getControl(String(req.query.controlId)) : undefined
     });
   } catch (err) {
@@ -109,7 +111,10 @@ export async function getAgentAssessment(req, res) {
         cloud_provider: agents[0].cloud_provider,
         metadata: {
           evidenceClass: agents[0].metadata?.evidenceClass,
-          agentStatus: agents[0].metadata?.agentStatus
+          agentStatus: agents[0].metadata?.agentStatus,
+          functionType: agents[0].metadata?.functionType || assessment.functionType,
+          functionTypeLabel: agents[0].metadata?.functionTypeLabel || assessment.functionTypeLabel,
+          functionTypes: agents[0].metadata?.functionTypes || assessment.functionTypes
         }
       }
     });

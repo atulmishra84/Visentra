@@ -21,6 +21,7 @@ export type Facets = {
   primaryDataClass?: string;
   agentPlane?: string;
   environmentLane?: string;
+  functionType?: string;
 };
 
 type FacetBarProps = {
@@ -31,6 +32,7 @@ type FacetBarProps = {
 
 const facetFields: Array<keyof Facets> = [
   "category",
+  "functionType",
   "agentPlane",
   "environmentLane",
   "evidenceClass",
@@ -55,6 +57,7 @@ function labelFor(key: keyof Facets): string {
   if (key === "cloud") return "Provider";
   if (key === "ide") return "IDE";
   if (key === "category") return "Category";
+  if (key === "functionType") return "Function type";
   if (key === "framework") return "Type / framework";
   if (key === "evidenceClass") return "Evidence";
   if (key === "agentStatus") return "Status";
@@ -68,9 +71,25 @@ function labelFor(key: keyof Facets): string {
   return key[0].toUpperCase() + key.slice(1);
 }
 
+const FUNCTION_TYPE_LABELS: Record<string, string> = {
+  conversational: "Conversational",
+  rag_knowledge: "Knowledge / RAG",
+  code_execution: "Code execution",
+  workflow_orchestration: "Workflow / automation",
+  identity_broker: "Identity / access",
+  data_access: "Data access",
+  tool_operator: "Tool operator",
+  platform_runtime: "Platform runtime",
+  autonomous_operator: "Autonomous operator",
+  unknown: "Unclassified"
+};
+
 function optionLabel(field: keyof Facets, option: string): string {
   if (field === "agentPlane" || field === "environmentLane") {
     return meshOptionLabel(option);
+  }
+  if (field === "functionType") {
+    return FUNCTION_TYPE_LABELS[option] || option.replace(/_/g, " ");
   }
   return option;
 }

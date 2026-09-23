@@ -12,10 +12,11 @@ export async function list(req, res) {
   const offset = Number(req.query.offset) || 0;
   const planeFilter = String(req.query.agentPlane || "").trim();
   const laneFilter = String(req.query.environmentLane || "").trim();
-  const needsMeshFilter = Boolean(planeFilter || laneFilter);
+  const functionTypeFilter = String(req.query.functionType || "").trim();
+  const needsDerivedFilter = Boolean(planeFilter || laneFilter || functionTypeFilter);
   const { clauses, params } = agentFilters(req.query);
 
-  if (needsMeshFilter) {
+  if (needsDerivedFilter) {
     const result = await pool.query(
       `SELECT * FROM agents WHERE tenant_id=$1 ${clauses} ORDER BY last_seen DESC`,
       [req.tenantId, ...params]
@@ -24,6 +25,10 @@ export async function list(req, res) {
       const meta = row.metadata || {};
       if (planeFilter && meta.agentPlane !== planeFilter) return false;
       if (laneFilter && meta.environmentLane !== laneFilter) return false;
+      if (functionTypeFilter) {
+        const types = Array.isArray(meta.functionTypes) ? meta.functionTypes : [];
+        if (meta.functionType !== functionTypeFilter && !types.includes(functionTypeFilter)) return false;
+      }
       return true;
     });
     const agents = filtered.slice(offset, offset + limit);
@@ -138,6 +143,7 @@ export async function exportAgents(req, res) {
       "name",
       "owner",
       "category",
+      "functionType",
       "framework",
       "model",
       "provider",
@@ -149,7 +155,14 @@ export async function exportAgents(req, res) {
     ];
     const lines = [cols.join(",")];
     for (const r of rows) {
-      lines.push(cols.map((c) => JSON.stringify(r[c] ?? "")).join(","));
+      const enriched = enrichAgentRow(r);
+      const values = cols.map((c) => {
+        if (c === "functionType") {
+          return JSON.stringify(enriched.metadata?.functionType || enriched.functionType || "");
+        }
+        return JSON.stringify(r[c] ?? "");
+      });
+      lines.push(values.join(","));
     }
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", "attachment; filename=visentra-agents.csv");

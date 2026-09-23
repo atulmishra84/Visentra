@@ -23,6 +23,8 @@ type AssessmentRow = {
   agentId: string;
   agentName: string;
   category?: string | null;
+  functionType?: string | null;
+  functionTypeLabel?: string | null;
   cloudProvider?: string | null;
   evidenceClass?: string | null;
   agentStatus?: string | null;
@@ -38,6 +40,10 @@ type ComplianceReport = {
     nonCompliant?: number;
     unknown?: number;
     avgScore?: number | null;
+    byFunctionType?: Record<
+      string,
+      { functionType?: string; label?: string; count?: number; nonCompliant?: number; partial?: number }
+    >;
   };
   assessments?: AssessmentRow[];
   generatedAt?: string;
@@ -57,6 +63,7 @@ export function GovernancePage() {
   const [data, setData] = useState<ComplianceReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [functionTypeFilter, setFunctionTypeFilter] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -74,8 +81,15 @@ export function GovernancePage() {
   }, [framework]);
 
   const frameworks = data?.frameworks || [];
-  const assessments = data?.assessments || [];
+  const assessments = useMemo(() => {
+    const rows = data?.assessments || [];
+    if (!functionTypeFilter) return rows;
+    return rows.filter(
+      (row) => row.functionType === functionTypeFilter || row.functionTypeLabel === functionTypeFilter
+    );
+  }, [data?.assessments, functionTypeFilter]);
   const rollup = data?.rollup || {};
+  const functionTypeRollup = Object.values(rollup.byFunctionType || {});
 
   const setFramework = (id: string) => {
     const next = new URLSearchParams(searchParams);
@@ -93,12 +107,20 @@ export function GovernancePage() {
           <>
             <strong>{row.agentName}</strong>
             <div className="muted small">
-              {row.category || "—"}
+              {row.functionTypeLabel || row.functionType || row.category || "—"}
               {row.cloudProvider ? ` · ${row.cloudProvider}` : ""}
             </div>
           </>
         ),
         sortValue: (row) => row.agentName
+      },
+      {
+        key: "functionType",
+        header: "Function type",
+        render: (row) => (
+          <span className="badge">{row.functionTypeLabel || row.functionType || "—"}</span>
+        ),
+        sortValue: (row) => row.functionTypeLabel || row.functionType || ""
       },
       {
         key: "posture",
@@ -196,6 +218,33 @@ export function GovernancePage() {
           {!frameworks.length && !loading ? <p className="muted">No frameworks yet.</p> : null}
         </div>
       </section>
+
+      {functionTypeRollup.length ? (
+        <section className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel-heading">
+            <h2>By function type</h2>
+            <button className="button ghost" type="button" onClick={() => setFunctionTypeFilter("")}>
+              Clear type
+            </button>
+          </div>
+          <div className="framework-chip-row">
+            {functionTypeRollup.map((bucket) => (
+              <button
+                key={bucket.functionType || bucket.label}
+                type="button"
+                className={`framework-chip ${functionTypeFilter === bucket.functionType ? "is-active" : ""}`}
+                onClick={() => setFunctionTypeFilter(String(bucket.functionType || ""))}
+              >
+                <strong>{bucket.label || bucket.functionType}</strong>
+                <div className="meta">
+                  {bucket.count ?? 0} agents
+                  {bucket.nonCompliant ? ` · ${bucket.nonCompliant} non-compliant` : ""}
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="panel">
         <div className="panel-heading">

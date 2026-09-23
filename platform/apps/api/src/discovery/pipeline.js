@@ -31,7 +31,8 @@ async function projectNeo4j(neo4j, tenantId, agent, assetIdsByKey, relationships
     await session.run(
       `MERGE (a:Agent {tenantId: $tenantId, id: $id})
        SET a.name = $name, a.category = $category, a.framework = $framework,
-           a.model = $model, a.confidence = $confidence, a.lastSeen = datetime()`,
+           a.model = $model, a.confidence = $confidence,
+           a.functionType = $functionType, a.lastSeen = datetime()`,
       {
         tenantId,
         id: agent.id,
@@ -39,7 +40,8 @@ async function projectNeo4j(neo4j, tenantId, agent, assetIdsByKey, relationships
         category: agent.category,
         framework: agent.framework || null,
         model: agent.model || null,
-        confidence: Number(agent.confidence_score) || 0.5
+        confidence: Number(agent.confidence_score) || 0.5,
+        functionType: agent.metadata?.functionType || null
       }
     );
 

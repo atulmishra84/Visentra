@@ -25,6 +25,9 @@ type AssessmentPayload = {
   assessment?: {
     agentId: string;
     agentName: string;
+    functionType?: string | null;
+    functionTypeLabel?: string | null;
+    functionTypes?: string[];
     summary?: { counts?: Record<string, number>; score?: number | null; posture?: string };
     byFramework?: Record<string, FrameworkBlock>;
     findings?: Finding[];
@@ -163,6 +166,10 @@ export function GovernanceAssessmentPage() {
             <KpiCard label="Pass" value={numberAt(summary?.counts || {}, ["pass"], 0)} tone="good" />
             <KpiCard label="Partial" value={numberAt(summary?.counts || {}, ["partial"], 0)} tone="warn" />
             <KpiCard label="Fail" value={numberAt(summary?.counts || {}, ["fail"], 0)} tone="bad" />
+            <KpiCard
+              label="Function type"
+              value={assessment.functionTypeLabel || assessment.functionType || "—"}
+            />
           </div>
 
           <section className="panel">

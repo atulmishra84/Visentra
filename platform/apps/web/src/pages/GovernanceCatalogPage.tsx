@@ -20,6 +20,7 @@ type Control = {
   description: string;
   family?: string | null;
   evidenceHints?: string[];
+  relevantFunctionTypes?: string[];
   builtin?: boolean;
 };
 
@@ -121,6 +122,29 @@ export function GovernanceCatalogPage() {
       header: "Evidence signals",
       render: (c) => (c.evidenceHints || []).join(", ") || "—",
       sortValue: (c) => (c.evidenceHints || []).join(",")
+    },
+    {
+      key: "functionTypes",
+      header: "Applies to",
+      render: (c) =>
+        (c.relevantFunctionTypes || []).length
+          ? (c.relevantFunctionTypes || [])
+              .map((id) =>
+                ({
+                  conversational: "Conversational",
+                  rag_knowledge: "Knowledge / RAG",
+                  code_execution: "Code execution",
+                  workflow_orchestration: "Workflow / automation",
+                  identity_broker: "Identity / access",
+                  data_access: "Data access",
+                  tool_operator: "Tool operator",
+                  platform_runtime: "Platform runtime",
+                  autonomous_operator: "Autonomous operator"
+                }[id] || id.replace(/_/g, " "))
+              )
+              .join(", ")
+          : "All function types",
+      sortValue: (c) => (c.relevantFunctionTypes || []).join(",")
     }
   ];
 
@@ -193,8 +217,8 @@ export function GovernanceCatalogPage() {
           <p className="eyebrow">Governance &amp; Compliance</p>
           <h1>Control catalog</h1>
           <p className="page-description">
-            Built-in OWASP LLM, HIPAA, and NIST AI RMF controls — plus custom frameworks and controls you add for
-            assessments.
+            Built-in OWASP LLM, HIPAA, and NIST AI RMF controls mapped to agent function types (chat, RAG, code,
+            identity) — plus custom frameworks you add for assessments.
           </p>
         </div>
         <div className="toolbar" style={{ gap: 8, flexWrap: "wrap" }}>

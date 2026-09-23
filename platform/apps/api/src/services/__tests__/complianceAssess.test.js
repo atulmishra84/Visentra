@@ -14,6 +14,7 @@ describe("Governance compliance catalog", () => {
     assert.equal(listControls("owasp_llm").length, 10);
     assert.ok(listControls("hipaa").length >= 6);
     assert.ok(listControls("nist_ai_rmf").length >= 6);
+    assert.ok(listControls("owasp_llm").every((c) => Array.isArray(c.relevantFunctionTypes) && c.relevantFunctionTypes.length));
   });
 });
 
@@ -58,6 +59,49 @@ describe("Governance auto-assessment", () => {
     assert.ok(control);
     const finding = assessControl(control, agent);
     assert.equal(finding.status, "pass");
+  });
+
+  it("uses function type as NIST MAP context of use", () => {
+    const agent = {
+      id: "a4",
+      name: "help-bot",
+      metadata: {
+        agentType: "azure_bot_service",
+        channels: ["teams"],
+        agentConfig: { channels: ["teams"], instructionsPresent: true }
+      }
+    };
+    const control = listControls("nist_ai_rmf").find((c) => c.id === "nist.MAP_1");
+    const finding = assessControl(control, agent);
+    assert.equal(finding.status, "pass");
+    assert.match(finding.rationale, /function type/i);
+  });
+
+  it("treats RAG-classified agents as in-scope for vector controls", () => {
+    const agent = {
+      id: "a5",
+      name: "policy-rag",
+      metadata: {
+        agentType: "assistant",
+        agentConfig: { knowledgeSources: ["kb://policies"] }
+      },
+      agentConfig: { knowledgeSources: ["kb://policies"] }
+    };
+    const llm08 = listControls("owasp_llm").find((c) => c.id === "owasp_llm.LLM08");
+    const finding = assessControl(llm08, agent);
+    assert.notEqual(finding.status, "not_applicable");
+  });
+
+  it("includes function type on the agent assessment", () => {
+    const agent = {
+      id: "a6",
+      name: "id-agent",
+      category: "identity",
+      metadata: { agentType: "entra_agent_identity", objectId: "x" }
+    };
+    const assessment = assessAgent(agent, { frameworks: ["nist_ai_rmf"] });
+    assert.equal(assessment.functionType, "identity_broker");
+    assert.ok(assessment.functionTypeLabel);
   });
 
   it("marks HIPAA controls N/A when no PHI signals", () => {

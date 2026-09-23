@@ -312,6 +312,10 @@ export function AgentAnatomyPanel({ anatomy, loading, error, onClear, embedded }
                 <dd>{valueAt(profile, ["agentType"], "—")}</dd>
               </div>
               <div>
+                <dt>Function type</dt>
+                <dd>{valueAt(profile, ["function", "functionType"], "—")}</dd>
+              </div>
+              <div>
                 <dt>Infra type</dt>
                 <dd>{valueAt(profile, ["infraType"], "—")}</dd>
               </div>
