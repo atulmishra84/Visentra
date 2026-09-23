@@ -72,7 +72,8 @@ function facetsFromSearchParams(params: URLSearchParams): Facets {
     "dataClass",
     "primaryDataClass",
     "agentPlane",
-    "environmentLane"
+    "environmentLane",
+    "functionType"
   ];
   const next: Facets = {};
   for (const key of keys) {
@@ -181,6 +182,7 @@ export function InventoryPage({ title }: { title: string }) {
       ide: uniqueOptions(agents, "ide"),
       category: uniqueOptions(agents, "category"),
       department: uniqueOptions(agents, "department"),
+      functionType: uniqueMetaOptions(agents, "functionType"),
       evidenceClass: uniqueMetaOptions(agents, "evidenceClass"),
       agentStatus: uniqueMetaOptions(agents, "agentStatus"),
       accessSensitivity: uniqueMetaOptions(agents, "accessSensitivity"),
@@ -358,6 +360,15 @@ export function InventoryPage({ title }: { title: string }) {
       sortValue: (agent) => valueAt(agent, ["category"])
     },
     {
+      key: "functionType",
+      header: "Function type",
+      render: (agent) => {
+        const label = metaAt(agent, "functionTypeLabel", metaAt(agent, "functionType", "—"));
+        return <span className="badge">{label}</span>;
+      },
+      sortValue: (agent) => metaAt(agent, "functionTypeLabel", metaAt(agent, "functionType"))
+    },
+    {
       key: "owner",
       header: "Owner",
       render: (agent) => valueAt(agent, ["owner", "team"]),
@@ -405,7 +416,7 @@ export function InventoryPage({ title }: { title: string }) {
           <p className="page-description">
             {shadowOnly
               ? "Filtered to Shadow AI candidates (ownerless / unmanaged / unsanctioned AI signals)."
-              : "AI agent inventory classified by evidence (platform, cloud runtime, IDE, process, repo) and confirmed vs candidate status."}
+              : "AI agent inventory classified by evidence (platform, cloud runtime, IDE, process, repo), functionality (chat, RAG, code, identity), and confirmed vs candidate status."}
           </p>
         </div>
         <div className="toolbar">

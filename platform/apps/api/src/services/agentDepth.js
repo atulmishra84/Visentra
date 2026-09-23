@@ -10,6 +10,7 @@ import {
   PLANE_LABELS,
   LANE_LABELS
 } from "../meshConstants.js";
+import { classifyAgentFunction, functionClassificationMeta } from "./agentFunctionTypes.js";
 
 export { AGENT_PLANES, ENVIRONMENT_LANES, PLANE_LABELS, LANE_LABELS };
 
@@ -907,7 +908,32 @@ export function flattenDepthMetadata(meta = {}, depth = {}) {
     hasPhi: meta.hasPhi ?? dac.hasPhi ?? false,
     agentPlane: meta.agentPlane || mesh.agentPlane || null,
     environmentLane: meta.environmentLane || mesh.environmentLane || null,
-    meshConfidence: meta.meshConfidence || mesh.confidence || "low"
+    meshConfidence: meta.meshConfidence || mesh.confidence || "low",
+    ...functionClassificationMeta(
+      depth.functionClassification ||
+        classifyAgentFunction({
+          metadata: {
+            ...meta,
+            agentConfig,
+            agentAccess,
+            dataAccessClassification: dac
+          },
+          name: meta.name,
+          category: meta.category,
+          framework: agentConfig.framework,
+          tools: agentConfig.tools,
+          mcp_connections: agentConfig.mcpServers,
+          vector_database: (agentConfig.vectorStores || [])[0],
+          memory_store: (agentConfig.memoryStores || [])[0],
+          internet_access: agentAccess.scopes?.internet,
+          database_access: agentAccess.scopes?.database,
+          filesystem_access: agentAccess.scopes?.filesystem,
+          code_execution: agentAccess.scopes?.codeExecution,
+          agentAccess,
+          agentConfig,
+          dataAccessClassification: dac
+        })
+    )
   };
 }
 
@@ -925,13 +951,21 @@ export function enrichObservationWithDepth(obs) {
     agentConfig.howConfigured ||
     `${obs.collector_id || "collector"}:${(obs.metadata && obs.metadata.evidenceClass) || "unknown"}`;
 
+  const classified = classifyAgentFunction({
+    ...obs,
+    metadata: { ...(obs.metadata || {}), agentConfig, agentAccess, dataAccessClassification, mesh },
+    agentConfig,
+    agentAccess,
+    dataAccessClassification
+  });
   const depth = {
     agentConfig,
     agentAccess,
     ownership,
     dataAccessClassification,
     mesh,
-    howIdentified
+    howIdentified,
+    functionClassification: classified
   };
 
   return {
@@ -961,12 +995,23 @@ export function summarizeAgentDepth(agent) {
         environmentLane: meta.environmentLane
       }
     });
+  const functionClassification = classifyAgentFunction({
+    ...agent,
+    metadata: { ...meta, agentConfig, agentAccess, dataAccessClassification, mesh },
+    agentConfig,
+    agentAccess,
+    dataAccessClassification
+  });
   return {
     agentConfig,
     agentAccess,
     ownership,
     dataAccessClassification,
     mesh,
+    functionClassification,
+    functionType: functionClassification.functionType,
+    functionTypeLabel: functionClassification.functionTypeLabel,
+    functionTypes: functionClassification.functionTypes,
     howIdentified: meta.howIdentified || null,
     evidenceClass: meta.evidenceClass || null,
     agentStatus: meta.agentStatus || null,
@@ -1268,7 +1313,16 @@ export function buildAgentAnatomy(agent, relationships = [], blast = null) {
       }
     },
     profile: {
-      function: agent.department || agent.business_unit || meta.function || agent.category || "General",
+      function:
+        depth.functionTypeLabel ||
+        meta.functionTypeLabel ||
+        agent.department ||
+        agent.business_unit ||
+        meta.function ||
+        agent.category ||
+        "General",
+      functionType: depth.functionType || meta.functionType || null,
+      functionTypes: depth.functionTypes || meta.functionTypes || [],
       summary:
         meta.howIdentified ||
         meta.summary ||

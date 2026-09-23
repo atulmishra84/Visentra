@@ -35,6 +35,7 @@ export const COMPLIANCE_FRAMEWORKS = [
  * @property {string} description
  * @property {string} [family]
  * @property {string[]} evidenceHints  Signals the assessor looks at
+ * @property {string[]} [relevantFunctionTypes]  Functionality types this control is most relevant to
  */
 
 /** @type {ComplianceControl[]} */
@@ -47,7 +48,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Prompt Injection",
     description: "Agent resists or mitigates direct/indirect prompt injection that hijacks goals or tools.",
     family: "LLM Top 10",
-    evidenceHints: ["instructions", "guardrails", "tools"]
+    evidenceHints: ["instructions", "guardrails", "tools"],
+    relevantFunctionTypes: ["conversational", "tool_operator", "autonomous_operator", "rag_knowledge"]
   },
   {
     id: "owasp_llm.LLM02",
@@ -56,7 +58,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Sensitive Information Disclosure",
     description: "Agent does not expose secrets, PII, or PHI through prompts, tools, or memory.",
     family: "LLM Top 10",
-    evidenceHints: ["dataAccess", "pii", "phi", "secrets"]
+    evidenceHints: ["dataAccess", "pii", "phi", "secrets"],
+    relevantFunctionTypes: ["data_access", "rag_knowledge", "conversational", "tool_operator"]
   },
   {
     id: "owasp_llm.LLM03",
@@ -65,7 +68,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Supply Chain",
     description: "Models, tools, plugins, and dependencies used by the agent are known and governed.",
     family: "LLM Top 10",
-    evidenceHints: ["model", "framework", "tools", "ownership"]
+    evidenceHints: ["model", "framework", "tools", "ownership"],
+    relevantFunctionTypes: ["platform_runtime", "tool_operator", "code_execution"]
   },
   {
     id: "owasp_llm.LLM04",
@@ -74,7 +78,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Data and Model Poisoning",
     description: "Training/RAG/memory sources are controlled to reduce poisoning risk.",
     family: "LLM Top 10",
-    evidenceHints: ["knowledgeBases", "memory", "rag"]
+    evidenceHints: ["knowledgeBases", "memory", "rag"],
+    relevantFunctionTypes: ["rag_knowledge"]
   },
   {
     id: "owasp_llm.LLM05",
@@ -83,7 +88,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Improper Output Handling",
     description: "Downstream systems treat model output as untrusted (no unsafe eval / command paths).",
     family: "LLM Top 10",
-    evidenceHints: ["tools", "codeExecution"]
+    evidenceHints: ["tools", "codeExecution"],
+    relevantFunctionTypes: ["code_execution", "autonomous_operator"]
   },
   {
     id: "owasp_llm.LLM06",
@@ -92,7 +98,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Excessive Agency",
     description: "Tool permissions and autonomy are least-privilege; high-risk actions are constrained.",
     family: "LLM Top 10",
-    evidenceHints: ["tools", "overPermissioned", "internet", "codeExecution"]
+    evidenceHints: ["tools", "overPermissioned", "internet", "codeExecution"],
+    relevantFunctionTypes: ["autonomous_operator", "tool_operator", "workflow_orchestration", "code_execution"]
   },
   {
     id: "owasp_llm.LLM07",
@@ -101,7 +108,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "System Prompt Leakage",
     description: "System/developer instructions are protected from extraction.",
     family: "LLM Top 10",
-    evidenceHints: ["instructions", "guardrails"]
+    evidenceHints: ["instructions", "guardrails"],
+    relevantFunctionTypes: ["conversational"]
   },
   {
     id: "owasp_llm.LLM08",
@@ -110,7 +118,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Vector and Embedding Weaknesses",
     description: "Vector stores / RAG corpora are access-controlled and integrity-checked.",
     family: "LLM Top 10",
-    evidenceHints: ["knowledgeBases", "rag"]
+    evidenceHints: ["knowledgeBases", "rag"],
+    relevantFunctionTypes: ["rag_knowledge"]
   },
   {
     id: "owasp_llm.LLM09",
@@ -119,7 +128,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Misinformation",
     description: "Outputs are grounded or reviewed where decisions have material impact.",
     family: "LLM Top 10",
-    evidenceHints: ["guardrails", "humanOversight"]
+    evidenceHints: ["guardrails", "humanOversight"],
+    relevantFunctionTypes: ["conversational", "rag_knowledge"]
   },
   {
     id: "owasp_llm.LLM10",
@@ -128,7 +138,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Unbounded Consumption",
     description: "Usage, cost, and rate limits prevent abuse and runaway agent loops.",
     family: "LLM Top 10",
-    evidenceHints: ["observability", "ownership"]
+    evidenceHints: ["observability", "ownership"],
+    relevantFunctionTypes: ["autonomous_operator", "workflow_orchestration", "platform_runtime"]
   },
 
   // —— HIPAA (agent-relevant) ——
@@ -139,7 +150,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Access Control",
     description: "Unique identity and least-privilege access for agents that can reach ePHI.",
     family: "Technical Safeguards",
-    evidenceHints: ["ownership", "identity", "overPermissioned"]
+    evidenceHints: ["ownership", "identity", "overPermissioned"],
+    relevantFunctionTypes: ["identity_broker", "data_access"]
   },
   {
     id: "hipaa.AU",
@@ -148,7 +160,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Audit Controls",
     description: "Agent actions involving ePHI are logged and reviewable.",
     family: "Technical Safeguards",
-    evidenceHints: ["observability", "audit"]
+    evidenceHints: ["observability", "audit"],
+    relevantFunctionTypes: ["data_access", "identity_broker"]
   },
   {
     id: "hipaa.IA",
@@ -157,7 +170,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Person or Entity Authentication",
     description: "Agent runtime authenticates before accessing systems that hold ePHI.",
     family: "Technical Safeguards",
-    evidenceHints: ["identity", "auth"]
+    evidenceHints: ["identity", "auth"],
+    relevantFunctionTypes: ["identity_broker", "data_access"]
   },
   {
     id: "hipaa.TR",
@@ -166,7 +180,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Transmission Security",
     description: "ePHI in transit via agent tools/APIs is protected (TLS / approved channels).",
     family: "Technical Safeguards",
-    evidenceHints: ["internet", "connectivity"]
+    evidenceHints: ["internet", "connectivity"],
+    relevantFunctionTypes: ["data_access", "conversational"]
   },
   {
     id: "hipaa.PHI_MIN",
@@ -175,7 +190,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Minimum Necessary ePHI",
     description: "Agent tools and knowledge sources are limited to the minimum ePHI required.",
     family: "Privacy Rule",
-    evidenceHints: ["phi", "tools", "dataAccess"]
+    evidenceHints: ["phi", "tools", "dataAccess"],
+    relevantFunctionTypes: ["data_access", "rag_knowledge"]
   },
   {
     id: "hipaa.OWNER",
@@ -184,7 +200,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Accountable Owner",
     description: "A responsible owner/team is assigned for agents that may process health data.",
     family: "Administrative Safeguards",
-    evidenceHints: ["ownership", "shadowAi"]
+    evidenceHints: ["ownership", "shadowAi"],
+    relevantFunctionTypes: ["data_access", "identity_broker", "conversational"]
   },
   {
     id: "hipaa.GUARD",
@@ -193,7 +210,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Integrity & Improper Alteration",
     description: "Guardrails or review reduce improper alteration/disclosure of ePHI by the agent.",
     family: "Technical Safeguards",
-    evidenceHints: ["guardrails", "phi"]
+    evidenceHints: ["guardrails", "phi"],
+    relevantFunctionTypes: ["data_access", "conversational", "rag_knowledge"]
   },
   {
     id: "hipaa.SHADOW",
@@ -202,7 +220,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "No Unmanaged ePHI Agents",
     description: "Agents touching health data are not Shadow AI / unmanaged.",
     family: "Administrative Safeguards",
-    evidenceHints: ["shadowAi", "phi"]
+    evidenceHints: ["shadowAi", "phi"],
+    relevantFunctionTypes: ["data_access", "conversational"]
   },
 
   // —— NIST AI RMF ——
@@ -213,7 +232,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Policies & Accountability",
     description: "Governance policies and accountable roles cover this AI agent.",
     family: "GOVERN",
-    evidenceHints: ["ownership", "approval"]
+    evidenceHints: ["ownership", "approval"],
+    relevantFunctionTypes: ["identity_broker", "autonomous_operator", "platform_runtime"]
   },
   {
     id: "nist.GOVERN_2",
@@ -222,7 +242,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Risk Culture & Oversight",
     description: "Human oversight or approval path exists for material agent actions.",
     family: "GOVERN",
-    evidenceHints: ["humanOversight", "ownership"]
+    evidenceHints: ["humanOversight", "ownership"],
+    relevantFunctionTypes: ["autonomous_operator", "workflow_orchestration", "conversational"]
   },
   {
     id: "nist.MAP_1",
@@ -231,7 +252,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Context of Use",
     description: "Agent purpose, environment, and deployment context are documented.",
     family: "MAP",
-    evidenceHints: ["environment", "category", "discovery"]
+    evidenceHints: ["environment", "category", "discovery", "functionType"],
+    relevantFunctionTypes: ["conversational", "rag_knowledge", "code_execution", "workflow_orchestration", "identity_broker", "data_access", "tool_operator", "platform_runtime", "autonomous_operator"]
   },
   {
     id: "nist.MAP_2",
@@ -240,7 +262,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Categorize Risks",
     description: "Data sensitivity (PII/PHI/secrets) and tool risks are identified.",
     family: "MAP",
-    evidenceHints: ["pii", "phi", "tools", "risk"]
+    evidenceHints: ["pii", "phi", "tools", "risk"],
+    relevantFunctionTypes: ["data_access", "rag_knowledge", "tool_operator", "autonomous_operator"]
   },
   {
     id: "nist.MEASURE_1",
@@ -249,7 +272,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Testing & Evaluation",
     description: "Deep/adversarial scan or equivalent evaluation evidence exists.",
     family: "MEASURE",
-    evidenceHints: ["deepScan", "adversarial"]
+    evidenceHints: ["deepScan", "adversarial"],
+    relevantFunctionTypes: ["platform_runtime", "autonomous_operator", "tool_operator"]
   },
   {
     id: "nist.MEASURE_2",
@@ -258,7 +282,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Monitoring",
     description: "Observability/telemetry supports ongoing risk measurement.",
     family: "MEASURE",
-    evidenceHints: ["observability"]
+    evidenceHints: ["observability"],
+    relevantFunctionTypes: ["platform_runtime", "autonomous_operator", "workflow_orchestration"]
   },
   {
     id: "nist.MANAGE_1",
@@ -267,7 +292,8 @@ export const COMPLIANCE_CONTROLS = [
     title: "Prioritize & Treat Risks",
     description: "High-risk findings (excessive agency, PHI reach, over-permission) are addressed.",
     family: "MANAGE",
-    evidenceHints: ["risk", "overPermissioned", "phi", "guardrails"]
+    evidenceHints: ["risk", "overPermissioned", "phi", "guardrails"],
+    relevantFunctionTypes: ["autonomous_operator", "data_access", "code_execution"]
   },
   {
     id: "nist.MANAGE_2",
@@ -342,6 +368,7 @@ function mapCustomControl(row) {
     description: row.description || "",
     family: row.family || null,
     evidenceHints: hints.map(String),
+    relevantFunctionTypes: [],
     builtin: false
   };
 }

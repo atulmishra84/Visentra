@@ -4,6 +4,7 @@
  */
 
 import { enrichAgentRow } from "./agentDepth.js";
+import { classifyAgentFunction } from "./agentFunctionTypes.js";
 import {
   COMPLIANCE_CONTROLS,
   listFrameworks,
@@ -110,6 +111,9 @@ function collectSignals(agent) {
       agent.provider ||
       m.cloudProvider
   );
+  const classified = classifyAgentFunction(agent);
+  const functionTypes = Array.isArray(classified.functionTypes) ? classified.functionTypes : [];
+  const isType = (id) => functionTypes.includes(id) || classified.functionType === id;
 
   return {
     hasPhi,
@@ -120,7 +124,7 @@ function collectSignals(agent) {
     owner: owner ? String(owner) : null,
     shadowAi,
     internet,
-    codeExecution,
+    codeExecution: codeExecution || isType("code_execution"),
     instructionsPresent,
     safetyRules,
     knowledgeBases,
@@ -134,7 +138,16 @@ function collectSignals(agent) {
     environment: agent.environment || m.environment || ownership.environment || null,
     category: agent.category || null,
     agentStatus: m.agentStatus || null,
-    evidenceClass: m.evidenceClass || null
+    evidenceClass: m.evidenceClass || null,
+    functionType: classified.functionType,
+    functionTypeLabel: classified.functionTypeLabel,
+    functionTypes,
+    functionTypeConfidence: classified.functionTypeConfidence,
+    complianceFocus: classified.complianceFocus || [],
+    isRag: isType("rag_knowledge"),
+    isAutonomous: isType("autonomous_operator"),
+    isWorkflow: isType("workflow_orchestration"),
+    isIdentity: isType("identity_broker")
   };
 }
 
@@ -215,6 +228,11 @@ export function assessControl(control, agent) {
     }
     case "owasp_llm.LLM04": {
       if (!s.knowledgeBases && !s.hasMemory) {
+        if (s.isRag) {
+          return finding(control, "partial", "Classified as Knowledge/RAG but no enumerated corpus yet — confirm poisoning controls.", [
+            `functionType:${s.functionType}`
+          ]);
+        }
         return finding(control, "not_applicable", "No knowledge-base/memory surface detected.", []);
       }
       if (s.knowledgeBases && !s.owner) {
@@ -239,6 +257,12 @@ export function assessControl(control, agent) {
       return finding(control, "pass", "No code-execution tool path detected.", []);
     }
     case "owasp_llm.LLM06": {
+      if (s.isAutonomous && (s.overPermissioned || !s.guardrails)) {
+        return finding(control, "fail", "Autonomous-operator function type without least-privilege/guardrail evidence.", [
+          `functionType:${s.functionType}`,
+          s.overPermissioned ? "over_permissioned" : null
+        ]);
+      }
       if (s.overPermissioned || (s.toolsCount > 0 && s.internet && s.codeExecution)) {
         return finding(control, "fail", "Excessive agency signals (over-permissioned and/or high-risk tool combo).", [
           s.overPermissioned ? "over_permissioned" : null,
@@ -278,6 +302,11 @@ export function assessControl(control, agent) {
     }
     case "owasp_llm.LLM08": {
       if (!s.knowledgeBases) {
+        if (s.isRag) {
+          return finding(control, "partial", "Classified as Knowledge/RAG — verify embedding store ACLs once corpora are enumerated.", [
+            `functionType:${s.functionType}`
+          ]);
+        }
         return finding(control, "not_applicable", "No vector/RAG knowledge bases detected.", []);
       }
       return finding(control, "partial", "Knowledge bases present — verify embedding store ACLs and integrity.", [
@@ -416,6 +445,14 @@ export function assessControl(control, agent) {
       return finding(control, "unknown", "Human oversight workflow not evidenced in discovery.");
     }
     case "nist.MAP_1": {
+      if (s.functionType && s.functionType !== "unknown") {
+        return finding(control, "pass", `Context of use includes function type “${s.functionTypeLabel}”.`, [
+          s.functionType,
+          s.category,
+          s.environment,
+          s.evidenceClass
+        ]);
+      }
       if (s.category || s.environment || s.evidenceClass) {
         return finding(control, "pass", "Agent context captured in inventory (category/environment/evidence).", [
           s.category,
@@ -423,7 +460,7 @@ export function assessControl(control, agent) {
           s.evidenceClass
         ]);
       }
-      return finding(control, "fail", "Insufficient context-of-use metadata.", []);
+      return finding(control, "fail", "Insufficient context-of-use metadata (no function type, category, or environment).", []);
     }
     case "nist.MAP_2": {
       if (s.hasPhi || s.hasPii || s.toolsCount > 0 || s.overPermissioned) {
@@ -475,8 +512,24 @@ export function assessControl(control, agent) {
       }
       return finding(control, "fail", "No owner — incident response accountability gap.", ["owner_missing"]);
     }
-    default:
+    default: {
+      const relevant = Array.isArray(control.relevantFunctionTypes) ? control.relevantFunctionTypes : [];
+      if (relevant.length && s.functionType && s.functionType !== "unknown") {
+        const hit = relevant.some((id) => s.functionTypes.includes(id) || id === s.functionType);
+        if (!hit) {
+          return finding(
+            control,
+            "not_applicable",
+            `Control is scoped to other function types; this agent is “${s.functionTypeLabel}”.`,
+            [`functionType:${s.functionType}`]
+          );
+        }
+        return finding(control, "unknown", `Relevant to ${s.functionTypeLabel} — no automated rule yet.`, [
+          `functionType:${s.functionType}`
+        ]);
+      }
       return finding(control, "unknown", "No automated rule for this control yet.");
+    }
   }
 }
 
@@ -506,7 +559,17 @@ export function assessAgent(agent, { frameworks, controls, frameworkList } = {})
   const filteredControls = allControls.filter(
     (c) => !frameworkFilter || frameworkFilter.has(c.framework)
   );
-  const findings = filteredControls.map((c) => assessControl(c, agent));
+  const classified = classifyAgentFunction(agent);
+  const findings = filteredControls.map((c) => {
+    const result = assessControl(c, agent);
+    const relevant = Array.isArray(c.relevantFunctionTypes) ? c.relevantFunctionTypes : [];
+    const focusHit = relevant.some((id) => classified.functionTypes.includes(id));
+    return {
+      ...result,
+      relevantToFunctionType: relevant.length ? focusHit : true,
+      functionType: classified.functionType
+    };
+  });
   const byFramework = {};
   const frameworksForReport = Array.isArray(frameworkList) ? frameworkList : listFrameworks();
   for (const fw of frameworksForReport) {
@@ -523,6 +586,11 @@ export function assessAgent(agent, { frameworks, controls, frameworkList } = {})
     agentId: agent.id,
     agentName: agent.name || agent.displayName || agent.id,
     category: agent.category || null,
+    functionType: classified.functionType,
+    functionTypeLabel: classified.functionTypeLabel,
+    functionTypes: classified.functionTypes,
+    functionTypeConfidence: classified.functionTypeConfidence,
+    complianceFocus: classified.complianceFocus,
     cloudProvider: agent.cloud_provider || meta(agent).cloudProvider || null,
     evidenceClass: meta(agent).evidenceClass || null,
     agentStatus: meta(agent).agentStatus || null,
@@ -567,7 +635,8 @@ export async function buildComplianceReport(pool, tenantId, options = {}) {
     nonCompliant: 0,
     unknown: 0,
     avgScore: null,
-    byFramework: {}
+    byFramework: {},
+    byFunctionType: {}
   };
   let scoreSum = 0;
   let scoreN = 0;
@@ -580,6 +649,22 @@ export async function buildComplianceReport(pool, tenantId, options = {}) {
       scoreSum += a.summary.score;
       scoreN += 1;
     }
+    const ft = a.functionType || "unknown";
+    if (!rollup.byFunctionType[ft]) {
+      rollup.byFunctionType[ft] = {
+        functionType: ft,
+        label: a.functionTypeLabel || ft,
+        count: 0,
+        nonCompliant: 0,
+        partial: 0,
+        compliant: 0
+      };
+    }
+    const bucket = rollup.byFunctionType[ft];
+    bucket.count += 1;
+    if (a.summary.posture === "compliant") bucket.compliant += 1;
+    else if (a.summary.posture === "partial") bucket.partial += 1;
+    else if (a.summary.posture === "non_compliant") bucket.nonCompliant += 1;
   }
   if (scoreN) rollup.avgScore = Math.round(scoreSum / scoreN);
 
