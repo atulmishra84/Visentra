@@ -710,7 +710,7 @@ export async function discoverCognitiveAgents({
         containerAppId,
         classification,
         // List/detail signals for metadata.deep + adversarial_surface alignment
-        foundationModel: latest.definition?.model || agent.model || null,
+        foundationModel: extractFoundryFoundationModel(agent, latest),
         description: latest.definition?.description || agent.description || null,
         instructionText:
           latest.definition?.instructions ||
@@ -771,7 +771,7 @@ export async function discoverCognitiveAgents({
         runtimeReason: "Assistants API has no durable runtime status field",
         containerAppId: null,
         classification,
-        foundationModel: assistant.model || null,
+        foundationModel: extractFoundryFoundationModel(assistant, assistant),
         description: assistant.description || null,
         instructionText: assistant.instructions || null,
         tools: Array.isArray(assistant.tools) ? assistant.tools : [],
@@ -1156,7 +1156,7 @@ function agentObservationFromFinding(finding, resource, conn, classification) {
       fingerprint: `azure-agent:${conn.config.subscriptionId}:${agentId}`,
       name: `${finding.agentName || agentId} (Azure Agent)`,
       framework: finding.agentType || "azure-agent",
-      model: finding.foundationModel || finding.agentType || "azure-foundry-agent",
+      model: finding.foundationModel || null,
       confidence: finding.confidence,
       evidence: finding.evidence,
       discoveryMode: "azure-agent-api",
@@ -2268,6 +2268,228 @@ function isAgentIdentityPrincipal(sp = {}) {
   );
 }
 
+/** Identity-plane labels that must never be stored as a foundation model. */
+const PLACEHOLDER_FOUNDATION_MODELS = new Set([
+  "microsoft-agent-identity",
+  "azure-foundry-agent",
+  "azure-agent",
+  "entra-agent-identity",
+  "entra_agent_identity"
+]);
+
+export function isPlaceholderFoundationModel(value) {
+  const s = String(value || "")
+    .trim()
+    .toLowerCase();
+  return !s || PLACEHOLDER_FOUNDATION_MODELS.has(s);
+}
+
+function modelCandidate(value) {
+  if (value == null) return null;
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "object") {
+    return (
+      modelCandidate(value.name) ||
+      modelCandidate(value.id) ||
+      modelCandidate(value.deployment) ||
+      modelCandidate(value.model) ||
+      modelCandidate(value.model_name)
+    );
+  }
+  return String(value).trim() || null;
+}
+
+/**
+ * Read the real LLM / deployment name from a Foundry Agents or Assistants payload.
+ * Never falls back to identity type or agent kind.
+ */
+export function extractFoundryFoundationModel(agent = {}, latest = {}) {
+  const def = latest?.definition && typeof latest.definition === "object" ? latest.definition : latest || {};
+  const candidates = [
+    def.model,
+    def.model_name,
+    def.modelName,
+    def.foundation_model,
+    def.foundationModel,
+    def.llm,
+    def.modelDeployment,
+    def.model_deployment,
+    agent.model,
+    agent.foundation_model,
+    agent.foundationModel,
+    Array.isArray(agent.models) ? agent.models[0] : null
+  ];
+  for (const raw of candidates) {
+    const s = modelCandidate(raw);
+    if (s && !isPlaceholderFoundationModel(s)) return s;
+  }
+  return null;
+}
+
+/**
+ * Foundry stamps linkage on Entra Agent ID tags, e.g.
+ * `agentGuid:…`, `projectId:account@project@AML`, `region:eastus2`.
+ */
+export function parseEntraIdentityTags(tags = []) {
+  const list = Array.isArray(tags) ? tags : tags ? [tags] : [];
+  const out = {
+    agentGuid: null,
+    projectId: null,
+    accountName: null,
+    projectName: null,
+    virtualWorkspaceId: null,
+    region: null
+  };
+  for (const raw of list) {
+    const s = String(raw || "");
+    const colon = s.indexOf(":");
+    if (colon <= 0) continue;
+    const key = s.slice(0, colon);
+    const value = s.slice(colon + 1).trim();
+    if (!value) continue;
+    if (/^agentGuid$/i.test(key)) out.agentGuid = value;
+    else if (/^virtualWorkspaceId$/i.test(key)) out.virtualWorkspaceId = value;
+    else if (/^region$/i.test(key)) out.region = value;
+    else if (/^projectId$/i.test(key)) {
+      out.projectId = value;
+      const parts = value.split("@");
+      out.accountName = parts[0] || null;
+      out.projectName = parts[1] || null;
+    }
+  }
+  return out;
+}
+
+/** Infer Foundry agent name from `{account}-{project}-{agent}-AgentIdentity`. */
+export function inferFoundryAgentNameFromIdentity(displayName, tags = {}) {
+  let name = String(displayName || "")
+    .replace(/\s*\(Entra Agent ID\)\s*$/i, "")
+    .replace(/-AgentIdentity$/i, "")
+    .trim();
+  const account = tags.accountName || "";
+  const project = tags.projectName || "";
+  if (account && project) {
+    const prefix = `${account}-${project}-`;
+    if (name.toLowerCase().startsWith(prefix.toLowerCase())) {
+      name = name.slice(prefix.length);
+    }
+  }
+  return name || null;
+}
+
+function isEntraAgentIdentityObservation(obs) {
+  return (
+    obs?.collector_id === "identity_entra_agent" ||
+    obs?.provider === "entra_agent_id" ||
+    obs?.metadata?.discoveryMode === "entra-agent-id-graph"
+  );
+}
+
+function isFoundryAgentObservation(obs) {
+  const method = String(obs?.agent?.detectionMethod || obs?.metadata?.howIdentified || "");
+  return /azure_foundry_api|azure_assistants_api|azure-agent-api|azure_foundry_agents/.test(method) ||
+    obs?.metadata?.foundrySource === "azure_foundry_agents" ||
+    obs?.metadata?.foundrySource === "azure_openai_assistants" ||
+    obs?.metadata?.deepScan === "azure_foundry_agents_list";
+}
+
+function foundryObservationModel(obs) {
+  return (
+    (!isPlaceholderFoundationModel(obs?.model) && obs.model) ||
+    (!isPlaceholderFoundationModel(obs?.metadata?.deep?.foundationModel) &&
+      obs.metadata.deep.foundationModel) ||
+    (!isPlaceholderFoundationModel(obs?.metadata?.foundationModel) && obs.metadata.foundationModel) ||
+    null
+  );
+}
+
+function matchIdentityToFoundry(ident, tags, foundry) {
+  const foundryId = String(
+    foundry.agent?.agentId || foundry.metadata?.agentId || foundry.metadata?.deep?.agentId || ""
+  );
+  const foundryName = String(foundry.agent?.agentName || foundry.metadata?.agentName || "").toLowerCase();
+  const foundryProject = String(foundry.metadata?.projectName || "").toLowerCase();
+  if (tags.agentGuid && foundryId && tags.agentGuid.toLowerCase() === foundryId.toLowerCase()) {
+    return true;
+  }
+  const inferred = inferFoundryAgentNameFromIdentity(ident.name || ident.metadata?.displayName, tags);
+  const inferredLc = String(inferred || "").toLowerCase();
+  if (inferredLc && foundryName && inferredLc === foundryName) {
+    if (!tags.projectName || !foundryProject || tags.projectName.toLowerCase() === foundryProject) {
+      return true;
+    }
+  }
+  if (tags.projectName && foundryProject && tags.projectName.toLowerCase() === foundryProject) {
+    const identBlob = String(ident.name || "").toLowerCase();
+    if (foundryName && identBlob.includes(foundryName)) return true;
+  }
+  return false;
+}
+
+function applyFoundryModelToIdentity(ident, foundry, tags) {
+  const model = foundryObservationModel(foundry);
+  ident.metadata = ident.metadata || {};
+  ident.metadata.foundryLink = tags;
+  ident.metadata.linkedFoundryFingerprint = foundry.fingerprint || null;
+  ident.metadata.linkedFoundryAgentId =
+    foundry.agent?.agentId || foundry.metadata?.deep?.agentId || null;
+  if (!model) {
+    ident.metadata.modelSource = "unknown";
+    return;
+  }
+  ident.model = model;
+  ident.metadata.modelSource = "azure_foundry_agents";
+  ident.metadata.foundationModel = model;
+  if (ident.metadata.agentConfig && typeof ident.metadata.agentConfig === "object") {
+    ident.metadata.agentConfig.models = [model];
+  }
+  if (ident.metadata.deep && typeof ident.metadata.deep === "object") {
+    ident.metadata.deep.foundationModel = model;
+  }
+  if (ident.metadata.adversarial_surface?.model && typeof ident.metadata.adversarial_surface.model === "object") {
+    ident.metadata.adversarial_surface.model.name = model;
+    ident.metadata.adversarial_surface.model.foundation_model = model;
+  }
+  const note = `Foundation model ${model} copied from linked Foundry agent definition (Entra Agent ID does not carry the LLM).`;
+  ident.metadata.evidence = [...(ident.metadata.evidence || []), note];
+  ident.relationships = Array.isArray(ident.relationships) ? ident.relationships : [];
+  if (foundry.fingerprint || foundry.agent?.agentId) {
+    ident.relationships.push({
+      rel_type: "DEFINED_BY",
+      to_type: "CloudResource",
+      to_key: foundry.fingerprint || `azure-agent:${foundry.agent.agentId}`,
+      to_name: foundry.name || foundry.agent?.agentName
+    });
+  }
+}
+
+/**
+ * Entra Agent ID is the identity principal. The LLM lives on the Foundry /
+ * Copilot definition. Copy the real model when the same scan found that agent.
+ */
+export function linkEntraIdentitiesToFoundryAgents(observations = []) {
+  const list = Array.isArray(observations) ? observations : [];
+  const foundry = list.filter(isFoundryAgentObservation);
+  const entra = list.filter(isEntraAgentIdentityObservation);
+  for (const ident of entra) {
+    const tags = parseEntraIdentityTags(ident.metadata?.tags);
+    ident.metadata = ident.metadata || {};
+    ident.metadata.foundryLink = { ...tags, inferredAgentName: inferFoundryAgentNameFromIdentity(ident.name, tags) };
+    const match = foundry.find((f) => matchIdentityToFoundry(ident, tags, f));
+    if (match) {
+      applyFoundryModelToIdentity(ident, match, ident.metadata.foundryLink);
+    } else {
+      if (isPlaceholderFoundationModel(ident.model)) ident.model = null;
+      ident.metadata.modelSource = ident.metadata.modelSource || "unknown";
+      ident.metadata.evidence = [
+        ...(ident.metadata.evidence || []),
+        "Foundation model is not on the Entra Agent ID object — it lives on the Foundry / Copilot definition. No matching Foundry agent was in this scan."
+      ];
+    }
+  }
+  return list;
+}
+
 function dedupeById(items = []) {
   const seen = new Set();
   const out = [];
@@ -2333,7 +2555,7 @@ async function graphGetAllPages(url, token, { optional = true, headers = {}, max
   return { ok: true, items };
 }
 
-function entraAgentIdentityObservation(sp, conn, tenantId) {
+export function entraAgentIdentityObservation(sp, conn, tenantId) {
   const displayName = sp.displayName || sp.appId || sp.id;
   const agentId = sp.id;
   const agentRuntime = buildAgentAndRuntime({
@@ -2361,7 +2583,7 @@ function entraAgentIdentityObservation(sp, conn, tenantId) {
       running_status: sp.accountEnabled === false ? "disabled" : "unknown",
       confidence_score: 0.95,
       framework: "entra-agent-identity",
-      model: "microsoft-agent-identity",
+      model: null,
       agent: agentRuntime.agent,
       runtime: agentRuntime.runtime,
       metadata: {
@@ -2383,12 +2605,15 @@ function entraAgentIdentityObservation(sp, conn, tenantId) {
         appOwnerOrganizationId: sp.appOwnerOrganizationId || null,
         createdDateTime: sp.createdDateTime || null,
         tags: sp.tags || [],
+        foundryLink: parseEntraIdentityTags(sp.tags || []),
+        modelSource: "unknown",
         aiRelevant: true,
         environment: conn.environment,
         evidence: [
           "Listed via Microsoft Graph agentIdentity API (Entra Agent ID)",
           "Confirms a real agent identity — covers Copilot Studio and Agent 365-onboarded agents",
-          "Does not require the object's display name to mention AI/agent/copilot"
+          "Does not require the object's display name to mention AI/agent/copilot",
+          "Entra Agent ID is the identity plane; the foundation model lives on the Foundry / Copilot definition"
         ]
       },
       relationships: [
@@ -2404,8 +2629,9 @@ function entraAgentIdentityObservation(sp, conn, tenantId) {
       agentName: displayName,
       agentType: "entra_agent_identity",
       tools: [],
+      foundationModel: null,
       limitations: [
-        "Entra Agent ID confirms the agent identity; tools/instructions live on Copilot Studio / Agent 365 definition planes.",
+        "Entra Agent ID confirms the agent identity; tools, instructions, and the foundation model live on the Foundry / Copilot definition plane.",
       ],
     }
   );
@@ -3165,6 +3391,8 @@ export async function discoverAzureEcosystem(conn) {
     },
     statsByCollector,
   };
+
+  linkEntraIdentitiesToFoundryAgents(observations);
 
   const entraDenied = discoveryErrors.some(
     (e) => e.collector === "entraAgentId" && e.discoveryStatus === "permission_denied"
