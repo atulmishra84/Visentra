@@ -18,7 +18,7 @@ export const ALLOW = {
   },
   /** Azure AI Foundry / AI Services data plane (Agents API). */
   azureAiServices: {
-    allowHostSuffixes: [".services.ai.azure.com", ".cognitiveservices.azure.com"]
+    allowHostSuffixes: [".services.ai.azure.com", ".cognitiveservices.azure.com", ".models.ai.azure.com"]
   },
   /** Azure OpenAI Assistants API hosts. */
   azureOpenAi: {

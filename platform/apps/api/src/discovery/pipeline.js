@@ -141,7 +141,17 @@ export async function ingestObservations(pool, neo4j, tenantId, jobId, observati
              device = COALESCE(EXCLUDED.device, agents.device),
              operating_system = COALESCE(EXCLUDED.operating_system, agents.operating_system),
              framework = COALESCE(EXCLUDED.framework, agents.framework),
-             model = COALESCE(EXCLUDED.model, agents.model),
+             model = CASE
+               WHEN EXCLUDED.model IS NOT NULL AND btrim(EXCLUDED.model) <> '' THEN EXCLUDED.model
+               WHEN lower(COALESCE(agents.model, '')) IN (
+                 'microsoft-agent-identity',
+                 'azure-foundry-agent',
+                 'azure-agent',
+                 'entra-agent-identity',
+                 'entra_agent_identity'
+               ) THEN NULL
+               ELSE COALESCE(EXCLUDED.model, agents.model)
+             END,
              provider = COALESCE(EXCLUDED.provider, agents.provider),
              deployment_type = COALESCE(EXCLUDED.deployment_type, agents.deployment_type),
              cloud_provider = COALESCE(EXCLUDED.cloud_provider, agents.cloud_provider),

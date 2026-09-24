@@ -1002,6 +1002,24 @@ export function summarizeAgentDepth(agent) {
     agentAccess,
     dataAccessClassification
   });
+  const placeholderModels = new Set([
+    "microsoft-agent-identity",
+    "azure-foundry-agent",
+    "azure-agent",
+    "entra-agent-identity",
+    "entra_agent_identity"
+  ]);
+  const modelCandidates = [
+    agent.model,
+    meta.foundationModel,
+    meta.deep?.foundationModel,
+    ...(Array.isArray(agentConfig.models) ? agentConfig.models : [])
+  ];
+  const resolvedModel =
+    modelCandidates
+      .map((v) => (v == null ? "" : String(v).trim()))
+      .find((v) => v && !placeholderModels.has(v.toLowerCase())) || null;
+
   return {
     agentConfig,
     agentAccess,
@@ -1012,6 +1030,7 @@ export function summarizeAgentDepth(agent) {
     functionType: functionClassification.functionType,
     functionTypeLabel: functionClassification.functionTypeLabel,
     functionTypes: functionClassification.functionTypes,
+    model: resolvedModel,
     howIdentified: meta.howIdentified || null,
     evidenceClass: meta.evidenceClass || null,
     agentStatus: meta.agentStatus || null,
