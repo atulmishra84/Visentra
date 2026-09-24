@@ -341,7 +341,10 @@ export const FOUNDRY_AGENT_LIST_QUERIES = [
   ["agents", FOUNDRY_AGENTS_API_VERSION],
   ["agents", "2025-05-01"],
   ["assistants", "2025-05-15-preview"],
-  ["assistants", ASSISTANTS_API_VERSION]
+  ["assistants", ASSISTANTS_API_VERSION],
+  ["assistants", "2025-01-01-preview"],
+  ["assistants", "2024-12-01-preview"],
+  ["assistants", "2024-07-01-preview"]
 ];
 
 export function foundryCollectionUrl(projectEndpoint, path, apiVersion) {
@@ -370,10 +373,10 @@ export async function listFoundryAgents(dataToken, projectEndpoint, request = da
   let last = { ok: false, agents: [], error: "Foundry agent list failed" };
   for (const [path, apiVersion] of FOUNDRY_AGENT_LIST_QUERIES) {
     const result = await listOneFoundryCollection(dataToken, projectEndpoint, path, apiVersion, request);
-    if (result.ok) return result;
-    last = { ...result, agents: [] };
+    if (result.ok && result.agents.length) return result;
+    last = result.ok ? result : { ...result, agents: [] };
     if (result.permissionDenied || result.dnsFailure) return last;
-    if (result.status && result.status !== 404) return last;
+    if (!result.ok && result.status && result.status !== 404) return last;
   }
   return last;
 }
@@ -385,12 +388,7 @@ export async function listFoundryAgents(dataToken, projectEndpoint, request = da
 export async function getFoundryAgent(dataToken, projectEndpoint, agentName) {
   const name = String(agentName || "").trim();
   if (!name) return { ok: false, agent: null, error: "missing Foundry agent name" };
-  const versions = [
-    ["agents", FOUNDRY_AGENTS_API_VERSION],
-    ["agents", "2025-05-01"],
-    ["assistants", "2025-05-15-preview"],
-    ["assistants", ASSISTANTS_API_VERSION]
-  ];
+  const versions = FOUNDRY_AGENT_LIST_QUERIES;
   let last = { ok: false, agent: null, error: "Foundry agent GET failed" };
   for (const [path, apiVersion] of versions) {
     const url = `${projectEndpoint}/${path}/${encodeURIComponent(name)}?api-version=${apiVersion}`;
@@ -2660,6 +2658,51 @@ function foundryAgentName(foundry) {
   return name || null;
 }
 
+function stampFoundationModel(ident, model, source, note) {
+  ident.model = model;
+  ident.metadata = ident.metadata || {};
+  ident.metadata.modelSource = source;
+  ident.metadata.foundationModel = model;
+  if (ident.metadata.agentConfig && typeof ident.metadata.agentConfig === "object") {
+    ident.metadata.agentConfig.models = [model];
+  }
+  if (ident.metadata.deep && typeof ident.metadata.deep === "object") {
+    ident.metadata.deep.foundationModel = model;
+  }
+  if (ident.metadata.adversarial_surface?.model && typeof ident.metadata.adversarial_surface.model === "object") {
+    ident.metadata.adversarial_surface.model.name = model;
+    ident.metadata.adversarial_surface.model.foundation_model = model;
+  }
+  ident.metadata.evidence = [...(ident.metadata.evidence || []), note];
+}
+
+/** One non-embedding deployment is the account's chat model. Several chat models are not guessed. */
+export function chatDeploymentModel(deployments = []) {
+  const names = [];
+  for (const deployment of deployments) {
+    const name = modelCandidate(deployment?.properties?.model?.name);
+    if (!name || isPlaceholderFoundationModel(name)) continue;
+    if (/embed|whisper|dall-e|^tts|audio/i.test(name)) continue;
+    names.push(name);
+  }
+  const unique = [...new Set(names)];
+  return unique.length === 1 ? unique[0] : null;
+}
+
+async function applyAccountDeploymentModel(ident, account, listDeployments) {
+  if (!account || typeof listDeployments !== "function") return false;
+  const deployments = await listDeployments(account);
+  const model = chatDeploymentModel(deployments);
+  if (!model) return false;
+  stampFoundationModel(
+    ident,
+    model,
+    "azure_cognitive_deployment",
+    `Foundation model ${model} taken from the only chat deployment on ${account.name}. The Foundry agent definition was not returned.`
+  );
+  return true;
+}
+
 function applyFoundryModelToIdentity(ident, foundry, tags) {
   const model = foundryObservationModel(foundry);
   const agentName = foundryAgentName(foundry);
@@ -2689,21 +2732,12 @@ function applyFoundryModelToIdentity(ident, foundry, tags) {
     ident.metadata.modelSource = "unknown";
     return;
   }
-  ident.model = model;
-  ident.metadata.modelSource = "azure_foundry_agents";
-  ident.metadata.foundationModel = model;
-  if (ident.metadata.agentConfig && typeof ident.metadata.agentConfig === "object") {
-    ident.metadata.agentConfig.models = [model];
-  }
-  if (ident.metadata.deep && typeof ident.metadata.deep === "object") {
-    ident.metadata.deep.foundationModel = model;
-  }
-  if (ident.metadata.adversarial_surface?.model && typeof ident.metadata.adversarial_surface.model === "object") {
-    ident.metadata.adversarial_surface.model.name = model;
-    ident.metadata.adversarial_surface.model.foundation_model = model;
-  }
-  const note = `Foundation model ${model} copied from linked Foundry agent definition (Entra Agent ID does not carry the LLM).`;
-  ident.metadata.evidence = [...(ident.metadata.evidence || []), note];
+  stampFoundationModel(
+    ident,
+    model,
+    "azure_foundry_agents",
+    `Foundation model ${model} copied from linked Foundry agent definition (Entra Agent ID does not carry the LLM).`
+  );
   ident.relationships = Array.isArray(ident.relationships) ? ident.relationships : [];
   if (foundry.fingerprint || foundry.agent?.agentId) {
     ident.relationships.push({
@@ -2876,8 +2910,15 @@ async function resolveFoundryAgentRecord(dataToken, endpoint, ident, tags, listA
   let agent = listed?.ok ? pickFoundryAgentFromList(agents, ident, tags) : null;
   const inferred = tags.inferredAgentName;
   const hasModel = agent && extractFoundryFoundationModel(agent, agent.versions?.latest || agent.version || {});
-  if ((!agent || !hasModel) && inferred && typeof getAgent === "function") {
-    const detail = await getAgent(dataToken, endpoint, foundryListAgentName(agent) || inferred);
+  const lookupIds = [
+    ...new Set([foundryListAgentName(agent), inferred, tags.agentGuid].filter(Boolean))
+  ];
+  if ((!agent || !hasModel) && lookupIds.length && typeof getAgent === "function") {
+    let detail = null;
+    for (const id of lookupIds) {
+      detail = await getAgent(dataToken, endpoint, id);
+      if (detail?.ok && detail.agent) break;
+    }
     if (detail?.ok && detail.agent) {
       return { ok: true, agent: detail.agent, count: agents.length, error: null };
     }
@@ -2902,26 +2943,28 @@ async function resolveFoundryAgentRecord(dataToken, endpoint, ident, tags, listA
 }
 
 async function listCognitiveAccountsForFoundry(creds, subscriptionId) {
-  if (!creds?.tenantId || !creds?.clientId || !creds?.clientSecret || !subscriptionId) return [];
+  if (!creds?.tenantId || !creds?.clientId || !creds?.clientSecret || !subscriptionId) {
+    return { accounts: [], armToken: null };
+  }
   let armToken;
   try {
     armToken = await getAzureAccessToken(creds);
   } catch {
-    return [];
+    return { accounts: [], armToken: null };
   }
   const url =
     `https://management.azure.com/subscriptions/${subscriptionId}/providers/Microsoft.CognitiveServices/accounts` +
     `?api-version=${COGNITIVE_API_VERSION}`;
   const listed = await armGet(armToken, url, { optional: true });
-  if (!listed.ok) return [];
-  return listed.json?.value || [];
+  if (!listed.ok) return { accounts: [], armToken };
+  return { accounts: listed.json?.value || [], armToken };
 }
 
 export async function enrichEntraIdentitiesFromFoundryTags(
   conn,
   observations = [],
   discoveryErrors = [],
-  { listAgents = listFoundryAgents, getAgent = getFoundryAgent, getDataToken = null, listAccounts = null } = {}
+  { listAgents = listFoundryAgents, getAgent = getFoundryAgent, getDataToken = null, listAccounts = null, listDeployments = null } = {}
 ) {
   const entra = observations.filter(isEntraAgentIdentityObservation);
   for (const ident of entra) {
@@ -2958,8 +3001,24 @@ export async function enrichEntraIdentitiesFromFoundryTags(
   }
 
   let liveAccounts = [];
+  let armToken = null;
   if (typeof listAccounts !== "function" && typeof getDataToken !== "function") {
-    liveAccounts = await listCognitiveAccountsForFoundry(creds, conn?.config?.subscriptionId);
+    const loaded = await listCognitiveAccountsForFoundry(creds, conn?.config?.subscriptionId);
+    liveAccounts = loaded.accounts || [];
+    armToken = loaded.armToken || null;
+  }
+  let readDeployments = listDeployments;
+  if (typeof readDeployments !== "function" && armToken) {
+    readDeployments = async (account) => {
+      const { subscriptionId, resourceGroup, name } = parseResourceId(account?.id);
+      if (!subscriptionId || !resourceGroup || !name) return [];
+      const url =
+        `https://management.azure.com/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}` +
+        `/providers/Microsoft.CognitiveServices/accounts/${encodeURIComponent(name)}/deployments` +
+        `?api-version=${COGNITIVE_API_VERSION}`;
+      const result = await armGet(armToken, url, { optional: true });
+      return result.ok ? result.json?.value || [] : [];
+    };
   }
 
   const projectCache = new Map();
@@ -3008,7 +3067,7 @@ export async function enrichEntraIdentitiesFromFoundryTags(
         usedEndpoint = endpoint;
         break;
       }
-      if (resolved.ok) {
+      if (resolved.ok && (resolved.count || 0) > 0) {
         usedEndpoint = endpoint;
         listedCount = resolved.count || 0;
         break;
@@ -3019,7 +3078,8 @@ export async function enrichEntraIdentitiesFromFoundryTags(
       const note =
         lastError ||
         `Foundry Agents API not reachable for ${tags.accountName}/${tags.projectName}. Need Azure AI User on the project to read the GPT model.`;
-      ident.metadata.modelSource = "foundry_unreadable";
+      const fromDeployment = await applyAccountDeploymentModel(ident, match, readDeployments);
+      if (!fromDeployment) ident.metadata.modelSource = "foundry_unreadable";
       ident.metadata.evidence = [...(ident.metadata.evidence || []), note];
       discoveryErrors.push({
         collector: "entraAgentId",
@@ -3034,7 +3094,8 @@ export async function enrichEntraIdentitiesFromFoundryTags(
     tags.projectEndpoint = usedEndpoint;
     if (!agent) {
       ident.metadata = ident.metadata || {};
-      ident.metadata.modelSource = "unknown";
+      const fromDeployment = await applyAccountDeploymentModel(ident, match, readDeployments);
+      if (!fromDeployment) ident.metadata.modelSource = "unknown";
       ident.metadata.evidence = [
         ...(ident.metadata.evidence || []),
         `Foundry project ${tags.projectName} listed ${listedCount} agent(s) but none matched ${tags.inferredAgentName || tags.agentGuid}.`
