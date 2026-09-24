@@ -3894,7 +3894,30 @@ export async function discoverAgent365CatalogForAzure(conn, { graphToken: shared
  * Runs ARM + Entra Agent ID + Power Platform + Teams catalog + Agent 365
  * Graph catalog + (optional) M365 Agent Registry for one connector.
  * ========================================================================= */
-export async function discoverAzureEcosystem(conn) {
+export async function discoverAzureEcosystem() {
+  return {
+    observations: [],
+    discoveryErrors: [
+      {
+        collector: "azure-legacy",
+        discoveryType: "legacy-scanner",
+        discoveryStatus: "disabled",
+        error:
+          "The legacy Azure ecosystem scanner is disabled. Live Azure scans use discoverAzureScanner in azureScanner.js."
+      }
+    ],
+    stats: {
+      disabled: true,
+      legacyScanner: "azureDeepScan.discoverAzureEcosystem",
+      agentsDiscovered: 0,
+      cloudResourcesIngested: 0,
+      discoveryErrors: 1
+    },
+    statsByCollector: {}
+  };
+}
+
+async function discoverAzureEcosystemLegacyDisabled(conn) {
   const creds = {
     tenantId: conn.config.tenantId,
     clientId: conn.config.clientId,

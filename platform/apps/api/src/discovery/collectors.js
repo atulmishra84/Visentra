@@ -339,13 +339,13 @@ export const collectors = {
       if (ctx.pool && ctx.tenantId) {
         try {
           const { listActiveCloudConnectors } = await import("../services/connectors.js");
-          // Azure uses the ecosystem scanner (ARM + Entra Agent ID + Copilot Studio + Teams).
-          const { discoverAzureEcosystem } = await import("./azureArm.js");
+          // New Azure scanner. The legacy discoverAzureEcosystem path is disabled.
+          const { discoverAzureScanner } = await import("./azureScanner.js");
           const { discoverAwsConnector } = await import("./awsCloud.js");
           const { discoverGcpConnector } = await import("./gcpCloud.js");
           const connectors = await listActiveCloudConnectors(ctx.pool, ctx.tenantId);
           const discoverers = {
-            azure: discoverAzureEcosystem,
+            azure: discoverAzureScanner,
             aws: discoverAwsConnector,
             gcp: discoverGcpConnector
           };

@@ -22,13 +22,13 @@ describe("Azure ecosystem scanner wiring", () => {
     assert.equal(typeof discoverTeamsAgentApps, "function");
   });
 
-  it("wires cloud_stub collector to discoverAzureEcosystem (not ARM-only)", () => {
+  it("wires cloud_stub collector to the v2 scanner and disables the legacy one", async () => {
     const src = readFileSync(join(here, "../collectors.js"), "utf8");
-    assert.match(src, /discoverAzureEcosystem/);
-    assert.doesNotMatch(
-      src,
-      /azure:\s*discoverAzureConnector\b/,
-      "collectors must not bind azure to ARM-only discoverAzureConnector",
-    );
+    assert.match(src, /discoverAzureScanner/);
+    assert.doesNotMatch(src, /azure:\s*discoverAzureEcosystem\b/);
+    assert.doesNotMatch(src, /azure:\s*discoverAzureConnector\b/);
+    const disabled = await discoverAzureEcosystem();
+    assert.equal(disabled.stats.disabled, true);
+    assert.equal(disabled.observations.length, 0);
   });
 });
