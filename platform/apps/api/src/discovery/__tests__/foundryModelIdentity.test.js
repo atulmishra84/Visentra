@@ -9,7 +9,8 @@ import {
   entraAgentIdentityObservation,
   enrichEntraIdentitiesFromFoundryTags,
   foundryProjectEndpointCandidates,
-  applyInferredFoundryName
+  applyInferredFoundryName,
+  probeFoundryAgentRead
 } from "../azureDeepScan.js";
 import { enrichAgentRow } from "../../services/agentDepth.js";
 
@@ -330,6 +331,17 @@ describe("Foundry vs Entra Agent ID model", () => {
     assert.equal(ident.model, null);
     assert.equal(ident.metadata.modelSource, "foundry_unreadable");
     assert.match(ident.metadata.evidence.join(" "), /403/);
+  });
+
+  it("reports that ARM auth alone cannot identify the Foundry agent", async () => {
+    const result = await probeFoundryAgentRead({
+      armToken: "arm",
+      dataToken: null,
+      subscriptionId: "sub-1"
+    });
+    assert.equal(result.ok, false);
+    assert.match(result.message, /Azure AI User/);
+    assert.match(result.message, /cannot read the agent definition/);
   });
 
   it("strips stale microsoft-agent-identity on API read", () => {
