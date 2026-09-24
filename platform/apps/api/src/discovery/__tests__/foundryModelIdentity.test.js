@@ -8,6 +8,7 @@ import {
   parseEntraIdentityTags,
   entraAgentIdentityObservation,
   enrichEntraIdentitiesFromFoundryTags,
+  listFoundryAgents,
   foundryProjectEndpointCandidates,
   applyInferredFoundryName,
   probeFoundryAgentRead,
@@ -168,9 +169,11 @@ describe("Foundry vs Entra Agent ID model", () => {
       "foundry-baseline-agents",
       "eastus2"
     );
-    assert.ok(urls.some((u) => u.includes("foundry-baseline-agents-resource.services.ai.azure.com")));
-    assert.ok(urls[0].includes("foundry-baseline-agents-resource.cognitiveservices.azure.com"));
-    assert.ok(urls.every((u) => u.includes("/api/projects/foundry-baseline-agents")));
+    assert.equal(
+      urls[0],
+      "https://foundry-baseline-agents-resource.services.ai.azure.com/api/projects/foundry-baseline-agents"
+    );
+    assert.ok(urls.some((u) => u.endsWith("/api/projects/_project")));
     const withArm = foundryProjectEndpointCandidates("atulmishra-6554-resource", "proj", null, [
       "atulmishra-6554.cognitiveservices.azure.com"
     ]);
@@ -178,6 +181,25 @@ describe("Foundry vs Entra Agent ID model", () => {
       withArm[0],
       "https://atulmishra-6554.cognitiveservices.azure.com/api/projects/proj"
     );
+  });
+
+  it("reads GPT-4o from the assistants route when /agents returns 404", async () => {
+    const result = await listFoundryAgents("token", "https://acct.services.ai.azure.com/api/projects/lab", async (_token, url) => {
+      if (String(url).includes("/agents?")) {
+        return { ok: false, status: 404, error: "Data-plane GET failed (404)", json: {} };
+      }
+      if (String(url).includes("/assistants?api-version=2025-05-15-preview")) {
+        return {
+          ok: true,
+          status: 200,
+          json: { data: [{ id: "asst_1", name: "ai-red-team", model: "gpt-4o" }] }
+        };
+      }
+      return { ok: false, status: 404, error: "miss", json: {} };
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.agents[0].model, "gpt-4o");
+    assert.equal(result.agents[0].name, "ai-red-team");
   });
 
   it("reads the Foundry host from the ARM account endpoint", () => {
