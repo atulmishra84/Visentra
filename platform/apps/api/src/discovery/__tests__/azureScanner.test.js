@@ -1,0 +1,130 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import {
+  chatDeploymentModel,
+  discoverAzureScanner,
+  explainStatus,
+  inferFoundryName,
+  parseFoundryTags,
+  projectEndpoints
+} from "../azureScanner.js";
+
+const conn = {
+  id: "c1",
+  name: "CTCYBERLAB",
+  environment: "production",
+  config: { tenantId: "tenant", clientId: "app", subscriptionId: "sub" },
+  secrets: { clientSecret: "secret" }
+};
+
+function identity() {
+  return {
+    id: "ea1ab011-00dc-4f7a-9f27-d9b518e48c0b",
+    displayName: "foundry-baseline-agents-resource-foundry-baseline-agents-ai-red-team-AgentIdentity",
+    servicePrincipalType: "ServiceIdentity",
+    tags: [
+      "region:eastus2",
+      "agentGuid:57076efe-4899-4742-848b-038a770584c3",
+      "projectId:foundry-baseline-agents-resource@foundry-baseline-agents@AML"
+    ]
+  };
+}
+
+describe("Azure scanner v2", () => {
+  it("parses the Foundry name from the Entra identity", () => {
+    const tags = parseFoundryTags(identity().tags);
+    assert.equal(tags.accountName, "foundry-baseline-agents-resource");
+    assert.equal(tags.projectName, "foundry-baseline-agents");
+    assert.equal(inferFoundryName(identity().displayName, tags), "ai-red-team");
+  });
+
+  it("explains 404 and 403 as different failures", () => {
+    assert.match(explainStatus(404, "missing"), /404 Not Found/);
+    assert.match(explainStatus(403, "Forbidden"), /403 Forbidden/);
+    assert.match(explainStatus(403, "Forbidden"), /Agent 365/);
+  });
+
+  it("reads gpt-4o from the ARM project endpoint", async () => {
+    const endpoint = "https://real.services.ai.azure.com/api/projects/foundry-baseline-agents";
+    assert.equal(
+      projectEndpoints({
+        name: "foundry-baseline-agents",
+        properties: { endpoints: { "AI Foundry API": endpoint } }
+      })[0],
+      endpoint
+    );
+    const calls = [];
+    const result = await discoverAzureScanner(conn, {
+      getToken: async () => "token",
+      listIdentities: async () => ({ ok: true, items: [identity()] }),
+      listAccounts: async () => [
+        {
+          id: "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/foundry-baseline-agents-resource",
+          name: "foundry-baseline-agents-resource"
+        }
+      ],
+      listProjects: async () => [
+        { name: "foundry-baseline-agents", properties: { endpoints: { "AI Foundry API": endpoint } } }
+      ],
+      listDeployments: async () => [],
+      request: async (_token, url) => {
+        calls.push(url);
+        if (url.startsWith(`${endpoint}/assistants?`)) {
+          return { ok: true, status: 200, json: { data: [{ id: "asst_1", name: "ai-red-team", model: "gpt-4o" }] } };
+        }
+        return { ok: false, status: 404, json: {}, error: "Data-plane GET failed (404)" };
+      }
+    });
+    assert.equal(calls[0].startsWith(endpoint), true);
+    assert.equal(result.observations.length, 1);
+    assert.equal(result.observations[0].name, "ai-red-team");
+    assert.equal(result.observations[0].model, "gpt-4o");
+    assert.equal(result.observations[0].metadata.modelSource, "azure_foundry_agents");
+  });
+
+  it("uses the only chat deployment when every agent route returns 404", async () => {
+    assert.equal(
+      chatDeploymentModel([
+        { properties: { model: { name: "gpt-4o" } } },
+        { properties: { model: { name: "text-embedding-3-large" } } }
+      ]),
+      "gpt-4o"
+    );
+    const result = await discoverAzureScanner(conn, {
+      getToken: async () => "token",
+      listIdentities: async () => ({ ok: true, items: [identity()] }),
+      listAccounts: async () => [{ id: "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/foundry-baseline-agents-resource", name: "foundry-baseline-agents-resource" }],
+      listProjects: async () => [
+        {
+          name: "foundry-baseline-agents",
+          properties: { endpoints: { "AI Foundry API": "https://real.services.ai.azure.com/api/projects/foundry-baseline-agents" } }
+        }
+      ],
+      listDeployments: async () => [{ properties: { model: { name: "gpt-4o" } } }],
+      request: async () => ({ ok: false, status: 404, json: {}, error: "Data-plane GET failed (404)" })
+    });
+    assert.equal(result.observations[0].name, "ai-red-team");
+    assert.equal(result.observations[0].model, "gpt-4o");
+    assert.equal(result.observations[0].metadata.modelSource, "azure_cognitive_deployment");
+    assert.match(result.observations[0].metadata.evidence.join(" "), /404 Not Found/);
+  });
+
+  it("records 403 as a missing Foundry role and does not invent a model", async () => {
+    const result = await discoverAzureScanner(conn, {
+      getToken: async () => "token",
+      listIdentities: async () => ({ ok: true, items: [identity()] }),
+      listAccounts: async () => [{ id: "/accounts/foundry-baseline-agents-resource", name: "foundry-baseline-agents-resource" }],
+      listProjects: async () => [
+        {
+          name: "foundry-baseline-agents",
+          properties: { endpoints: { "AI Foundry API": "https://real.services.ai.azure.com/api/projects/foundry-baseline-agents" } }
+        }
+      ],
+      listDeployments: async () => [],
+      request: async () => ({ ok: false, status: 403, json: {}, error: "Forbidden" })
+    });
+    assert.equal(result.observations[0].model, null);
+    assert.match(result.observations[0].metadata.evidence.join(" "), /403 Forbidden/);
+    assert.equal(result.discoveryErrors.some((item) => item.discoveryStatus === "permission_denied"), true);
+  });
+});
