@@ -215,7 +215,7 @@ export async function dataPlaneGet(token, url, policy, { optional = true, header
         status: res.status,
         permissionDenied,
         error: sanitizeAzureError(
-          json.error?.message || json.message || `Data-plane GET failed (${res.status})`
+          `${json.error?.message || json.message || `Data-plane GET failed (${res.status})`} (${pathnameOf(url)})`
         ),
         json
       };
@@ -327,24 +327,55 @@ export function foundryListAgentName(agent = {}) {
   return agent.name || agent.agent_name || agent.agentName || latest.name || null;
 }
 
-export async function listFoundryAgents(dataToken, projectEndpoint) {
-  let url = `${projectEndpoint}/agents?api-version=${FOUNDRY_AGENTS_API_VERSION}&limit=100`;
+function pathnameOf(url) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return "";
+  }
+}
+
+/** Hub-based (@AML) projects 404 on /agents?api-version=v1 and serve /assistants. */
+export const FOUNDRY_AGENT_LIST_QUERIES = [
+  ["agents", FOUNDRY_AGENTS_API_VERSION],
+  ["agents", "2025-05-01"],
+  ["assistants", "2025-05-15-preview"],
+  ["assistants", ASSISTANTS_API_VERSION]
+];
+
+export function foundryCollectionUrl(projectEndpoint, path, apiVersion) {
+  return `${projectEndpoint}/${path}?api-version=${apiVersion}&limit=100`;
+}
+
+async function listOneFoundryCollection(dataToken, projectEndpoint, path, apiVersion, request) {
+  let url = foundryCollectionUrl(projectEndpoint, path, apiVersion);
   const agents = [];
-  let lastError = null;
   for (let page = 0; page < 5 && url; page += 1) {
-    const result = await dataPlaneGet(dataToken, url, ALLOW.azureAiServices, { optional: true });
+    const result = await request(dataToken, url, ALLOW.azureAiServices, { optional: true });
     if (!result.ok) {
       if (agents.length) return { ok: true, agents };
       return { ...result, agents: [] };
     }
     agents.push(...unwrapFoundryAgentList(result.json));
     const more = Boolean(result.json?.has_more && result.json?.last_id);
-    url = more
-      ? `${projectEndpoint}/agents?api-version=${FOUNDRY_AGENTS_API_VERSION}&limit=100&after=${encodeURIComponent(result.json.last_id)}`
-      : null;
-    lastError = null;
+    const next = new URL(url);
+    if (more) next.searchParams.set("after", result.json.last_id);
+    url = more ? next.toString() : null;
   }
-  return { ok: true, agents, error: lastError };
+  return { ok: true, agents };
+}
+
+export async function listFoundryAgents(dataToken, projectEndpoint, request = dataPlaneGet) {
+  let last = { ok: false, agents: [], error: "Foundry agent list failed" };
+  for (const [path, apiVersion] of FOUNDRY_AGENT_LIST_QUERIES) {
+    const result = await listOneFoundryCollection(dataToken, projectEndpoint, path, apiVersion, request);
+    if (result.ok) return result;
+    last = { ...result, agents: [] };
+    if (result.permissionDenied || result.dnsFailure) return last;
+    if (result.status && result.status !== 404) return last;
+  }
+  return last;
 }
 
 /**
@@ -354,10 +385,15 @@ export async function listFoundryAgents(dataToken, projectEndpoint) {
 export async function getFoundryAgent(dataToken, projectEndpoint, agentName) {
   const name = String(agentName || "").trim();
   if (!name) return { ok: false, agent: null, error: "missing Foundry agent name" };
-  const versions = [FOUNDRY_AGENTS_API_VERSION, "2025-11-15-preview"];
+  const versions = [
+    ["agents", FOUNDRY_AGENTS_API_VERSION],
+    ["agents", "2025-05-01"],
+    ["assistants", "2025-05-15-preview"],
+    ["assistants", ASSISTANTS_API_VERSION]
+  ];
   let last = { ok: false, agent: null, error: "Foundry agent GET failed" };
-  for (const apiVersion of versions) {
-    const url = `${projectEndpoint}/agents/${encodeURIComponent(name)}?api-version=${apiVersion}`;
+  for (const [path, apiVersion] of versions) {
+    const url = `${projectEndpoint}/${path}/${encodeURIComponent(name)}?api-version=${apiVersion}`;
     const result = await dataPlaneGet(dataToken, url, ALLOW.azureAiServices, { optional: true });
     if (result.ok) {
       const body = result.json || {};
@@ -2726,13 +2762,17 @@ export function foundryProjectEndpointCandidates(accountName, projectName, regio
     if (host) hosts.push(host);
   }
   if (account && !account.includes(".")) {
-    hosts.push(`${account}.cognitiveservices.azure.com`);
     hosts.push(`${account}.services.ai.azure.com`);
+    hosts.push(`${account}.cognitiveservices.azure.com`);
     if (region) hosts.push(`${account}.${String(region).trim()}.models.ai.azure.com`);
   } else if (account) {
     hosts.push(account);
   }
-  return [...new Set(hosts)].map((host) => `https://${host}/api/projects/${project}`);
+  const projects = [project];
+  if (project !== "_project") projects.push("_project");
+  return [...new Set(hosts)].flatMap((host) =>
+    projects.map((name) => `https://${host}/api/projects/${name}`)
+  );
 }
 
 function pickFoundryAgentFromList(agents, ident, tags) {
