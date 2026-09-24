@@ -270,12 +270,65 @@ function foundryProjectEndpoint(accountNameOrHost, projectName) {
 /**
  * List Foundry agents for a project (official Agents API, api-version=v1).
  */
+export function unwrapFoundryAgentList(json) {
+  if (Array.isArray(json)) return json;
+  if (!json || typeof json !== "object") return [];
+  const raw = json.data ?? json.value ?? json.agents ?? json.items ?? null;
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === "object") {
+    const nested = raw.data ?? raw.value ?? raw.agents ?? raw.items;
+    if (Array.isArray(nested)) return nested;
+  }
+  return [];
+}
+
+export function foundryListAgentName(agent = {}) {
+  if (!agent) return null;
+  const latest = agent.versions?.latest || agent.version || {};
+  return agent.name || agent.agent_name || agent.agentName || latest.name || null;
+}
+
 export async function listFoundryAgents(dataToken, projectEndpoint) {
-  const url = `${projectEndpoint}/agents?api-version=${FOUNDRY_AGENTS_API_VERSION}&limit=100`;
-  const result = await dataPlaneGet(dataToken, url, ALLOW.azureAiServices, { optional: true });
-  if (!result.ok) return { ...result, agents: [] };
-  const agents = result.json.data || result.json.value || result.json.agents || [];
-  return { ok: true, agents: Array.isArray(agents) ? agents : [] };
+  let url = `${projectEndpoint}/agents?api-version=${FOUNDRY_AGENTS_API_VERSION}&limit=100`;
+  const agents = [];
+  let lastError = null;
+  for (let page = 0; page < 5 && url; page += 1) {
+    const result = await dataPlaneGet(dataToken, url, ALLOW.azureAiServices, { optional: true });
+    if (!result.ok) {
+      if (agents.length) return { ok: true, agents };
+      return { ...result, agents: [] };
+    }
+    agents.push(...unwrapFoundryAgentList(result.json));
+    const more = Boolean(result.json?.has_more && result.json?.last_id);
+    url = more
+      ? `${projectEndpoint}/agents?api-version=${FOUNDRY_AGENTS_API_VERSION}&limit=100&after=${encodeURIComponent(result.json.last_id)}`
+      : null;
+    lastError = null;
+  }
+  return { ok: true, agents, error: lastError };
+}
+
+/**
+ * GET one Foundry agent. List payloads often omit definition.model;
+ * the version definition (including gpt-4o) is on this resource.
+ */
+export async function getFoundryAgent(dataToken, projectEndpoint, agentName) {
+  const name = String(agentName || "").trim();
+  if (!name) return { ok: false, agent: null, error: "missing Foundry agent name" };
+  const versions = [FOUNDRY_AGENTS_API_VERSION, "2025-11-15-preview"];
+  let last = { ok: false, agent: null, error: "Foundry agent GET failed" };
+  for (const apiVersion of versions) {
+    const url = `${projectEndpoint}/agents/${encodeURIComponent(name)}?api-version=${apiVersion}`;
+    const result = await dataPlaneGet(dataToken, url, ALLOW.azureAiServices, { optional: true });
+    if (result.ok) {
+      const body = result.json || {};
+      const agent = body.name || body.id ? body : body.agent || body.data || null;
+      return { ok: Boolean(agent), agent, status: result.status };
+    }
+    last = { ...result, agent: null };
+    if (result.permissionDenied) return last;
+  }
+  return last;
 }
 
 /**
@@ -583,6 +636,20 @@ export function isHeuristicAiWorkload(signals, resource) {
   return isAiRelevantText(blob);
 }
 
+async function foundryModelFromListOrGet(dataToken, projectEndpoint, agent, latest) {
+  const fromList = extractFoundryFoundationModel(agent, latest);
+  if (fromList || !dataToken) return fromList;
+  const name = foundryListAgentName(agent);
+  if (!name) return null;
+  const detail = await getFoundryAgent(dataToken, projectEndpoint, name);
+  if (!detail.ok || !detail.agent) return null;
+  const version = detail.agent.versions?.latest || detail.agent.version || {};
+  if (!agent.versions?.latest?.definition && version.definition) {
+    agent.versions = detail.agent.versions || agent.versions;
+  }
+  return extractFoundryFoundationModel(detail.agent, version);
+}
+
 /**
  * Discover Foundry/OpenAI agents for a Cognitive Services account.
  */
@@ -709,8 +776,7 @@ export async function discoverCognitiveAgents({
         runtimeReason,
         containerAppId,
         classification,
-        // List/detail signals for metadata.deep + adversarial_surface alignment
-        foundationModel: extractFoundryFoundationModel(agent, latest),
+        foundationModel: await foundryModelFromListOrGet(dataToken, projectEndpoint, agent, latest),
         description: latest.definition?.description || agent.description || null,
         instructionText:
           latest.definition?.instructions ||
@@ -2505,7 +2571,14 @@ export function linkEntraIdentitiesToFoundryAgents(observations = []) {
   for (const ident of entra) {
     const tags = parseEntraIdentityTags(ident.metadata?.tags);
     ident.metadata = ident.metadata || {};
-    ident.metadata.foundryLink = { ...tags, inferredAgentName: inferFoundryAgentNameFromIdentity(ident.name, tags) };
+    ident.metadata.foundryLink = {
+      ...tags,
+      inferredAgentName: inferFoundryAgentNameFromIdentity(
+        ident.metadata.entraDisplayName || ident.name,
+        tags
+      )
+    };
+    applyInferredFoundryName(ident, ident.metadata.foundryLink);
     const match = foundry.find((f) => matchIdentityToFoundry(ident, tags, f));
     if (match) {
       applyFoundryModelToIdentity(ident, match, ident.metadata.foundryLink);
@@ -2534,19 +2607,59 @@ function pickFoundryAgentFromList(agents, ident, tags) {
   const list = Array.isArray(agents) ? agents : [];
   const guid = String(tags.agentGuid || "").toLowerCase();
   const inferred = String(
-    tags.inferredAgentName || inferFoundryAgentNameFromIdentity(ident.name, tags) || ""
+    tags.inferredAgentName ||
+      inferFoundryAgentNameFromIdentity(ident.metadata?.entraDisplayName || ident.name, tags) ||
+      ""
   ).toLowerCase();
   return (
     list.find((a) => guid && String(a.id || "").toLowerCase() === guid) ||
-    list.find((a) => inferred && String(a.name || "").toLowerCase() === inferred) ||
+    list.find((a) => inferred && String(foundryListAgentName(a) || "").toLowerCase() === inferred) ||
     list.find((a) => inferred && String(a.id || "").toLowerCase() === inferred) ||
     null
   );
 }
 
+/**
+ * Entra display names are `{account}-{project}-{agent}-AgentIdentity`.
+ * Use the Foundry agent segment as the inventory name even when the data plane
+ * has not returned a definition yet.
+ */
+export function applyInferredFoundryName(ident, tags = {}) {
+  ident.metadata = ident.metadata || {};
+  const sourceName = ident.metadata.entraDisplayName || ident.name || "";
+  const inferred = inferFoundryAgentNameFromIdentity(sourceName, tags);
+  if (!inferred || !tags.accountName || !tags.projectName) return null;
+  const stripped = String(sourceName)
+    .replace(/\s*\(Entra Agent ID\)\s*$/i, "")
+    .replace(/-AgentIdentity$/i, "")
+    .trim();
+  const prefix = `${tags.accountName}-${tags.projectName}-`;
+  if (!stripped.toLowerCase().startsWith(prefix.toLowerCase())) return null;
+  if (!ident.metadata.entraDisplayName) ident.metadata.entraDisplayName = ident.name || null;
+  ident.name = inferred;
+  ident.metadata.agentName = inferred;
+  ident.metadata.foundryLink = {
+    ...(ident.metadata.foundryLink || {}),
+    ...tags,
+    inferredAgentName: inferred
+  };
+  if (ident.metadata.deep && typeof ident.metadata.deep === "object") {
+    ident.metadata.deep.displayName = inferred;
+  }
+  if (ident.agent && typeof ident.agent === "object") ident.agent.agentName = inferred;
+  if (!ident.metadata.foundryNameApplied) {
+    ident.metadata.foundryNameApplied = true;
+    ident.metadata.evidence = [
+      ...(ident.metadata.evidence || []),
+      `Inventory name set to Foundry agent ${inferred}.`
+    ];
+  }
+  return inferred;
+}
+
 function foundryFindingFromAgent(agent, tags, resourceId) {
   const latest = agent.versions?.latest || agent.version || {};
-  const agentName = agent.name || agent.id;
+  const agentName = foundryListAgentName(agent) || agent.id;
   const agentId = agent.id || tags.agentGuid || agentName;
   return {
     kind: "agent",
@@ -2585,13 +2698,48 @@ function foundryFindingFromAgent(agent, tags, resourceId) {
  * Foundry project/agent tags. Call the Foundry Agents API directly and stamp
  * the real foundation model (e.g. gpt-4o) on those identities.
  */
+async function resolveFoundryAgentRecord(dataToken, endpoint, ident, tags, listAgents, getAgent) {
+  const listed = await listAgents(dataToken, endpoint);
+  const agents = listed?.agents || [];
+  let agent = listed?.ok ? pickFoundryAgentFromList(agents, ident, tags) : null;
+  const inferred = tags.inferredAgentName;
+  const hasModel = agent && extractFoundryFoundationModel(agent, agent.versions?.latest || agent.version || {});
+  if ((!agent || !hasModel) && inferred && typeof getAgent === "function") {
+    const detail = await getAgent(dataToken, endpoint, foundryListAgentName(agent) || inferred);
+    if (detail?.ok && detail.agent) {
+      return { ok: true, agent: detail.agent, count: agents.length, error: null };
+    }
+    if (!listed?.ok) {
+      return {
+        ok: false,
+        agent: null,
+        count: 0,
+        error: detail?.error || listed?.error || null,
+        permissionDenied: Boolean(detail?.permissionDenied || listed?.permissionDenied)
+      };
+    }
+  }
+  if (listed?.ok) return { ok: true, agent, count: agents.length, error: null };
+  return {
+    ok: false,
+    agent: null,
+    count: 0,
+    error: listed?.error || null,
+    permissionDenied: Boolean(listed?.permissionDenied)
+  };
+}
+
 export async function enrichEntraIdentitiesFromFoundryTags(
   conn,
   observations = [],
   discoveryErrors = [],
-  { listAgents = listFoundryAgents, getDataToken = null } = {}
+  { listAgents = listFoundryAgents, getAgent = getFoundryAgent, getDataToken = null } = {}
 ) {
   const entra = observations.filter(isEntraAgentIdentityObservation);
+  for (const ident of entra) {
+    const tags = ident.metadata?.foundryLink || parseEntraIdentityTags(ident.metadata?.tags);
+    applyInferredFoundryName(ident, tags);
+  }
   const needed = entra.filter((obs) => {
     const tags = obs.metadata?.foundryLink || parseEntraIdentityTags(obs.metadata?.tags);
     return tags.accountName && tags.projectName && isPlaceholderFoundationModel(obs.model);
@@ -2628,57 +2776,59 @@ export async function enrichEntraIdentitiesFromFoundryTags(
       ...(ident.metadata?.foundryLink || parseEntraIdentityTags(ident.metadata?.tags)),
       inferredAgentName:
         ident.metadata?.foundryLink?.inferredAgentName ||
-        inferFoundryAgentNameFromIdentity(ident.name, ident.metadata?.foundryLink || {})
+        inferFoundryAgentNameFromIdentity(
+          ident.metadata?.entraDisplayName || ident.name,
+          ident.metadata?.foundryLink || {}
+        )
     };
+    applyInferredFoundryName(ident, tags);
     const endpoints = foundryProjectEndpointCandidates(tags.accountName, tags.projectName, tags.region);
-    let agents = [];
+    let agent = null;
     let usedEndpoint = null;
     let lastError = null;
+    let listedCount = 0;
     for (const endpoint of endpoints) {
-      if (projectCache.has(endpoint)) {
-        const cached = projectCache.get(endpoint);
-        if (cached.ok) {
-          agents = cached.agents;
-          usedEndpoint = endpoint;
-          break;
-        }
-        lastError = cached.error;
-        continue;
+      const cacheKey = `${endpoint}|${tags.inferredAgentName || tags.agentGuid || ""}`;
+      let resolved = projectCache.get(cacheKey);
+      if (!resolved) {
+        resolved = await resolveFoundryAgentRecord(dataToken, endpoint, ident, tags, listAgents, getAgent);
+        projectCache.set(cacheKey, resolved);
       }
-      const result = await listAgents(dataToken, endpoint);
-      projectCache.set(endpoint, {
-        ok: Boolean(result?.ok),
-        agents: result?.agents || [],
-        error: result?.error || null,
-        permissionDenied: Boolean(result?.permissionDenied)
-      });
-      if (result?.ok) {
-        agents = result.agents || [];
+      if (resolved.ok && resolved.agent) {
+        agent = resolved.agent;
         usedEndpoint = endpoint;
         break;
       }
-      lastError = result?.error || lastError;
+      if (resolved.ok) {
+        usedEndpoint = endpoint;
+        listedCount = resolved.count || 0;
+        break;
+      }
+      lastError = resolved.error || lastError;
     }
     if (!usedEndpoint) {
+      const note =
+        lastError ||
+        `Foundry Agents API not reachable for ${tags.accountName}/${tags.projectName}. Need Azure AI User on the project to read the GPT model.`;
+      ident.metadata.modelSource = "foundry_unreadable";
+      ident.metadata.evidence = [...(ident.metadata.evidence || []), note];
       discoveryErrors.push({
         collector: "entraAgentId",
         discoveryType: "foundry-from-entra-tags",
         discoveryStatus: lastError && /403|401|denied/i.test(String(lastError)) ? "permission_denied" : "error",
-        error:
-          lastError ||
-          `Foundry Agents API not reachable for ${tags.accountName}/${tags.projectName}. Need Azure AI User on the project to read the GPT model.`,
+        error: note,
         projectName: tags.projectName,
         accountName: tags.accountName
       });
       continue;
     }
     tags.projectEndpoint = usedEndpoint;
-    const agent = pickFoundryAgentFromList(agents, ident, tags);
     if (!agent) {
       ident.metadata = ident.metadata || {};
+      ident.metadata.modelSource = "unknown";
       ident.metadata.evidence = [
         ...(ident.metadata.evidence || []),
-        `Foundry project ${tags.projectName} listed ${agents.length} agent(s) but none matched ${tags.inferredAgentName || tags.agentGuid}.`
+        `Foundry project ${tags.projectName} listed ${listedCount} agent(s) but none matched ${tags.inferredAgentName || tags.agentGuid}.`
       ];
       continue;
     }
