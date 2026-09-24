@@ -10,7 +10,8 @@ import {
   enrichEntraIdentitiesFromFoundryTags,
   foundryProjectEndpointCandidates,
   applyInferredFoundryName,
-  probeFoundryAgentRead
+  probeFoundryAgentRead,
+  accountEndpointHosts
 } from "../azureDeepScan.js";
 import { enrichAgentRow } from "../../services/agentDepth.js";
 
@@ -168,7 +169,24 @@ describe("Foundry vs Entra Agent ID model", () => {
       "eastus2"
     );
     assert.ok(urls.some((u) => u.includes("foundry-baseline-agents-resource.services.ai.azure.com")));
+    assert.ok(urls[0].includes("foundry-baseline-agents-resource.cognitiveservices.azure.com"));
     assert.ok(urls.every((u) => u.includes("/api/projects/foundry-baseline-agents")));
+    const withArm = foundryProjectEndpointCandidates("atulmishra-6554-resource", "proj", null, [
+      "atulmishra-6554.cognitiveservices.azure.com"
+    ]);
+    assert.equal(
+      withArm[0],
+      "https://atulmishra-6554.cognitiveservices.azure.com/api/projects/proj"
+    );
+  });
+
+  it("reads the Foundry host from the ARM account endpoint", () => {
+    const hosts = accountEndpointHosts({
+      name: "atulmishra-6554-resource",
+      properties: { endpoint: "https://atulmishra-6554.cognitiveservices.azure.com/" }
+    });
+    assert.equal(hosts[0], "atulmishra-6554.cognitiveservices.azure.com");
+    assert.ok(!hosts[0].endsWith(".services.ai.azure.com"));
   });
 
   it("reads GPT-4o from Foundry using Entra tags when ARM listed nothing", async () => {
@@ -331,6 +349,69 @@ describe("Foundry vs Entra Agent ID model", () => {
     assert.equal(ident.model, null);
     assert.equal(ident.metadata.modelSource, "foundry_unreadable");
     assert.match(ident.metadata.evidence.join(" "), /403/);
+  });
+
+  it("skips a missing services.ai.azure.com host and uses the ARM endpoint", async () => {
+    const ident = entraAgentIdentityObservation(
+      {
+        id: "205a4a65-a745-40f1-b20d-77d8bafba41a",
+        displayName: "atulmishra-6554-resource-lab-soc-agent-AgentIdentity",
+        servicePrincipalType: "ServiceIdentity",
+        tags: [
+          "agentGuid:c4536860-d56f-4459-bf56-a643b78f3d67",
+          "projectId:atulmishra-6554-resource@lab@AML"
+        ]
+      },
+      {
+        id: "c1",
+        name: "lab",
+        environment: "production",
+        config: { subscriptionId: "sub-1", tenantId: "t", clientId: "c" },
+        secrets: { clientSecret: "s" }
+      },
+      "tenant"
+    );
+    const calls = [];
+    await enrichEntraIdentitiesFromFoundryTags(
+      {
+        config: { subscriptionId: "sub-1", tenantId: "t", clientId: "c" },
+        secrets: { clientSecret: "s" }
+      },
+      [ident],
+      [],
+      {
+        getDataToken: async () => "token",
+        listAccounts: async () => [
+          {
+            name: "atulmishra-6554-resource",
+            properties: { endpoint: "https://atulmishra-6554.cognitiveservices.azure.com/" }
+          }
+        ],
+        listAgents: async (_token, endpoint) => {
+          calls.push(endpoint);
+          if (String(endpoint).includes(".services.ai.azure.com")) {
+            throw new Error("getaddrinfo ENOTFOUND atulmishra-6554-resource.services.ai.azure.com");
+          }
+          if (String(endpoint).startsWith("https://atulmishra-6554.cognitiveservices.azure.com/")) {
+            return {
+              ok: true,
+              agents: [
+                {
+                  id: "c4536860-d56f-4459-bf56-a643b78f3d67",
+                  name: "soc-agent",
+                  versions: { latest: { definition: { kind: "prompt", model: "gpt-4o" } } }
+                }
+              ]
+            };
+          }
+          return { ok: false, agents: [], error: "no such host" };
+        },
+        getAgent: async () => ({ ok: false, agent: null })
+      }
+    );
+    assert.equal(calls[0], "https://atulmishra-6554.cognitiveservices.azure.com/api/projects/lab");
+    assert.equal(ident.name, "soc-agent");
+    assert.equal(ident.model, "gpt-4o");
   });
 
   it("reports that ARM auth alone cannot identify the Foundry agent", async () => {

@@ -180,18 +180,32 @@ export async function armGet(token, url, { optional = false } = {}) {
 }
 
 export async function dataPlaneGet(token, url, policy, { optional = true, headers = {} } = {}) {
-  assertAllowedUrl(url, policy);
-  const res = await safeFetch(
-    url,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-        ...headers
-      }
-    },
-    policy
-  );
+  let res;
+  try {
+    assertAllowedUrl(url, policy);
+    res = await safeFetch(
+      url,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+          ...headers
+        }
+      },
+      policy
+    );
+  } catch (err) {
+    if (!optional) throw err;
+    const message = sanitizeAzureError(err);
+    return {
+      ok: false,
+      status: 0,
+      permissionDenied: false,
+      dnsFailure: /ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(message),
+      error: message,
+      json: {}
+    };
+  }
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     const permissionDenied = res.status === 401 || res.status === 403;
@@ -238,25 +252,50 @@ export async function listCognitiveProjects(token, resource) {
   return { ok: true, projects: result.json.value || [] };
 }
 
-function accountEndpointHost(account) {
-  const props = account?.properties || {};
-  const endpoints = props.endpoints || {};
-  const endpoint =
-    props.endpoint ||
-    endpoints["AI Foundry API"] ||
-    endpoints.OpenAI ||
-    endpoints["Azure OpenAI"] ||
-    null;
-  const subdomain = props.customSubDomainName;
-  if (endpoint) {
-    try {
-      return new URL(endpoint).hostname;
-    } catch {
-      /* fall through */
-    }
+function hostnameFromEndpoint(value) {
+  if (!value || typeof value !== "string") return null;
+  try {
+    return new URL(value).hostname || null;
+  } catch {
+    return null;
   }
-  if (subdomain) return `${subdomain}.services.ai.azure.com`;
-  return null;
+}
+
+/**
+ * Hosts that can actually serve this Cognitive / Foundry account.
+ * The ARM resource name is often not the DNS name (`*.services.ai.azure.com`
+ * may not exist). Prefer properties.endpoint, then the custom subdomain.
+ */
+export function accountEndpointHosts(account) {
+  const props = account?.properties || {};
+  const endpoints = props.endpoints && typeof props.endpoints === "object" ? props.endpoints : {};
+  const hosts = [];
+  for (const value of [
+    props.endpoint,
+    endpoints["AI Foundry API"],
+    endpoints["Azure AI Foundry"],
+    endpoints.OpenAI,
+    endpoints["Azure OpenAI"],
+    ...Object.values(endpoints)
+  ]) {
+    const host = hostnameFromEndpoint(value);
+    if (host) hosts.push(host);
+  }
+  const subdomain = String(props.customSubDomainName || "").trim();
+  if (subdomain && !subdomain.includes(".")) {
+    hosts.push(`${subdomain}.cognitiveservices.azure.com`);
+    hosts.push(`${subdomain}.services.ai.azure.com`);
+  }
+  const name = String(account?.name || "").trim();
+  if (name && !name.includes(".")) {
+    hosts.push(`${name}.cognitiveservices.azure.com`);
+    hosts.push(`${name}.services.ai.azure.com`);
+  }
+  return [...new Set(hosts)];
+}
+
+function accountEndpointHost(account) {
+  return accountEndpointHosts(account)[0] || null;
 }
 
 function foundryProjectEndpoint(accountNameOrHost, projectName) {
@@ -2674,12 +2713,25 @@ export function linkEntraIdentitiesToFoundryAgents(observations = []) {
   return list;
 }
 
-export function foundryProjectEndpointCandidates(accountName, projectName, region = null) {
+export function foundryProjectEndpointCandidates(accountName, projectName, region = null, extraHosts = []) {
   const account = String(accountName || "").trim();
   const project = encodeURIComponent(String(projectName || "").trim() || "_project");
-  if (!account) return [];
-  const hosts = [`${account}.services.ai.azure.com`, `${account}.cognitiveservices.azure.com`];
-  if (region) hosts.push(`${account}.${String(region).trim()}.models.ai.azure.com`);
+  if (!account && !extraHosts?.length) return [];
+  const hosts = [];
+  for (const extra of extraHosts || []) {
+    const host = String(extra || "")
+      .replace(/^https?:\/\//i, "")
+      .split("/")[0]
+      .trim();
+    if (host) hosts.push(host);
+  }
+  if (account && !account.includes(".")) {
+    hosts.push(`${account}.cognitiveservices.azure.com`);
+    hosts.push(`${account}.services.ai.azure.com`);
+    if (region) hosts.push(`${account}.${String(region).trim()}.models.ai.azure.com`);
+  } else if (account) {
+    hosts.push(account);
+  }
   return [...new Set(hosts)].map((host) => `https://${host}/api/projects/${project}`);
 }
 
@@ -2809,11 +2861,27 @@ async function resolveFoundryAgentRecord(dataToken, endpoint, ident, tags, listA
   };
 }
 
+async function listCognitiveAccountsForFoundry(creds, subscriptionId) {
+  if (!creds?.tenantId || !creds?.clientId || !creds?.clientSecret || !subscriptionId) return [];
+  let armToken;
+  try {
+    armToken = await getAzureAccessToken(creds);
+  } catch {
+    return [];
+  }
+  const url =
+    `https://management.azure.com/subscriptions/${subscriptionId}/providers/Microsoft.CognitiveServices/accounts` +
+    `?api-version=${COGNITIVE_API_VERSION}`;
+  const listed = await armGet(armToken, url, { optional: true });
+  if (!listed.ok) return [];
+  return listed.json?.value || [];
+}
+
 export async function enrichEntraIdentitiesFromFoundryTags(
   conn,
   observations = [],
   discoveryErrors = [],
-  { listAgents = listFoundryAgents, getAgent = getFoundryAgent, getDataToken = null } = {}
+  { listAgents = listFoundryAgents, getAgent = getFoundryAgent, getDataToken = null, listAccounts = null } = {}
 ) {
   const entra = observations.filter(isEntraAgentIdentityObservation);
   for (const ident of entra) {
@@ -2849,6 +2917,11 @@ export async function enrichEntraIdentitiesFromFoundryTags(
     return observations;
   }
 
+  let liveAccounts = [];
+  if (typeof listAccounts !== "function" && typeof getDataToken !== "function") {
+    liveAccounts = await listCognitiveAccountsForFoundry(creds, conn?.config?.subscriptionId);
+  }
+
   const projectCache = new Map();
   const extraObservations = [];
   for (const ident of needed) {
@@ -2862,7 +2935,19 @@ export async function enrichEntraIdentitiesFromFoundryTags(
         )
     };
     applyInferredFoundryName(ident, tags);
-    const endpoints = foundryProjectEndpointCandidates(tags.accountName, tags.projectName, tags.region);
+    let armHosts = [];
+    const accounts =
+      typeof listAccounts === "function" ? await listAccounts(tags.accountName) : liveAccounts;
+    const match = (accounts || []).find(
+      (account) => String(account?.name || "").toLowerCase() === String(tags.accountName || "").toLowerCase()
+    );
+    if (match) armHosts = accountEndpointHosts(match);
+    const endpoints = foundryProjectEndpointCandidates(
+      tags.accountName,
+      tags.projectName,
+      tags.region,
+      armHosts
+    );
     let agent = null;
     let usedEndpoint = null;
     let lastError = null;
@@ -2871,7 +2956,11 @@ export async function enrichEntraIdentitiesFromFoundryTags(
       const cacheKey = `${endpoint}|${tags.inferredAgentName || tags.agentGuid || ""}`;
       let resolved = projectCache.get(cacheKey);
       if (!resolved) {
-        resolved = await resolveFoundryAgentRecord(dataToken, endpoint, ident, tags, listAgents, getAgent);
+        try {
+          resolved = await resolveFoundryAgentRecord(dataToken, endpoint, ident, tags, listAgents, getAgent);
+        } catch (err) {
+          resolved = { ok: false, agent: null, error: sanitizeAzureError(err), permissionDenied: false };
+        }
         projectCache.set(cacheKey, resolved);
       }
       if (resolved.ok && resolved.agent) {
