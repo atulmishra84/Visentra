@@ -118,8 +118,11 @@ describe("Foundry vs Entra Agent ID model", () => {
     };
     linkEntraIdentitiesToFoundryAgents([ident, foundry]);
     assert.equal(ident.model, "gpt-4o");
+    assert.equal(ident.name, "ai-red-team");
+    assert.match(String(ident.metadata.entraDisplayName), /AgentIdentity/);
     assert.equal(ident.metadata.modelSource, "azure_foundry_agents");
     assert.equal(ident.metadata.deep.foundationModel, "gpt-4o");
+    assert.equal(ident.metadata.deep.displayName, "ai-red-team");
     assert.equal(ident.metadata.adversarial_surface.model.foundation_model, "gpt-4o");
     assert.equal(ident.metadata.linkedFoundryAgentId, "57076efe-4899-4742-848b-038a770584c3");
   });
@@ -152,6 +155,7 @@ describe("Foundry vs Entra Agent ID model", () => {
     };
     linkEntraIdentitiesToFoundryAgents([ident, foundry]);
     assert.equal(ident.model, "gpt-4o");
+    assert.equal(ident.name, "ai-red-team");
     assert.equal(ident.metadata.modelSource, "azure_foundry_agents");
   });
 
@@ -209,6 +213,7 @@ describe("Foundry vs Entra Agent ID model", () => {
       }
     );
     assert.equal(ident.model, "gpt-4o");
+    assert.equal(ident.name, "ai-runtime-soc");
     assert.equal(ident.metadata.modelSource, "azure_foundry_agents");
     assert.equal(ident.metadata.deep.foundationModel, "gpt-4o");
   });
