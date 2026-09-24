@@ -12,7 +12,8 @@ import {
   foundryProjectEndpointCandidates,
   applyInferredFoundryName,
   probeFoundryAgentRead,
-  accountEndpointHosts
+  accountEndpointHosts,
+  chatDeploymentModel
 } from "../azureDeepScan.js";
 import { enrichAgentRow } from "../../services/agentDepth.js";
 
@@ -434,6 +435,64 @@ describe("Foundry vs Entra Agent ID model", () => {
     assert.equal(calls[0], "https://atulmishra-6554.cognitiveservices.azure.com/api/projects/lab");
     assert.equal(ident.name, "soc-agent");
     assert.equal(ident.model, "gpt-4o");
+  });
+
+  it("uses the only chat deployment when the agent definition returns 404", async () => {
+    assert.equal(
+      chatDeploymentModel([
+        { name: "gpt-4o", properties: { model: { name: "gpt-4o" } } },
+        { name: "embed", properties: { model: { name: "text-embedding-3-large" } } }
+      ]),
+      "gpt-4o"
+    );
+    assert.equal(
+      chatDeploymentModel([
+        { properties: { model: { name: "gpt-4o" } } },
+        { properties: { model: { name: "gpt-4o-mini" } } }
+      ]),
+      null
+    );
+    const ident = entraAgentIdentityObservation(
+      {
+        id: "ea1ab011-00dc-4f7a-9f27-d9b518e48c0b",
+        displayName: "foundry-baseline-agents-resource-foundry-baseline-agents-ai-red-team-AgentIdentity",
+        servicePrincipalType: "ServiceIdentity",
+        tags: [
+          "agentGuid:57076efe-4899-4742-848b-038a770584c3",
+          "projectId:foundry-baseline-agents-resource@foundry-baseline-agents@AML",
+          "region:eastus2"
+        ]
+      },
+      {
+        id: "c1",
+        name: "CTCYBERLAB",
+        environment: "production",
+        config: { subscriptionId: "sub-1", tenantId: "t", clientId: "c" },
+        secrets: { clientSecret: "s" }
+      },
+      "7a570fd1-8a60-4115-9e1b-68f9102f4eab"
+    );
+    await enrichEntraIdentitiesFromFoundryTags(
+      {
+        config: { subscriptionId: "sub-1", tenantId: "t", clientId: "c" },
+        secrets: { clientSecret: "s" }
+      },
+      [ident],
+      [],
+      {
+        getDataToken: async () => "token",
+        listAccounts: async () => [{ name: "foundry-baseline-agents-resource", id: "/subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/foundry-baseline-agents-resource" }],
+        listAgents: async () => ({ ok: false, status: 404, agents: [], error: "Data-plane GET failed (404)" }),
+        getAgent: async () => ({ ok: false, status: 404, agent: null, error: "Data-plane GET failed (404)" }),
+        listDeployments: async () => [
+          { name: "gpt-4o", properties: { model: { name: "gpt-4o" } } }
+        ]
+      }
+    );
+    assert.equal(ident.name, "ai-red-team");
+    assert.equal(ident.model, "gpt-4o");
+    assert.equal(ident.metadata.modelSource, "azure_cognitive_deployment");
+    assert.equal(ident.metadata.deep.foundationModel, "gpt-4o");
   });
 
   it("reports that ARM auth alone cannot identify the Foundry agent", async () => {
