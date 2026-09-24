@@ -6,8 +6,11 @@ import {
   isPlaceholderFoundationModel,
   linkEntraIdentitiesToFoundryAgents,
   parseEntraIdentityTags,
-  entraAgentIdentityObservation
+  entraAgentIdentityObservation,
+  enrichEntraIdentitiesFromFoundryTags,
+  foundryProjectEndpointCandidates
 } from "../azureDeepScan.js";
+import { enrichAgentRow } from "../../services/agentDepth.js";
 
 describe("Foundry vs Entra Agent ID model", () => {
   it("treats microsoft-agent-identity as a placeholder, not a model", () => {
@@ -150,5 +153,77 @@ describe("Foundry vs Entra Agent ID model", () => {
     linkEntraIdentitiesToFoundryAgents([ident, foundry]);
     assert.equal(ident.model, "gpt-4o");
     assert.equal(ident.metadata.modelSource, "azure_foundry_agents");
+  });
+
+  it("builds Foundry project endpoints from Entra tags", () => {
+    const urls = foundryProjectEndpointCandidates(
+      "foundry-baseline-agents-resource",
+      "foundry-baseline-agents",
+      "eastus2"
+    );
+    assert.ok(urls.some((u) => u.includes("foundry-baseline-agents-resource.services.ai.azure.com")));
+    assert.ok(urls.every((u) => u.includes("/api/projects/foundry-baseline-agents")));
+  });
+
+  it("reads GPT-4o from Foundry using Entra tags when ARM listed nothing", async () => {
+    const ident = entraAgentIdentityObservation(
+      {
+        id: "205a4a65-a745-40f1-b20d-77d8bafba41a",
+        displayName: "foundry-baseline-agents-resource-foundry-baseline-agents-ai-runtime-soc-AgentIdentity",
+        servicePrincipalType: "ServiceIdentity",
+        tags: [
+          "agentGuid:c4536860-d56f-4459-bf56-a643b78f3d67",
+          "projectId:foundry-baseline-agents-resource@foundry-baseline-agents@AML",
+          "region:eastus2"
+        ]
+      },
+      {
+        id: "c1",
+        name: "CTCYBERLABS",
+        environment: "production",
+        config: { subscriptionId: "sub-1", tenantId: "t", clientId: "c" },
+        secrets: { clientSecret: "s" }
+      },
+      "7a570fd1-8a60-4115-9e1b-68f9102f4eab"
+    );
+    const errors = [];
+    await enrichEntraIdentitiesFromFoundryTags(
+      {
+        config: { subscriptionId: "sub-1", tenantId: "t", clientId: "c" },
+        secrets: { clientSecret: "s" }
+      },
+      [ident],
+      errors,
+      {
+        getDataToken: async () => "token",
+        listAgents: async () => ({
+          ok: true,
+          agents: [
+            {
+              id: "c4536860-d56f-4459-bf56-a643b78f3d67",
+              name: "ai-runtime-soc",
+              versions: { latest: { definition: { kind: "prompt", model: "gpt-4o" } } }
+            }
+          ]
+        })
+      }
+    );
+    assert.equal(ident.model, "gpt-4o");
+    assert.equal(ident.metadata.modelSource, "azure_foundry_agents");
+    assert.equal(ident.metadata.deep.foundationModel, "gpt-4o");
+  });
+
+  it("strips stale microsoft-agent-identity on API read", () => {
+    const row = enrichAgentRow({
+      id: "1",
+      name: "ident",
+      model: "microsoft-agent-identity",
+      metadata: {
+        discoveryMode: "entra-agent-id-graph",
+        deep: { foundationModel: null },
+        agentConfig: { models: [] }
+      }
+    });
+    assert.equal(row.model, null);
   });
 });
