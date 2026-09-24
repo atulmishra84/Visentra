@@ -128,9 +128,10 @@ export function AgentDetailPage() {
     Array.isArray(deep?.knowledgeBases) ? deep.knowledgeBases.length : 0
   );
   const deepModel =
-    valueAt(deep || {}, ["foundationModel"]) ||
-    valueAt((adversarialSurface?.model as Record<string, unknown>) || {}, ["foundation_model", "name"]) ||
-    valueAt(meta, ["foundationModel"]);
+    valueAt(deep || {}, ["foundationModel"], "") ||
+    valueAt((adversarialSurface?.model as Record<string, unknown>) || {}, ["foundation_model", "name"], "") ||
+    valueAt(meta, ["foundationModel"], "") ||
+    valueAt(agent, ["model"], "");
   const deepLifecycle = valueAt(deep || {}, ["agentStatus", "deploymentStatus"]);
   const deepScanStatus = valueAt(meta, ["deepScanStatus"], deep ? "ok" : "—");
 

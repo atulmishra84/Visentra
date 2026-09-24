@@ -8,7 +8,8 @@ import {
   parseEntraIdentityTags,
   entraAgentIdentityObservation,
   enrichEntraIdentitiesFromFoundryTags,
-  foundryProjectEndpointCandidates
+  foundryProjectEndpointCandidates,
+  applyInferredFoundryName
 } from "../azureDeepScan.js";
 import { enrichAgentRow } from "../../services/agentDepth.js";
 
@@ -216,6 +217,119 @@ describe("Foundry vs Entra Agent ID model", () => {
     assert.equal(ident.name, "ai-runtime-soc");
     assert.equal(ident.metadata.modelSource, "azure_foundry_agents");
     assert.equal(ident.metadata.deep.foundationModel, "gpt-4o");
+  });
+
+  it("sets the Foundry name from Entra tags when the data plane is unread", () => {
+    const ident = entraAgentIdentityObservation(
+      {
+        id: "205a4a65-a745-40f1-b20d-77d8bafba41a",
+        displayName: "foundry-baseline-agents-resource-foundry-baseline-agents-ai-runtime-soc-AgentIdentity",
+        servicePrincipalType: "ServiceIdentity",
+        tags: [
+          "agentGuid:c4536860-d56f-4459-bf56-a643b78f3d67",
+          "projectId:foundry-baseline-agents-resource@foundry-baseline-agents@AML",
+          "region:eastus2"
+        ]
+      },
+      { id: "c1", name: "CTCYBERLABS", environment: "production", config: {}, secrets: {} },
+      "7a570fd1-8a60-4115-9e1b-68f9102f4eab"
+    );
+    linkEntraIdentitiesToFoundryAgents([ident]);
+    assert.equal(ident.name, "ai-runtime-soc");
+    assert.match(String(ident.metadata.entraDisplayName), /AgentIdentity/);
+    assert.equal(ident.model, null);
+    assert.equal(applyInferredFoundryName(ident, ident.metadata.foundryLink), "ai-runtime-soc");
+  });
+
+  it("reads GPT-4o from the agent version when the list omits definition.model", async () => {
+    const ident = entraAgentIdentityObservation(
+      {
+        id: "205a4a65-a745-40f1-b20d-77d8bafba41a",
+        displayName: "foundry-baseline-agents-resource-foundry-baseline-agents-ai-runtime-soc-AgentIdentity",
+        servicePrincipalType: "ServiceIdentity",
+        tags: [
+          "agentGuid:c4536860-d56f-4459-bf56-a643b78f3d67",
+          "projectId:foundry-baseline-agents-resource@foundry-baseline-agents@AML",
+          "region:eastus2"
+        ]
+      },
+      {
+        id: "c1",
+        name: "CTCYBERLABS",
+        environment: "production",
+        config: { subscriptionId: "sub-1", tenantId: "t", clientId: "c" },
+        secrets: { clientSecret: "s" }
+      },
+      "7a570fd1-8a60-4115-9e1b-68f9102f4eab"
+    );
+    const errors = [];
+    await enrichEntraIdentitiesFromFoundryTags(
+      {
+        config: { subscriptionId: "sub-1", tenantId: "t", clientId: "c" },
+        secrets: { clientSecret: "s" }
+      },
+      [ident],
+      errors,
+      {
+        getDataToken: async () => "token",
+        listAgents: async () => ({
+          ok: true,
+          agents: [{ id: "c4536860-d56f-4459-bf56-a643b78f3d67", name: "ai-runtime-soc", versions: { latest: {} } }]
+        }),
+        getAgent: async (_token, _endpoint, name) => ({
+          ok: true,
+          agent: {
+            id: "c4536860-d56f-4459-bf56-a643b78f3d67",
+            name,
+            versions: { latest: { definition: { kind: "prompt", model: "gpt-4o" } } }
+          }
+        })
+      }
+    );
+    assert.equal(ident.name, "ai-runtime-soc");
+    assert.equal(ident.model, "gpt-4o");
+    assert.equal(ident.metadata.modelSource, "azure_foundry_agents");
+    assert.equal(ident.metadata.deep.foundationModel, "gpt-4o");
+  });
+
+  it("keeps the Foundry name when the Agents API is denied", async () => {
+    const ident = entraAgentIdentityObservation(
+      {
+        id: "205a4a65-a745-40f1-b20d-77d8bafba41a",
+        displayName: "foundry-baseline-agents-resource-foundry-baseline-agents-ai-runtime-soc-AgentIdentity",
+        servicePrincipalType: "ServiceIdentity",
+        tags: [
+          "agentGuid:c4536860-d56f-4459-bf56-a643b78f3d67",
+          "projectId:foundry-baseline-agents-resource@foundry-baseline-agents@AML"
+        ]
+      },
+      {
+        id: "c1",
+        name: "CTCYBERLABS",
+        environment: "production",
+        config: { subscriptionId: "sub-1", tenantId: "t", clientId: "c" },
+        secrets: { clientSecret: "s" }
+      },
+      "7a570fd1-8a60-4115-9e1b-68f9102f4eab"
+    );
+    const errors = [];
+    await enrichEntraIdentitiesFromFoundryTags(
+      {
+        config: { subscriptionId: "sub-1", tenantId: "t", clientId: "c" },
+        secrets: { clientSecret: "s" }
+      },
+      [ident],
+      errors,
+      {
+        getDataToken: async () => "token",
+        listAgents: async () => ({ ok: false, agents: [], error: "HTTP 403 Forbidden", permissionDenied: true }),
+        getAgent: async () => ({ ok: false, agent: null, error: "HTTP 403 Forbidden", permissionDenied: true })
+      }
+    );
+    assert.equal(ident.name, "ai-runtime-soc");
+    assert.equal(ident.model, null);
+    assert.equal(ident.metadata.modelSource, "foundry_unreadable");
+    assert.match(ident.metadata.evidence.join(" "), /403/);
   });
 
   it("strips stale microsoft-agent-identity on API read", () => {

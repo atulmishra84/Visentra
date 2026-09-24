@@ -383,8 +383,15 @@ export function InventoryPage({ title }: { title: string }) {
     {
       key: "model",
       header: "Model / signal",
-      render: (agent) => valueAt(agent, ["model", "primaryModel", "models"]),
-      sortValue: (agent) => valueAt(agent, ["model", "primaryModel", "models"])
+      render: (agent) => {
+        const deep = ((agent.metadata || {}) as Record<string, unknown>).deep as Record<string, unknown> | undefined;
+        return (
+          valueAt(agent, ["model", "primaryModel", "models"], "") ||
+          valueAt(deep || {}, ["foundationModel"], "") ||
+          "—"
+        );
+      },
+      sortValue: (agent) => valueAt(agent, ["model", "primaryModel", "models"], "")
     },
     {
       key: "cloud",
