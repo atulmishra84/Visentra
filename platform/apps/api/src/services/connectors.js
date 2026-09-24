@@ -450,7 +450,7 @@ export async function testConnector(pool, tenantId, id) {
           // Compact summary — full GraphProbe is returned as a structured field.
           message =
             `${message} Capabilities: arm=${c.arm}, entraAgentIdDiscovery=${c.entraAgentIdDiscovery}, ` +
-            `agent365CatalogDiscovery=${c.agent365CatalogDiscovery}`;
+            `foundryAgentRead=${c.foundryAgentRead}, agent365CatalogDiscovery=${c.agent365CatalogDiscovery}`;
         }
         await pool.query(
           `UPDATE connectors SET status=$3, last_tested_at=NOW(), last_error=$4, updated_at=NOW()

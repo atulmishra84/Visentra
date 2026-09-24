@@ -2029,6 +2029,77 @@ async function readGraphProbeFailure(res) {
 }
 
 /**
+ * Read-only check that this credential can list Foundry agents.
+ * ARM success alone does not identify the agent or its model.
+ */
+export async function probeFoundryAgentRead({ armToken, dataToken, subscriptionId }) {
+  if (!dataToken) {
+    return {
+      ok: false,
+      message:
+        "Foundry agent read is not available: no Azure AI data-plane token. Assign Azure AI User or Cognitive Services OpenAI User on the Foundry account. Test can still pass on ARM, but the scanner cannot read the agent definition or GPT model."
+    };
+  }
+  if (!armToken || !subscriptionId) {
+    return { ok: false, message: "Foundry agent read skipped: ARM token or subscription id missing." };
+  }
+  const accountsUrl =
+    `https://management.azure.com/subscriptions/${subscriptionId}/providers/Microsoft.CognitiveServices/accounts` +
+    `?api-version=${COGNITIVE_API_VERSION}`;
+  const accountsRes = await armGet(armToken, accountsUrl, { optional: true });
+  if (!accountsRes.ok) {
+    return {
+      ok: false,
+      message: `Foundry accounts are not readable (${accountsRes.error || "ARM list failed"}). The scanner cannot identify Foundry agents until this credential can list Microsoft.CognitiveServices/accounts.`
+    };
+  }
+  const accounts = (accountsRes.json?.value || []).slice(0, 5);
+  if (!accounts.length) {
+    return {
+      ok: false,
+      message:
+        "No Foundry / Cognitive Services accounts are visible in this subscription. Entra Agent ID rows can still be listed, but there is no Foundry project for the scanner to identify."
+    };
+  }
+  let lastError = null;
+  for (const account of accounts) {
+    const host = accountEndpointHost(account);
+    if (!host) continue;
+    const projectsResult = await listCognitiveProjects(armToken, account);
+    const projects = projectsResult.projects?.length
+      ? projectsResult.projects
+      : [{ name: "_project" }];
+    for (const project of projects.slice(0, 3)) {
+      const endpoint = foundryProjectEndpoint(host, project.name || "_project");
+      const listed = await listFoundryAgents(dataToken, endpoint);
+      if (listed.ok) {
+        const count = (listed.agents || []).length;
+        return {
+          ok: true,
+          accountName: account.name,
+          projectName: project.name || "_project",
+          agentCount: count,
+          message: `Foundry agent read OK on ${account.name}/${project.name || "_project"} (${count} agent${count === 1 ? "" : "s"}).`
+        };
+      }
+      lastError = listed.error || lastError;
+      if (listed.permissionDenied) {
+        return {
+          ok: false,
+          message: `Foundry account ${account.name} is visible, but the Agents API denied the read (${lastError}). Assign Azure AI User or Cognitive Services OpenAI User on that account, then Test and Scan cloud again. Until then the scanner cannot identify the agent model.`
+        };
+      }
+    }
+  }
+  return {
+    ok: false,
+    message:
+      lastError ||
+      "Foundry accounts were listed, but no project Agents API responded. Check the account endpoint and Azure AI User role."
+  };
+}
+
+/**
  * Non-destructive capability probe — does not scan the full subscription.
  */
 export async function validateAzureConnectorCapabilities(conn) {
@@ -2239,11 +2310,20 @@ export async function validateAzureConnectorCapabilities(conn) {
     graphHints.push(`Graph token/probe failed: ${sanitizeAzureError(err)}`);
   }
 
+  const foundryRead = await probeFoundryAgentRead({
+    armToken: token,
+    dataToken: aiToken || cogToken || null,
+    subscriptionId
+  });
+  capabilities.foundryAgentRead = foundryRead.ok;
+  capabilities.foundryDataPlaneToken = Boolean(aiToken || cogToken);
+
   const messageParts = [
     capabilities.arm
       ? "Azure connector capability probe completed (read-only)."
       : "Azure ARM capability probe failed."
   ];
+  if (foundryRead.message) messageParts.push(foundryRead.message);
   if (graphHints.length) messageParts.push(...graphHints);
   if (capabilities.entraAgentIdDiscovery && capabilities.agent365CatalogDiscovery) {
     messageParts.push("Entra Agent ID + Agent 365 catalog Graph probes OK.");
@@ -3776,6 +3856,10 @@ export async function discoverAzureEcosystem(conn) {
 
   await enrichEntraIdentitiesFromFoundryTags(conn, observations, discoveryErrors);
   linkEntraIdentitiesToFoundryAgents(observations);
+  stats.discoveryErrors = discoveryErrors.length;
+  stats.discoveryErrorSamples = discoveryErrors.slice(0, 25);
+  stats.cloudResourcesIngested = observations.length;
+  stats.agentsDiscovered = observations.filter((o) => o?.metadata?.agentStatus === "confirmed").length;
 
   const entraDenied = discoveryErrors.some(
     (e) => e.collector === "entraAgentId" && e.discoveryStatus === "permission_denied"
@@ -3797,7 +3881,18 @@ export async function discoverAzureEcosystem(conn) {
       `Entra Agent ID plane returned 0 identities${attemptSummary ? ` [${attemptSummary}]` : ""}. If Entra shows Agent identities, grant AgentIdentity.Read.All + admin consent, confirm Connector Test entraAgentIdDiscovery=true, re-scan, and use Inventory → All (Cloud filter used to hide category=identity).`;
   } else if (stats.ecosystem.agent365CatalogAgents === 0 && a365Denied) {
     stats.warning =
-      "Agent 365 catalog denied — grant CopilotPackages.Read.All + Agent 365 license, admin-consent, then re-scan.";
+      "Agent 365 catalog denied — grant CopilotPackages.Read.All + Agent 365 license, admin-consent, then re-scan. Agent 365 is not required to identify Foundry agents.";
+  }
+
+  const foundryDenied = discoveryErrors.some(
+    (e) =>
+      /foundry/i.test(String(e.discoveryType || "")) &&
+      (e.discoveryStatus === "permission_denied" || /403|401|denied/i.test(String(e.error || "")))
+  );
+  if (foundryDenied) {
+    const foundryNote =
+      "Foundry agent definitions were not readable. Assign Azure AI User or Cognitive Services OpenAI User on the Foundry account, then re-scan. The GPT model stays empty until that role is granted.";
+    stats.warning = stats.warning ? `${foundryNote} ${stats.warning}` : foundryNote;
   }
 
   return {
