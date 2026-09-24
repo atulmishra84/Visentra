@@ -2490,6 +2490,207 @@ export function linkEntraIdentitiesToFoundryAgents(observations = []) {
   return list;
 }
 
+export function foundryProjectEndpointCandidates(accountName, projectName, region = null) {
+  const account = String(accountName || "").trim();
+  const project = encodeURIComponent(String(projectName || "").trim() || "_project");
+  if (!account) return [];
+  const hosts = [`${account}.services.ai.azure.com`, `${account}.cognitiveservices.azure.com`];
+  if (region) hosts.push(`${account}.${String(region).trim()}.models.ai.azure.com`);
+  return [...new Set(hosts)].map((host) => `https://${host}/api/projects/${project}`);
+}
+
+function pickFoundryAgentFromList(agents, ident, tags) {
+  const list = Array.isArray(agents) ? agents : [];
+  const guid = String(tags.agentGuid || "").toLowerCase();
+  const inferred = String(
+    tags.inferredAgentName || inferFoundryAgentNameFromIdentity(ident.name, tags) || ""
+  ).toLowerCase();
+  return (
+    list.find((a) => guid && String(a.id || "").toLowerCase() === guid) ||
+    list.find((a) => inferred && String(a.name || "").toLowerCase() === inferred) ||
+    list.find((a) => inferred && String(a.id || "").toLowerCase() === inferred) ||
+    null
+  );
+}
+
+function foundryFindingFromAgent(agent, tags, resourceId) {
+  const latest = agent.versions?.latest || agent.version || {};
+  const agentName = agent.name || agent.id;
+  const agentId = agent.id || tags.agentGuid || agentName;
+  return {
+    kind: "agent",
+    detectionMethod: "azure_foundry_api",
+    agentId,
+    agentName,
+    agentType: latest.definition?.kind || agent.kind || agent.object || "agent",
+    agentStatus: "confirmed",
+    runtimeStatus: "unknown",
+    deploymentStatus: null,
+    lastSeenAt: latest.created_at ? new Date(Number(latest.created_at) * 1000).toISOString() : null,
+    source: "azure_foundry_agents",
+    projectName: tags.projectName,
+    projectEndpoint: tags.projectEndpoint || null,
+    resourceId,
+    region: tags.region || null,
+    confidence: 0.96,
+    evidence: [
+      "Agent resource returned by Azure Foundry Agents API",
+      `Project=${tags.projectName}`,
+      "Resolved from Entra Agent ID Foundry tags (ARM list not required)"
+    ],
+    runtimeReason: "Foundry prompt/workflow agents do not expose continuous runtime state via the Agents API",
+    containerAppId: null,
+    foundationModel: extractFoundryFoundationModel(agent, latest),
+    description: latest.definition?.description || agent.description || null,
+    instructionText:
+      latest.definition?.instructions || latest.definition?.system_prompt || agent.instructions || null,
+    tools: latest.definition?.tools || latest.definition?.actions || agent.tools || [],
+    knowledgeBases: latest.definition?.knowledge_bases || latest.definition?.vector_stores || []
+  };
+}
+
+/**
+ * When ARM never listed the Cognitive account, Entra identities still carry
+ * Foundry project/agent tags. Call the Foundry Agents API directly and stamp
+ * the real foundation model (e.g. gpt-4o) on those identities.
+ */
+export async function enrichEntraIdentitiesFromFoundryTags(
+  conn,
+  observations = [],
+  discoveryErrors = [],
+  { listAgents = listFoundryAgents, getDataToken = null } = {}
+) {
+  const entra = observations.filter(isEntraAgentIdentityObservation);
+  const needed = entra.filter((obs) => {
+    const tags = obs.metadata?.foundryLink || parseEntraIdentityTags(obs.metadata?.tags);
+    return tags.accountName && tags.projectName && isPlaceholderFoundationModel(obs.model);
+  });
+  if (!needed.length) return observations;
+
+  const creds = {
+    tenantId: conn?.config?.tenantId,
+    clientId: conn?.config?.clientId,
+    clientSecret: conn?.secrets?.clientSecret
+  };
+  let dataToken = null;
+  if (typeof getDataToken === "function") {
+    dataToken = await getDataToken(creds);
+  } else {
+    dataToken =
+      (await getOptionalToken(creds, AI_DATA_SCOPE)) || (await getOptionalToken(creds, COGNITIVE_SCOPE));
+  }
+  if (!dataToken) {
+    discoveryErrors.push({
+      collector: "entraAgentId",
+      discoveryType: "foundry-from-entra-tags",
+      discoveryStatus: "error",
+      error:
+        "Could not get Azure AI data-plane token to read Foundry agent models. Grant the connector Azure AI User or Cognitive Services OpenAI User on the Foundry account/project."
+    });
+    return observations;
+  }
+
+  const projectCache = new Map();
+  const extraObservations = [];
+  for (const ident of needed) {
+    const tags = {
+      ...(ident.metadata?.foundryLink || parseEntraIdentityTags(ident.metadata?.tags)),
+      inferredAgentName:
+        ident.metadata?.foundryLink?.inferredAgentName ||
+        inferFoundryAgentNameFromIdentity(ident.name, ident.metadata?.foundryLink || {})
+    };
+    const endpoints = foundryProjectEndpointCandidates(tags.accountName, tags.projectName, tags.region);
+    let agents = [];
+    let usedEndpoint = null;
+    let lastError = null;
+    for (const endpoint of endpoints) {
+      if (projectCache.has(endpoint)) {
+        const cached = projectCache.get(endpoint);
+        if (cached.ok) {
+          agents = cached.agents;
+          usedEndpoint = endpoint;
+          break;
+        }
+        lastError = cached.error;
+        continue;
+      }
+      const result = await listAgents(dataToken, endpoint);
+      projectCache.set(endpoint, {
+        ok: Boolean(result?.ok),
+        agents: result?.agents || [],
+        error: result?.error || null,
+        permissionDenied: Boolean(result?.permissionDenied)
+      });
+      if (result?.ok) {
+        agents = result.agents || [];
+        usedEndpoint = endpoint;
+        break;
+      }
+      lastError = result?.error || lastError;
+    }
+    if (!usedEndpoint) {
+      discoveryErrors.push({
+        collector: "entraAgentId",
+        discoveryType: "foundry-from-entra-tags",
+        discoveryStatus: lastError && /403|401|denied/i.test(String(lastError)) ? "permission_denied" : "error",
+        error:
+          lastError ||
+          `Foundry Agents API not reachable for ${tags.accountName}/${tags.projectName}. Need Azure AI User on the project to read the GPT model.`,
+        projectName: tags.projectName,
+        accountName: tags.accountName
+      });
+      continue;
+    }
+    tags.projectEndpoint = usedEndpoint;
+    const agent = pickFoundryAgentFromList(agents, ident, tags);
+    if (!agent) {
+      ident.metadata = ident.metadata || {};
+      ident.metadata.evidence = [
+        ...(ident.metadata.evidence || []),
+        `Foundry project ${tags.projectName} listed ${agents.length} agent(s) but none matched ${tags.inferredAgentName || tags.agentGuid}.`
+      ];
+      continue;
+    }
+    const subscriptionId = conn?.config?.subscriptionId || "unknown";
+    const resource = {
+      id: `/subscriptions/${subscriptionId}/resourceGroups/unknown/providers/Microsoft.CognitiveServices/accounts/${tags.accountName}`,
+      name: tags.accountName,
+      type: "Microsoft.CognitiveServices/accounts",
+      location: tags.region || null,
+      kind: "AIServices"
+    };
+    const finding = foundryFindingFromAgent(agent, tags, resource.id);
+    const already = observations.some(
+      (o) =>
+        isFoundryAgentObservation(o) &&
+        (o.agent?.agentId === finding.agentId ||
+          String(o.agent?.agentName || "").toLowerCase() === String(finding.agentName || "").toLowerCase())
+    );
+    let foundryObs = observations.find(
+      (o) =>
+        isFoundryAgentObservation(o) &&
+        (o.agent?.agentId === finding.agentId ||
+          String(o.agent?.agentName || "").toLowerCase() === String(finding.agentName || "").toLowerCase())
+    );
+    if (!already) {
+      foundryObs = agentObservationFromFinding(finding, resource, conn, classifyAzureResource(resource));
+      extraObservations.push(foundryObs);
+      observations.push(foundryObs);
+    }
+    if (foundryObs) applyFoundryModelToIdentity(ident, foundryObs, tags);
+  }
+  if (extraObservations.length) {
+    discoveryErrors.push({
+      collector: "entraAgentId",
+      discoveryType: "foundry-from-entra-tags",
+      discoveryStatus: "ok",
+      error: null,
+      foundryAgentsLinked: extraObservations.length
+    });
+  }
+  return observations;
+}
+
 function dedupeById(items = []) {
   const seen = new Set();
   const out = [];
@@ -3392,6 +3593,7 @@ export async function discoverAzureEcosystem(conn) {
     statsByCollector,
   };
 
+  await enrichEntraIdentitiesFromFoundryTags(conn, observations, discoveryErrors);
   linkEntraIdentitiesToFoundryAgents(observations);
 
   const entraDenied = discoveryErrors.some(
