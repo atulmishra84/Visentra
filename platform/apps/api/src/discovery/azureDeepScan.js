@@ -2771,6 +2771,14 @@ export function linkEntraIdentitiesToFoundryAgents(observations = []) {
     const match = foundry.find((f) => matchIdentityToFoundry(ident, tags, f));
     if (match) {
       applyFoundryModelToIdentity(ident, match, ident.metadata.foundryLink);
+    } else if (
+      ident.metadata.modelSource === "azure_cognitive_deployment" ||
+      ident.metadata.modelSource === "azure_foundry_agents" ||
+      ident.metadata.modelSource === "foundry_unreadable"
+    ) {
+      if (isPlaceholderFoundationModel(ident.model) && ident.metadata.modelSource !== "azure_cognitive_deployment") {
+        ident.model = null;
+      }
     } else {
       if (isPlaceholderFoundationModel(ident.model)) ident.model = null;
       ident.metadata.modelSource = ident.metadata.modelSource || "unknown";
@@ -2781,6 +2789,33 @@ export function linkEntraIdentitiesToFoundryAgents(observations = []) {
     }
   }
   return list;
+}
+
+/** Project data-plane URLs published by ARM. These are the only hosts that are known to exist. */
+export function foundryEndpointsFromArmProject(project) {
+  const props = project?.properties || {};
+  const endpoints = props.endpoints && typeof props.endpoints === "object" ? props.endpoints : {};
+  const urls = [];
+  for (const value of [props.endpoint, ...Object.values(endpoints)]) {
+    if (typeof value !== "string" || !/^https:\/\//i.test(value)) continue;
+    urls.push(value.replace(/\/$/, ""));
+  }
+  return [...new Set(urls)];
+}
+
+export function explainFoundryHttpStatus(status, error) {
+  const text = String(error || "");
+  const code = Number(status) || (/403/.test(text) ? 403 : /404/.test(text) ? 404 : 0);
+  if (code === 403 || /forbidden|authorizationfailed/i.test(text)) {
+    return "403 Forbidden: the connector signed in, but it is not allowed to read this Foundry project. Assign Azure AI User or Cognitive Services OpenAI User on the Foundry account. An Agent 365 license does not fix this.";
+  }
+  if (code === 404) {
+    return "404 Not Found: that URL is not the Foundry agent route for this project. The scanner uses the project endpoint Azure publishes on the account, then the assistants route hub projects actually serve.";
+  }
+  if (/ENOTFOUND|getaddrinfo/i.test(text)) {
+    return "DNS lookup failed: the resource name is not a Foundry hostname. The scanner must call the endpoint stored on the Cognitive Services project.";
+  }
+  return null;
 }
 
 export function foundryProjectEndpointCandidates(accountName, projectName, region = null, extraHosts = []) {
@@ -2964,7 +2999,14 @@ export async function enrichEntraIdentitiesFromFoundryTags(
   conn,
   observations = [],
   discoveryErrors = [],
-  { listAgents = listFoundryAgents, getAgent = getFoundryAgent, getDataToken = null, listAccounts = null, listDeployments = null } = {}
+  {
+    listAgents = listFoundryAgents,
+    getAgent = getFoundryAgent,
+    getDataToken = null,
+    listAccounts = null,
+    listProjects = null,
+    listDeployments = null
+  } = {}
 ) {
   const entra = observations.filter(isEntraAgentIdentityObservation);
   for (const ident of entra) {
@@ -3041,12 +3083,23 @@ export async function enrichEntraIdentitiesFromFoundryTags(
       (account) => String(account?.name || "").toLowerCase() === String(tags.accountName || "").toLowerCase()
     );
     if (match) armHosts = accountEndpointHosts(match);
-    const endpoints = foundryProjectEndpointCandidates(
-      tags.accountName,
-      tags.projectName,
-      tags.region,
-      armHosts
-    );
+    let armProjectEndpoints = [];
+    if (match) {
+      const projects =
+        typeof listProjects === "function"
+          ? await listProjects(match)
+          : armToken
+            ? (await listCognitiveProjects(armToken, match)).projects || []
+            : [];
+      const named = (projects || []).find(
+        (project) => String(project?.name || "").toLowerCase() === String(tags.projectName || "").toLowerCase()
+      );
+      armProjectEndpoints = foundryEndpointsFromArmProject(named);
+    }
+    const endpoints = [
+      ...armProjectEndpoints,
+      ...foundryProjectEndpointCandidates(tags.accountName, tags.projectName, tags.region, armHosts)
+    ].filter((url, index, all) => all.indexOf(url) === index);
     let agent = null;
     let usedEndpoint = null;
     let lastError = null;
@@ -3075,9 +3128,14 @@ export async function enrichEntraIdentitiesFromFoundryTags(
       lastError = resolved.error || lastError;
     }
     if (!usedEndpoint) {
-      const note =
+      const why = explainFoundryHttpStatus(null, lastError);
+      const note = [
         lastError ||
-        `Foundry Agents API not reachable for ${tags.accountName}/${tags.projectName}. Need Azure AI User on the project to read the GPT model.`;
+          `Foundry Agents API not reachable for ${tags.accountName}/${tags.projectName}. Need Azure AI User on the project to read the GPT model.`,
+        why
+      ]
+        .filter(Boolean)
+        .join(" ");
       const fromDeployment = await applyAccountDeploymentModel(ident, match, readDeployments);
       if (!fromDeployment) ident.metadata.modelSource = "foundry_unreadable";
       ident.metadata.evidence = [...(ident.metadata.evidence || []), note];
