@@ -1154,7 +1154,7 @@ function agentObservationFromFinding(finding, resource, conn, classification) {
   return alignObservationWithDeepSurface(
     resourceToObservation(resource, conn, classification, {
       fingerprint: `azure-agent:${conn.config.subscriptionId}:${agentId}`,
-      name: `${finding.agentName || agentId} (Azure Agent)`,
+      name: finding.agentName || agentId,
       framework: finding.agentType || "azure-agent",
       model: finding.foundationModel || null,
       confidence: finding.confidence,
@@ -2426,13 +2426,44 @@ function matchIdentityToFoundry(ident, tags, foundry) {
   return false;
 }
 
+function foundryAgentName(foundry) {
+  const raw =
+    foundry?.agent?.agentName ||
+    foundry?.metadata?.agentName ||
+    foundry?.metadata?.deep?.displayName ||
+    foundry?.name ||
+    "";
+  const name = String(raw)
+    .replace(/\s*\((Azure Agent|Entra Agent ID)\)\s*$/i, "")
+    .trim();
+  return name || null;
+}
+
 function applyFoundryModelToIdentity(ident, foundry, tags) {
   const model = foundryObservationModel(foundry);
+  const agentName = foundryAgentName(foundry);
   ident.metadata = ident.metadata || {};
   ident.metadata.foundryLink = tags;
   ident.metadata.linkedFoundryFingerprint = foundry.fingerprint || null;
   ident.metadata.linkedFoundryAgentId =
     foundry.agent?.agentId || foundry.metadata?.deep?.agentId || null;
+  if (!ident.metadata.entraDisplayName) {
+    ident.metadata.entraDisplayName = ident.name || null;
+  }
+  if (agentName) {
+    ident.name = agentName;
+    ident.metadata.agentName = agentName;
+    if (ident.metadata.deep && typeof ident.metadata.deep === "object") {
+      ident.metadata.deep.displayName = agentName;
+    }
+    if (ident.agent && typeof ident.agent === "object") {
+      ident.agent.agentName = agentName;
+    }
+    ident.metadata.evidence = [
+      ...(ident.metadata.evidence || []),
+      `Agent name ${agentName} copied from the Foundry definition.`
+    ];
+  }
   if (!model) {
     ident.metadata.modelSource = "unknown";
     return;
