@@ -127,4 +127,25 @@ describe("Azure scanner v2", () => {
     assert.match(result.observations[0].metadata.evidence.join(" "), /403 Forbidden/);
     assert.equal(result.discoveryErrors.some((item) => item.discoveryStatus === "permission_denied"), true);
   });
+
+  it("probes foundryAgentRead capability", async () => {
+    const { probeFoundryAgentReadCapability } = await import("../azureScanner.js");
+    const endpoint = "https://real.services.ai.azure.com/api/projects/p1";
+    const result = await probeFoundryAgentReadCapability(conn, {
+      getToken: async () => "token",
+      listAccounts: async () => [{ id: "/accounts/a1", name: "a1" }],
+      listProjects: async () => [
+        { name: "p1", properties: { endpoints: { "AI Foundry API": endpoint } } }
+      ],
+      request: async (_token, url) => {
+        if (url.startsWith(`${endpoint}/assistants?`)) {
+          return { ok: true, status: 200, json: { data: [{ id: "asst_1", name: "test-agent" }] } };
+        }
+        return { ok: false, status: 404, json: {}, error: "404" };
+      }
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.agentCount, 1);
+    assert.match(result.message, /foundryAgentRead=true/);
+  });
 });

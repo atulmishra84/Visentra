@@ -442,6 +442,14 @@ export async function testConnector(pool, tenantId, id) {
           config,
           secrets
         });
+        const { probeFoundryAgentReadCapability } = await import("../discovery/azureScanner.js");
+        const fRead = await probeFoundryAgentReadCapability({ config, secrets });
+        if (caps?.capabilities) {
+          caps.capabilities.foundryAgentRead = fRead.ok;
+          if (fRead.message) {
+            caps.message = `${caps.message || ""} ${fRead.message}`.trim();
+          }
+        }
         if (caps?.message) {
           message = `${message} ${caps.message}`;
         }

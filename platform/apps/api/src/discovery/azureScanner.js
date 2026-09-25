@@ -293,6 +293,77 @@ async function defaultDataGet(token, url) {
   return httpJson(url, token, policy);
 }
 
+export async function probeFoundryAgentReadCapability(conn, deps = {}) {
+  const creds = {
+    tenantId: conn?.config?.tenantId,
+    clientId: conn?.config?.clientId,
+    clientSecret: conn?.secrets?.clientSecret
+  };
+  const subscriptionId = conn?.config?.subscriptionId;
+  const getToken = deps.getToken || accessToken;
+  const listAccounts = deps.listAccounts || (async (token) => defaultArmAccounts(token, subscriptionId));
+  const listProjects = deps.listProjects || defaultProjects;
+  const request = deps.request || defaultDataGet;
+
+  let armToken = null;
+  let dataToken = null;
+  try {
+    armToken = await getToken(creds, ARM_SCOPE);
+  } catch (err) {
+    return { ok: false, message: `ARM auth failed: ${sanitize(err)}` };
+  }
+
+  try {
+    dataToken =
+      (await getToken(creds, AI_SCOPE).catch(() => null)) ||
+      (await getToken(creds, COGNITIVE_SCOPE).catch(() => null));
+  } catch {
+    dataToken = null;
+  }
+
+  if (!dataToken) {
+    return {
+      ok: false,
+      message:
+        "foundryAgentRead=false: no Azure AI data-plane token could be acquired. Assign Azure AI User or Cognitive Services OpenAI User."
+    };
+  }
+
+  const accounts = await listAccounts(armToken);
+  if (!accounts?.length) {
+    return {
+      ok: false,
+      message: "foundryAgentRead=false: no Cognitive Services or Foundry accounts visible in this subscription."
+    };
+  }
+
+  let lastError = null;
+  for (const account of accounts.slice(0, 5)) {
+    const projects = await listProjects(armToken, account);
+    for (const project of (projects || []).slice(0, 3)) {
+      const endpoints = projectEndpoints(project);
+      for (const endpoint of endpoints) {
+        const result = await readFoundryAgents(dataToken, endpoint, (token, url) => request(token, url));
+        if (result.ok) {
+          return {
+            ok: true,
+            accountName: account.name,
+            projectName: project.name,
+            agentCount: (result.agents || []).length,
+            message: `foundryAgentRead=true on ${account.name}/${project.name} (${(result.agents || []).length} agents listed).`
+          };
+        }
+        lastError = result.error || lastError;
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    message: lastError || "foundryAgentRead=false: could not read any project agents endpoint."
+  };
+}
+
 /**
  * Live Azure scan. Dependencies are injectable for tests.
  */
