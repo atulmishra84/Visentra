@@ -35,7 +35,8 @@ async function httpJson(url, token, policy) {
     policy
   );
   const json = await res.json().catch(() => ({}));
-  return { ok: res.ok, status: res.status, json };
+  const error = json?.error?.message || json?.message || null;
+  return { ok: res.ok, status: res.status, json, error };
 }
 
 async function accessToken(creds, scope) {
@@ -94,6 +95,20 @@ export function inferFoundryName(displayName, tags = {}) {
   return name || null;
 }
 
+/** ARM project name is often `account/project`. The data-plane name is the last segment. */
+export function projectLeafName(project) {
+  const fromId = String(project?.id || "").split("/projects/").pop();
+  const name = String(project?.name || "");
+  return (fromId || name.split("/").filter(Boolean).pop() || name).trim();
+}
+
+export function projectMatches(project, projectName) {
+  const wanted = String(projectName || "").toLowerCase();
+  if (!wanted) return false;
+  const full = String(project?.name || "").toLowerCase();
+  return full === wanted || projectLeafName(project).toLowerCase() === wanted;
+}
+
 export function projectEndpoints(project) {
   const props = project?.properties || {};
   const bag = props.endpoints && typeof props.endpoints === "object" ? props.endpoints : {};
@@ -108,7 +123,7 @@ export function explainStatus(status, error) {
   const text = String(error || "");
   const code = Number(status) || (/403/.test(text) ? 403 : /404/.test(text) ? 404 : 0);
   if (code === 401 || code === 403 || /forbidden|authorizationfailed/i.test(text)) {
-    return "403 Forbidden: sign-in worked, but this app cannot read the Foundry project. Assign Azure AI User or Cognitive Services OpenAI User on the account. Agent 365 does not grant this.";
+    return "403 Forbidden: sign-in worked, but this app cannot read Foundry agents. Azure AI Developer in this catalog only includes OpenAI data actions. Add a custom role whose data action is Microsoft.CognitiveServices/accounts/AIServices/agents/read.";
   }
   if (code === 404) {
     return "404 Not Found: this URL is not the agent route for the project. Hub projects (@AML) do not serve /agents?api-version=v1; the scanner uses the ARM project endpoint and then /assistants.";
@@ -251,34 +266,58 @@ async function defaultGraphIdentities(token) {
   return { ok: true, status: 200, items: result.json.value || [] };
 }
 
+const ARM_PAGE_LIMIT = 20;
+
+/**
+ * Azure often returns an empty first page plus nextLink. Stopping on page 1
+ * hides Foundry accounts that appear on later pages.
+ */
+export async function collectArmPageValues(startUrl, fetchPage, { maxPages = ARM_PAGE_LIMIT } = {}) {
+  const items = [];
+  let next = startUrl;
+  const seen = new Set();
+  for (let page = 0; page < maxPages && next; page += 1) {
+    if (seen.has(next)) break;
+    seen.add(next);
+    const pageResult = await fetchPage(next);
+    if (!pageResult?.ok) {
+      if (page === 0) return [];
+      break;
+    }
+    items.push(...(pageResult.value || []));
+    next = pageResult.nextLink || null;
+  }
+  return items;
+}
+
+async function listArmValues(token, url) {
+  return collectArmPageValues(url, async (pageUrl) => {
+    const result = await httpJson(pageUrl, token, ALLOW.azureArm);
+    return {
+      ok: result.ok,
+      value: result.json?.value || [],
+      nextLink: result.json?.nextLink || null
+    };
+  });
+}
+
 async function defaultArmAccounts(token, subscriptionId) {
-  const result = await httpJson(
-    `https://management.azure.com/subscriptions/${subscriptionId}/providers/Microsoft.CognitiveServices/accounts?api-version=${COGNITIVE_API}`,
+  return listArmValues(
     token,
-    ALLOW.azureArm
+    `https://management.azure.com/subscriptions/${subscriptionId}/providers/Microsoft.CognitiveServices/accounts?api-version=${COGNITIVE_API}`
   );
-  if (!result.ok) return [];
-  return result.json.value || [];
 }
 
 async function defaultProjects(token, account) {
   const id = String(account?.id || "");
-  const url = `https://management.azure.com${id}/projects?api-version=${COGNITIVE_API}`;
-  const result = await httpJson(url, token, ALLOW.azureArm);
-  if (!result.ok) return [];
-  return result.json.value || [];
+  if (!id) return [];
+  return listArmValues(token, `https://management.azure.com${id}/projects?api-version=${COGNITIVE_API}`);
 }
 
 async function defaultDeployments(token, account) {
   const id = String(account?.id || "");
   if (!id) return [];
-  const result = await httpJson(
-    `https://management.azure.com${id}/deployments?api-version=${COGNITIVE_API}`,
-    token,
-    ALLOW.azureArm
-  );
-  if (!result.ok) return [];
-  return result.json.value || [];
+  return listArmValues(token, `https://management.azure.com${id}/deployments?api-version=${COGNITIVE_API}`);
 }
 
 async function defaultDataGet(token, url) {
@@ -456,9 +495,7 @@ export async function discoverAzureScanner(conn, deps = {}) {
       const cacheKey = `${account.id || account.name}:${tags.projectName}`;
       if (!projectCache.has(cacheKey)) {
         const projects = await listProjects(account);
-        const named = (projects || []).find(
-          (project) => String(project.name || "").toLowerCase() === tags.projectName.toLowerCase()
-        );
+        const named = (projects || []).find((project) => projectMatches(project, tags.projectName));
         projectCache.set(cacheKey, { endpoints: projectEndpoints(named), account });
       }
       endpoints = projectCache.get(cacheKey).endpoints;
@@ -546,7 +583,7 @@ export async function discoverAzureScanner(conn, deps = {}) {
       cloudResourcesIngested: observations.length,
       discoveryErrors: discoveryErrors.length,
       warning: denied
-        ? "A 403 means the credential is missing a read role. Foundry models need Azure AI User on the account. Entra identities need AgentIdentity.Read.All. Agent 365 is not required."
+        ? "A 403 means the credential is missing Microsoft.CognitiveServices/accounts/AIServices/agents/read. Azure AI Developer in this catalog does not include that data action. Entra identities need AgentIdentity.Read.All."
         : null
     }
   };

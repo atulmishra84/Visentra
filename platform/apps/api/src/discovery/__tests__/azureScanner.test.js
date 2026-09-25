@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   chatDeploymentModel,
+  collectArmPageValues,
   discoverAzureScanner,
   explainStatus,
   inferFoundryName,
   parseFoundryTags,
-  projectEndpoints
+  projectEndpoints,
+  projectMatches
 } from "../azureScanner.js";
 
 const conn = {
@@ -41,7 +43,7 @@ describe("Azure scanner v2", () => {
   it("explains 404 and 403 as different failures", () => {
     assert.match(explainStatus(404, "missing"), /404 Not Found/);
     assert.match(explainStatus(403, "Forbidden"), /403 Forbidden/);
-    assert.match(explainStatus(403, "Forbidden"), /Agent 365/);
+    assert.match(explainStatus(403, "Forbidden"), /AIServices\/agents\/read/);
   });
 
   it("reads gpt-4o from the ARM project endpoint", async () => {
@@ -147,5 +149,52 @@ describe("Azure scanner v2", () => {
     assert.equal(result.ok, true);
     assert.equal(result.agentCount, 1);
     assert.match(result.message, /foundryAgentRead=true/);
+  });
+
+  it("matches an ARM project whose name is account/project", () => {
+    const project = {
+      name: "foundry-baseline-agents-resource/foundry-baseline-agents",
+      id: "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/foundry-baseline-agents-resource/projects/foundry-baseline-agents",
+      properties: { endpoints: { "AI Foundry API": "https://real.services.ai.azure.com/api/projects/foundry-baseline-agents" } }
+    };
+    assert.equal(projectMatches(project, "foundry-baseline-agents"), true);
+    assert.equal(
+      projectEndpoints(project)[0],
+      "https://real.services.ai.azure.com/api/projects/foundry-baseline-agents"
+    );
+  });
+
+  it("follows nextLink when the first ARM page is empty", async () => {
+    const pages = {
+      "https://management.azure.com/start": {
+        ok: true,
+        value: [],
+        nextLink: "https://management.azure.com/page-2"
+      },
+      "https://management.azure.com/page-2": {
+        ok: true,
+        value: [{ name: "foundry-test-agents-resource" }],
+        nextLink: "https://management.azure.com/page-4"
+      },
+      "https://management.azure.com/page-4": {
+        ok: true,
+        value: [{ name: "a365ct" }, { name: "foundry-baseline-agents-resource" }],
+        nextLink: null
+      }
+    };
+    const result = await collectArmPageValues("https://management.azure.com/start", async (url) => pages[url]);
+    assert.deepEqual(
+      result.map((account) => account.name),
+      ["foundry-test-agents-resource", "a365ct", "foundry-baseline-agents-resource"]
+    );
+  });
+
+  it("stops when ARM nextLink repeats", async () => {
+    const result = await collectArmPageValues("https://management.azure.com/loop", async () => ({
+      ok: true,
+      value: [{ name: "once" }],
+      nextLink: "https://management.azure.com/loop"
+    }));
+    assert.deepEqual(result.map((account) => account.name), ["once"]);
   });
 });
