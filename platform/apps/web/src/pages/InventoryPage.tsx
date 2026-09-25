@@ -384,12 +384,39 @@ export function InventoryPage({ title }: { title: string }) {
       key: "model",
       header: "Model / signal",
       render: (agent) => {
-        const deep = ((agent.metadata || {}) as Record<string, unknown>).deep as Record<string, unknown> | undefined;
-        return (
+        const meta = (agent.metadata || {}) as Record<string, unknown>;
+        const deep = meta.deep as Record<string, unknown> | undefined;
+        const found =
           valueAt(agent, ["model", "primaryModel", "models"], "") ||
-          valueAt(deep || {}, ["foundationModel"], "") ||
-          "—"
-        );
+          valueAt(deep || {}, ["foundationModel"], "");
+        if (found) return <span>{found}</span>;
+
+        const accessStatus = String(meta.modelAccessStatus || deep?.modelAccessStatus || "");
+        const guide = String(meta.remediationGuide || deep?.remediationGuide || "");
+
+        if (accessStatus === "restricted_403") {
+          return (
+            <span
+              className="badge warn"
+              title={guide || "Data plane access denied (403). Grant 'Azure AI User' or 'Cognitive Services OpenAI User'."}
+              style={{ cursor: "help" }}
+            >
+              Restricted (403)
+            </span>
+          );
+        }
+        if (accessStatus === "unreachable_404") {
+          return (
+            <span
+              className="badge"
+              title={guide || "Project endpoint not found on data plane (404)."}
+              style={{ cursor: "help" }}
+            >
+              Unreachable (404)
+            </span>
+          );
+        }
+        return "—";
       },
       sortValue: (agent) => valueAt(agent, ["model", "primaryModel", "models"], "")
     },

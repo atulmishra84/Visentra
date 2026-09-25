@@ -261,13 +261,43 @@ export function AgentDetailPage() {
                       : "warn"
               }
             />
-            <KpiCard label="Deep model" value={deepModel || "—"} />
+            <KpiCard
+              label="Deep model"
+              value={
+                deepModel ||
+                ((meta.modelAccessStatus as string) === "restricted_403"
+                  ? "Restricted (403)"
+                  : (meta.modelAccessStatus as string) === "unreachable_404"
+                    ? "Unreachable (404)"
+                    : "—")
+              }
+              tone={
+                deepModel
+                  ? "good"
+                  : (meta.modelAccessStatus as string) === "restricted_403"
+                    ? "warn"
+                    : "neutral"
+              }
+            />
             <KpiCard label="Deep lifecycle" value={deepLifecycle || "—"} />
             <KpiCard label="Deep tools" value={deepToolCount || "—"} />
             <KpiCard label="Deep KBs" value={deepKbCount || "—"} />
           </>
         ) : null}
       </section>
+
+      {meta.remediationGuide ? (
+        <section className="panel" style={{ marginBottom: 16 }}>
+          <h2>Access remediation</h2>
+          <div className="status-pill warn" style={{ display: "block", marginBottom: 8 }}>
+            {String(meta.remediationGuide)}
+          </div>
+          <p className="muted small">
+            Microsoft Entra Agent IDs do not store the foundation model directly; the definition must be read from the
+            Azure AI Foundry / Cognitive Services data plane.
+          </p>
+        </section>
+      ) : null}
 
       {meta.functionType || meta.functionTypeLabel ? (
         <section className="panel" style={{ marginBottom: 16 }}>

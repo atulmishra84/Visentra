@@ -92,6 +92,7 @@ export function ConnectorsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [azureScript, setAzureScript] = useState<string | null>(null);
 
   const providerSchema = schema[form.provider];
   const category =
@@ -136,10 +137,52 @@ export function ConnectorsPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const generateAzureSetupScript = (connector: Record<string, unknown>) => {
+    const config = (connector.config as Record<string, string>) || {};
+    const subId = config.subscriptionId || "<SUBSCRIPTION_ID>";
+    const clientId = config.clientId || "<CLIENT_ID>";
+    const tenantId = config.tenantId || "<TENANT_ID>";
+
+    const script = `#!/usr/bin/env bash
+# ==============================================================================
+# Visentra Least-Privilege Azure & AI Foundry Setup Script
+# ==============================================================================
+# 1. Grant Entra ID Agent Identity Read permissions (Microsoft Graph)
+# Application Permission: AgentIdentity.Read.All
+echo "--> Granting Microsoft Graph AgentIdentity.Read.All to App Registration..."
+az ad app permission add \\
+  --id "${clientId}" \\
+  --api "00000003-0000-0000-c000-000000000000" \\
+  --api-permissions "8b515c8c-1e8b-4029-a1b7-a8a25c7867a9=Role"
+
+echo "--> Requesting Admin Consent for Entra ID tenant..."
+az ad app permission admin-consent --id "${clientId}"
+
+# 2. Grant Subscription Control-Plane Reader Access
+echo "--> Assigning 'Reader' role at subscription level..."
+az role assignment create \\
+  --assignee "${clientId}" \\
+  --role "Reader" \\
+  --scope "/subscriptions/${subId}"
+
+# 3. Grant Data-Plane AI Model & Agent Read Access
+# Assign 'Cognitive Services OpenAI User' on AI accounts to read models/definitions:
+echo "--> Assigning 'Cognitive Services OpenAI User' on Cognitive Services / Foundry accounts..."
+az role assignment create \\
+  --assignee "${clientId}" \\
+  --role "Cognitive Services OpenAI User" \\
+  --scope "/subscriptions/${subId}"
+
+echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan cloud' ==="
+`;
+    setAzureScript(script);
+  };
+
   const resetForm = () => {
     setEditingId(null);
     setForm({ ...EMPTY_FORM });
     setMessage(null);
+    setAzureScript(null);
   };
 
   const startEdit = (connector: Record<string, unknown>) => {
@@ -373,6 +416,34 @@ export function ConnectorsPage() {
       {error ? <div className="error-state">{error}</div> : null}
       {message ? <div className="status-pill" style={{ marginBottom: 16 }}>{message}</div> : null}
 
+      {azureScript ? (
+        <section className="panel" style={{ marginBottom: 16 }}>
+          <div className="connector-card-head" style={{ marginBottom: 8 }}>
+            <h2>Automated Azure Setup Script</h2>
+            <button className="button ghost" type="button" onClick={() => setAzureScript(null)}>
+              Close
+            </button>
+          </div>
+          <p className="muted small">
+            Run this Azure CLI script in your terminal to grant the necessary least-privilege Entra ID and Cognitive
+            Services / Foundry data-plane read roles.
+          </p>
+          <pre
+            className="code-block"
+            style={{
+              padding: 12,
+              backgroundColor: "var(--bg-elevated, #161b22)",
+              borderRadius: 6,
+              overflowX: "auto",
+              fontSize: 12,
+              marginTop: 8
+            }}
+          >
+            {azureScript}
+          </pre>
+        </section>
+      ) : null}
+
       <div className="split-layout">
         <section className="panel">
           <h2>{formTitle}</h2>
@@ -551,6 +622,11 @@ export function ConnectorsPage() {
                       <button className="button" type="button" onClick={() => void test(String(connector.id))}>
                         Test
                       </button>
+                      {provider === "azure" ? (
+                        <button className="button" type="button" onClick={() => generateAzureSetupScript(connector)}>
+                          Setup Script
+                        </button>
+                      ) : null}
                       <button className="button ghost" type="button" onClick={() => void remove(String(connector.id))}>
                         Delete
                       </button>

@@ -134,15 +134,63 @@ export function explainStatus(status, error) {
   return null;
 }
 
-export function chatDeploymentModel(deployments = []) {
-  const names = [];
-  for (const deployment of deployments) {
-    const name = String(deployment?.properties?.model?.name || "").trim();
-    if (!name || /embed|whisper|dall-e|^tts|audio/i.test(name)) continue;
-    names.push(name);
+export function isHubProject(tags = {}) {
+  const pid = String(tags.projectId || "").toUpperCase();
+  return pid.endsWith("@AML") || pid.includes("@AML") || Boolean(tags.virtualWorkspaceId);
+}
+
+export function preferredAgentRoutes(tags = {}) {
+  if (isHubProject(tags)) {
+    return [
+      ["assistants", "2025-05-15-preview"],
+      ["assistants", "2025-05-01"],
+      ["assistants", "2024-07-01-preview"],
+      ["agents", "2025-05-01"],
+      ["agents", "v1"]
+    ];
   }
-  const unique = [...new Set(names)];
-  return unique.length === 1 ? unique[0] : null;
+  return AGENT_ROUTES;
+}
+
+export function chatDeploymentModel(deployments = [], agentNameOrHint = "") {
+  const candidates = [];
+  for (const deployment of deployments || []) {
+    const modelObj = deployment?.properties?.model;
+    const modelName = String(modelObj?.name || deployment?.name || "").trim();
+    if (!modelName || /embed|whisper|dall-e|^tts|audio|search/i.test(modelName)) continue;
+    candidates.push({
+      deploymentName: String(deployment?.name || modelName),
+      modelName,
+      createdOrModified: deployment?.systemData?.lastModifiedAt || deployment?.systemData?.createdAt || null
+    });
+  }
+  if (!candidates.length) return null;
+  const unique = [...new Set(candidates.map((c) => c.modelName))];
+  if (unique.length === 1) return unique[0];
+
+  if (agentNameOrHint) {
+    const hintLc = String(agentNameOrHint).toLowerCase();
+    const matched = candidates.find(
+      (c) => hintLc.includes(c.modelName.toLowerCase()) || hintLc.includes(c.deploymentName.toLowerCase())
+    );
+    if (matched) return matched.modelName;
+  }
+
+  const priorityList = [
+    /gpt-4o$/i,
+    /gpt-4o-mini/i,
+    /gpt-4-turbo/i,
+    /gpt-4/i,
+    /o1/i,
+    /o3/i,
+    /gpt-35-turbo/i
+  ];
+  for (const rx of priorityList) {
+    const hit = candidates.find((c) => rx.test(c.modelName));
+    if (hit) return hit.modelName;
+  }
+
+  return unique[0] || null;
 }
 
 function modelFromAgent(agent) {
@@ -176,9 +224,9 @@ async function readCollection(dataToken, endpoint, path, apiVersion, request) {
   }
 }
 
-export async function readFoundryAgents(dataToken, endpoint, request) {
+export async function readFoundryAgents(dataToken, endpoint, request, routes = AGENT_ROUTES) {
   let last = { ok: false, agents: [], error: "Foundry read failed" };
-  for (const [path, apiVersion] of AGENT_ROUTES) {
+  for (const [path, apiVersion] of routes) {
     const result = await readCollection(dataToken, endpoint, path, apiVersion, request);
     if (result.ok && result.agents.length) return result;
     last = result.ok ? result : { ...result, agents: [] };
@@ -198,9 +246,26 @@ function pickAgent(agents, tags, inferred) {
   );
 }
 
-function observation({ conn, tenantId, sp, tags, inferred, model, modelSource, evidence }) {
+function observation({ conn, tenantId, sp, tags, inferred, model, modelSource, evidence, lastError, lastStatus }) {
   const entraName = sp.displayName || sp.id;
   const name = inferred || entraName;
+  const isRestricted = modelSource === "permission_denied" || lastStatus === 401 || lastStatus === 403 || (lastError && /403|denied|forbidden/i.test(lastError));
+  const isUnreachable = modelSource === "foundry_unreadable" || lastStatus === 404 || (lastError && /404|not found/i.test(lastError));
+  const modelAccessStatus = model
+    ? "available"
+    : isRestricted
+      ? "restricted_403"
+      : isUnreachable
+        ? "unreachable_404"
+        : "missing";
+  const remediationGuide = model
+    ? null
+    : isRestricted
+      ? `Assign 'Cognitive Services OpenAI User' or 'Azure AI User' to connector App on ${tags.accountName || "the Cognitive Services account"} to reveal model definition.`
+      : isUnreachable
+        ? `Foundry data plane could not be reached on ${tags.accountName || "the Cognitive Services account"}. Verify project endpoint mapping.`
+        : null;
+
   return {
     collector_id: "identity_entra_agent",
     fingerprint: `entra-agent-id:${tenantId}:${sp.id}`,
@@ -233,12 +298,16 @@ function observation({ conn, tenantId, sp, tags, inferred, model, modelSource, e
       agentName: name,
       modelSource: modelSource || "unknown",
       foundationModel: model || null,
+      modelAccessStatus,
+      remediationGuide,
       evidence,
       deep: {
         schemaVersion: "azure-scanner-v2",
         deepScan: "azure_scanner_v2",
         displayName: name,
         foundationModel: model || null,
+        modelAccessStatus,
+        remediationGuide,
         agentId: sp.id,
         provider: "entra_agent_id"
       }
@@ -507,11 +576,12 @@ export async function discoverAzureScanner(conn, deps = {}) {
       );
     }
 
+    let last = null;
     if (dataToken && endpoints.length) {
-      let last = null;
       let matched = null;
+      const routes = preferredAgentRoutes(tags);
       for (const endpoint of endpoints) {
-        const listed = await readFoundryAgents(dataToken, endpoint, (token, url) => request(token, url));
+        const listed = await readFoundryAgents(dataToken, endpoint, (token, url) => request(token, url), routes);
         last = listed;
         if (listed.status === 401 || listed.status === 403) break;
         matched = pickAgent(listed.agents, tags, inferred);
@@ -537,7 +607,9 @@ export async function discoverAzureScanner(conn, deps = {}) {
               inferred: foundryName,
               model,
               modelSource,
-              evidence
+              evidence,
+              lastError: last?.error,
+              lastStatus: last?.status
             })
           );
           continue;
@@ -558,18 +630,31 @@ export async function discoverAzureScanner(conn, deps = {}) {
     }
 
     if (!model && account) {
-      const deploymentModel = chatDeploymentModel(await listDeployments(account));
+      const deploymentModel = chatDeploymentModel(await listDeployments(account), inferred || tags.agentGuid);
       if (deploymentModel) {
         model = deploymentModel;
         modelSource = "azure_cognitive_deployment";
         evidence.push(
-          `Foundation model ${deploymentModel} taken from the only chat deployment on ${account.name}. The agent definition was not returned.`
+          `Foundation model ${deploymentModel} mapped from chat deployment on ${account.name}. The agent definition was not returned by data plane.`
         );
       }
     }
 
     if (inferred) evidence.push(`Inventory name set to Foundry agent ${inferred}.`);
-    observations.push(observation({ conn, tenantId, sp, tags, inferred, model, modelSource, evidence }));
+    observations.push(
+      observation({
+        conn,
+        tenantId,
+        sp,
+        tags,
+        inferred,
+        model,
+        modelSource,
+        evidence,
+        lastError: last?.error,
+        lastStatus: last?.status
+      })
+    );
   }
 
   const denied = discoveryErrors.some((item) => item.discoveryStatus === "permission_denied");
