@@ -127,7 +127,27 @@ describe("Azure scanner v2", () => {
     });
     assert.equal(result.observations[0].model, null);
     assert.match(result.observations[0].metadata.evidence.join(" "), /403 Forbidden/);
+    assert.equal(result.observations[0].metadata.modelAccessStatus, "restricted_403");
+    assert.match(result.observations[0].metadata.remediationGuide, /Cognitive Services OpenAI User/);
     assert.equal(result.discoveryErrors.some((item) => item.discoveryStatus === "permission_denied"), true);
+  });
+
+  it("proactively prioritizes assistants routes for @AML hub projects", async () => {
+    const { isHubProject, preferredAgentRoutes } = await import("../azureScanner.js");
+    assert.equal(isHubProject({ projectId: "foundry-baseline-agents-resource@foundry-baseline-agents@AML" }), true);
+    assert.equal(isHubProject({ projectId: "native-foundry-project" }), false);
+    const routes = preferredAgentRoutes({ projectId: "res@proj@AML" });
+    assert.equal(routes[0][0], "assistants");
+  });
+
+  it("selects chat deployment when multiple exist using candidate matching", () => {
+    const deployments = [
+      { name: "text-embedding-3-large", properties: { model: { name: "text-embedding-3-large" } } },
+      { name: "gpt-4o", properties: { model: { name: "gpt-4o" } } },
+      { name: "gpt-35-turbo", properties: { model: { name: "gpt-35-turbo" } } }
+    ];
+    const picked = chatDeploymentModel(deployments);
+    assert.equal(picked, "gpt-4o");
   });
 
   it("probes foundryAgentRead capability", async () => {
