@@ -179,6 +179,25 @@ export async function armGet(token, url, { optional = false } = {}) {
   return { ok: true, status: res.status, json, permissionDenied: false };
 }
 
+/** Follow ARM nextLink. An empty first page is not an empty subscription. */
+export async function armList(token, url, { maxPages = 20 } = {}) {
+  const items = [];
+  let next = url;
+  const seen = new Set();
+  for (let page = 0; page < maxPages && next; page += 1) {
+    if (seen.has(next)) break;
+    seen.add(next);
+    const result = await armGet(token, next, { optional: true });
+    if (!result.ok) {
+      if (page === 0) return { ...result, items: [] };
+      break;
+    }
+    items.push(...(result.json?.value || []));
+    next = result.json?.nextLink || null;
+  }
+  return { ok: true, status: 200, items, permissionDenied: false };
+}
+
 export async function dataPlaneGet(token, url, policy, { optional = true, headers = {} } = {}) {
   let res;
   try {
@@ -247,9 +266,9 @@ export async function listCognitiveProjects(token, resource) {
     `https://management.azure.com/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}` +
     `/providers/Microsoft.CognitiveServices/accounts/${encodeURIComponent(name)}/projects` +
     `?api-version=${COGNITIVE_API_VERSION}`;
-  const result = await armGet(token, url, { optional: true });
+  const result = await armList(token, url);
   if (!result.ok) return { ...result, projects: [] };
-  return { ok: true, projects: result.json.value || [] };
+  return { ok: true, projects: result.items };
 }
 
 function hostnameFromEndpoint(value) {
@@ -302,8 +321,18 @@ function foundryProjectEndpoint(accountNameOrHost, projectName) {
   const host = String(accountNameOrHost || "").includes(".")
     ? accountNameOrHost
     : `${accountNameOrHost}.services.ai.azure.com`;
-  const project = encodeURIComponent(projectName || "_project");
-  return `https://${host}/api/projects/${project}`;
+  const leaf = String(projectName || "_project").split("/").filter(Boolean).pop() || "_project";
+  return `https://${host}/api/projects/${encodeURIComponent(leaf)}`;
+}
+
+function publishedProjectEndpoints(project) {
+  const props = project?.properties || {};
+  const bag = props.endpoints && typeof props.endpoints === "object" ? props.endpoints : {};
+  const urls = [];
+  for (const value of [props.endpoint, ...Object.values(bag)]) {
+    if (typeof value === "string" && /^https:\/\//i.test(value)) urls.push(value.replace(/\/$/, ""));
+  }
+  return [...new Set(urls)];
 }
 
 /**
@@ -2121,14 +2150,14 @@ export async function probeFoundryAgentRead({ armToken, dataToken, subscriptionI
   const accountsUrl =
     `https://management.azure.com/subscriptions/${subscriptionId}/providers/Microsoft.CognitiveServices/accounts` +
     `?api-version=${COGNITIVE_API_VERSION}`;
-  const accountsRes = await armGet(armToken, accountsUrl, { optional: true });
+  const accountsRes = await armList(armToken, accountsUrl);
   if (!accountsRes.ok) {
     return {
       ok: false,
       message: `Foundry accounts are not readable (${accountsRes.error || "ARM list failed"}). The scanner cannot identify Foundry agents until this credential can list Microsoft.CognitiveServices/accounts.`
     };
   }
-  const accounts = (accountsRes.json?.value || []).slice(0, 5);
+  const accounts = (accountsRes.items || []).slice(0, 5);
   if (!accounts.length) {
     return {
       ok: false,
@@ -2145,8 +2174,15 @@ export async function probeFoundryAgentRead({ armToken, dataToken, subscriptionI
       ? projectsResult.projects
       : [{ name: "_project" }];
     for (const project of projects.slice(0, 3)) {
-      const endpoint = foundryProjectEndpoint(host, project.name || "_project");
-      const listed = await listFoundryAgents(dataToken, endpoint);
+      const published = publishedProjectEndpoints(project);
+      const endpoints = published.length
+        ? published
+        : [foundryProjectEndpoint(host, project.name || "_project")];
+      let listed = { ok: false, agents: [], error: null };
+      for (const endpoint of endpoints) {
+        listed = await listFoundryAgents(dataToken, endpoint);
+        if (listed.ok || listed.permissionDenied) break;
+      }
       if (listed.ok) {
         const count = (listed.agents || []).length;
         return {
@@ -2161,7 +2197,7 @@ export async function probeFoundryAgentRead({ armToken, dataToken, subscriptionI
       if (listed.permissionDenied) {
         return {
           ok: false,
-          message: `Foundry account ${account.name} is visible, but the Agents API denied the read (${lastError}). Assign Azure AI User or Cognitive Services OpenAI User on that account, then Test and Scan cloud again. Until then the scanner cannot identify the agent model.`
+          message: `Foundry account ${account.name} is visible, but the Agents API denied the read (${lastError}). Azure AI Developer in this catalog only includes OpenAI data actions. Add a custom role whose data action is Microsoft.CognitiveServices/accounts/AIServices/agents/read.`
         };
       }
     }
@@ -2912,9 +2948,9 @@ async function listCognitiveAccountsForFoundry(creds, subscriptionId) {
   const url =
     `https://management.azure.com/subscriptions/${subscriptionId}/providers/Microsoft.CognitiveServices/accounts` +
     `?api-version=${COGNITIVE_API_VERSION}`;
-  const listed = await armGet(armToken, url, { optional: true });
+  const listed = await armList(armToken, url);
   if (!listed.ok) return [];
-  return listed.json?.value || [];
+  return listed.items || [];
 }
 
 export async function enrichEntraIdentitiesFromFoundryTags(
