@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import pg from "pg";
 import bcrypt from "bcryptjs";
+import { PROVIDER_FIELDS } from "./services/connectors.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,19 +33,20 @@ export async function migrate(pool) {
       ON discovery_jobs (tenant_id) WHERE (status = 'running')
   `);
 
-  // Widen connectors.provider check for EDR integrations (idempotent)
+  // Keep connectors.provider in sync with PROVIDER_FIELDS (idempotent).
+  // CREATE TABLE IF NOT EXISTS does not alter an existing check, so new
+  // providers such as api_gateway, otel_tracing, and network_proxy fail
+  // with connectors_provider_check until this runs.
+  const connectorProviders = Object.keys(PROVIDER_FIELDS)
+    .filter((provider) => /^[a-z0-9_]+$/.test(provider))
+    .map((provider) => `'${provider}'`)
+    .join(", ");
   await pool.query(`
     DO $$
     BEGIN
       ALTER TABLE connectors DROP CONSTRAINT IF EXISTS connectors_provider_check;
       ALTER TABLE connectors ADD CONSTRAINT connectors_provider_check
-        CHECK (provider IN (
-          'azure', 'aws', 'gcp',
-          'github', 'gitlab', 'entra_identity', 'kubernetes', 'kubernetes_identity',
-          'crowdstrike', 'defender', 'intune', 'cortex', 'netskope',
-          'm365_copilot', 'salesforce', 'workday', 'servicenow', 'openai',
-          'jenkins'
-        ));
+        CHECK (provider IN (${connectorProviders}));
     EXCEPTION WHEN undefined_table THEN
       NULL;
     END $$;
