@@ -197,7 +197,9 @@ CREATE TABLE IF NOT EXISTS connectors (
                       'azure', 'aws', 'gcp',
                       'github', 'gitlab', 'entra_identity', 'kubernetes', 'kubernetes_identity',
                       'crowdstrike', 'defender', 'intune', 'cortex', 'netskope',
-                      'm365_copilot', 'salesforce', 'workday', 'servicenow'
+                      'm365_copilot', 'salesforce', 'workday', 'servicenow', 'openai',
+                      'jenkins', 'github_actions', 'gitlab_ci',
+                      'api_gateway', 'otel_tracing', 'network_proxy'
                     )),
   status          TEXT NOT NULL DEFAULT 'active'
                     CHECK (status IN ('active', 'disabled', 'error')),
