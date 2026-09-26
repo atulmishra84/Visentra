@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Executive Overview · Visentra</title>
+    <link rel="stylesheet" href="prototypes.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="app-shell">
+      <div class="main">
+        <div class="page">
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Executive</p>
+              <h1>AI Agent Visibility Overview</h1>
+              <p class="page-description">
+                Leadership view of discovered agents, ownership, Shadow AI, and usage mix across the estate.
+              </p>
+            </div>
+            <span class="status-pill">Updated 09:04</span>
+          </header>
+
+          <p class="usage-insight">
+            128 agents inventoried · 91 confirmed · 14 Shadow AI · avg confidence 78%. High-sensitivity
+            access is concentrated in Bedrock and Copilot Studio agents.
+          </p>
+
+          <section class="card-grid">
+            <article class="kpi"><div class="kpi-label">Discovered</div><div class="kpi-value">128</div><div class="kpi-trend">Inventory</div></article>
+            <article class="kpi good"><div class="kpi-label">Confirmed</div><div class="kpi-value">91</div><div class="kpi-trend">Strong evidence</div></article>
+            <article class="kpi warn"><div class="kpi-label">Ownerless</div><div class="kpi-value">23</div><div class="kpi-trend">Needs attribution</div></article>
+            <article class="kpi warn"><div class="kpi-label">Shadow AI</div><div class="kpi-value">14</div><div class="kpi-trend">Unmanaged / unsanctioned</div></article>
+            <article class="kpi good"><div class="kpi-label">Managed</div><div class="kpi-value">87</div><div class="kpi-trend">Owned &amp; not shadow</div></article>
+            <article class="kpi good"><div class="kpi-label">Avg confidence</div><div class="kpi-value">78%</div><div class="kpi-trend">Discovery confidence</div></article>
+            <article class="kpi warn"><div class="kpi-label">Over-permissioned</div><div class="kpi-value">19</div><div class="kpi-trend">Broad access scopes</div></article>
+            <article class="kpi warn"><div class="kpi-label">High-sensitivity</div><div class="kpi-value">31</div><div class="kpi-trend">Secrets / admin / identity</div></article>
+            <article class="kpi warn"><div class="kpi-label">PII access</div><div class="kpi-value">27</div><div class="kpi-trend">Agents that can reach PII</div></article>
+            <article class="kpi warn"><div class="kpi-label">PHI access</div><div class="kpi-value">6</div><div class="kpi-trend">Agents that can reach PHI</div></article>
+            <article class="kpi good"><div class="kpi-label">Identity-attributed</div><div class="kpi-value">74</div><div class="kpi-trend">Owner + identity signal</div></article>
+          </section>
+
+          <section class="split-grid">
+            <section class="panel">
+              <h2>By evidence class</h2>
+              <div class="donut-block">
+                <svg class="donut-visual" viewBox="0 0 180 180" role="img" aria-label="Evidence class">
+                  <circle cx="90" cy="90" r="66" fill="none" stroke="var(--bar-track)" stroke-width="28" />
+                  <circle cx="90" cy="90" r="66" fill="none" stroke="var(--brand)" stroke-width="28"
+                    stroke-dasharray="207 414" stroke-dashoffset="103.5" transform="rotate(-90 90 90)" />
+                  <circle cx="90" cy="90" r="66" fill="none" stroke="var(--blue)" stroke-width="28"
+                    stroke-dasharray="124 414" stroke-dashoffset="-103.5" transform="rotate(-90 90 90)" />
+                  <circle cx="90" cy="90" r="66" fill="none" stroke="#f4bd50" stroke-width="28"
+                    stroke-dasharray="83 414" stroke-dashoffset="-227.5" transform="rotate(-90 90 90)" />
+                </svg>
+                <div class="donut-legend">
+                  <div class="legend-row"><span><i class="swatch" style="background:var(--brand)"></i>Confirmed</span><strong>91</strong></div>
+                  <div class="legend-row"><span><i class="swatch" style="background:var(--blue)"></i>Candidate</span><strong>28</strong></div>
+                  <div class="legend-row"><span><i class="swatch" style="background:#f4bd50"></i>Resource only</span><strong>9</strong></div>
+                </div>
+              </div>
+            </section>
+            <section class="panel">
+              <h2>By agent status</h2>
+              <div class="donut-block">
+                <svg class="donut-visual" viewBox="0 0 180 180" role="img" aria-label="Agent status">
+                  <circle cx="90" cy="90" r="66" fill="none" stroke="var(--bar-track)" stroke-width="28" />
+                  <circle cx="90" cy="90" r="66" fill="none" stroke="var(--green)" stroke-width="28"
+                    stroke-dasharray="248 414" stroke-dashoffset="103.5" transform="rotate(-90 90 90)" />
+                  <circle cx="90" cy="90" r="66" fill="none" stroke="var(--amber)" stroke-width="28"
+                    stroke-dasharray="99 414" stroke-dashoffset="-144.5" transform="rotate(-90 90 90)" />
+                  <circle cx="90" cy="90" r="66" fill="none" stroke="var(--red)" stroke-width="28"
+                    stroke-dasharray="67 414" stroke-dashoffset="-243.5" transform="rotate(-90 90 90)" />
+                </svg>
+                <div class="donut-legend">
+                  <div class="legend-row"><span><i class="swatch" style="background:var(--green)"></i>Active</span><strong>96</strong></div>
+                  <div class="legend-row"><span><i class="swatch" style="background:var(--amber)"></i>Flagged</span><strong>21</strong></div>
+                  <div class="legend-row"><span><i class="swatch" style="background:var(--red)"></i>Inactive</span><strong>11</strong></div>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <section class="split-grid">
+            <section class="panel">
+              <h2>Models in use</h2>
+              <div class="bar-list">
+                <div class="bar-row"><span>Claude 3.5 Sonnet</span><strong>34</strong><div class="bar-track"><div class="bar-fill" style="width:92%"></div></div></div>
+                <div class="bar-row"><span>GPT-4o</span><strong>29</strong><div class="bar-track"><div class="bar-fill" style="width:78%"></div></div></div>
+                <div class="bar-row"><span>Amazon Titan</span><strong>18</strong><div class="bar-track"><div class="bar-fill" style="width:48%"></div></div></div>
+                <div class="bar-row"><span>Gemini 1.5 Pro</span><strong>12</strong><div class="bar-track"><div class="bar-fill" style="width:32%"></div></div></div>
+                <div class="bar-row"><span>Llama 3.1 70B</span><strong>8</strong><div class="bar-track"><div class="bar-fill" style="width:22%"></div></div></div>
+              </div>
+            </section>
+            <section class="panel">
+              <h2>Agents by category</h2>
+              <div class="bar-list">
+                <div class="bar-row"><span>Orchestrator</span><strong>41</strong><div class="bar-track"><div class="bar-fill" style="width:88%"></div></div></div>
+                <div class="bar-row"><span>Copilot / assistant</span><strong>36</strong><div class="bar-track"><div class="bar-fill" style="width:76%"></div></div></div>
+                <div class="bar-row"><span>RAG / knowledge</span><strong>22</strong><div class="bar-track"><div class="bar-fill" style="width:48%"></div></div></div>
+                <div class="bar-row"><span>Automation</span><strong>17</strong><div class="bar-track"><div class="bar-fill" style="width:36%"></div></div></div>
+                <div class="bar-row"><span>IDE / coding</span><strong>12</strong><div class="bar-track"><div class="bar-fill" style="width:26%"></div></div></div>
+              </div>
+            </section>
+          </section>
+
+          <section class="panel">
+            <h2>Discovery trend</h2>
+            <div class="sparkline" aria-hidden="true">
+              <span style="height:28%;animation-delay:.05s"></span>
+              <span style="height:34%;animation-delay:.1s"></span>
+              <span style="height:42%;animation-delay:.15s"></span>
+              <span style="height:38%;animation-delay:.2s"></span>
+              <span style="height:55%;animation-delay:.25s"></span>
+              <span style="height:62%;animation-delay:.3s"></span>
+              <span style="height:58%;animation-delay:.35s"></span>
+              <span style="height:71%;animation-delay:.4s"></span>
+              <span style="height:78%;animation-delay:.45s"></span>
+              <span style="height:86%;animation-delay:.5s"></span>
+              <span style="height:92%;animation-delay:.55s"></span>
+              <span style="height:100%;animation-delay:.6s"></span>
+            </div>
+            <p class="muted" style="margin:10px 0 0">Weekly confirmed agents · last 12 weeks</p>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script src="shell.js"></script>
+  </body>
+</html>

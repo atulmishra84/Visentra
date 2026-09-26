@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Attack Surface · Visentra</title>
+    <link rel="stylesheet" href="prototypes.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="app-shell">
+      <div class="main">
+        <div class="page">
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Adversarial inventory</p>
+              <h1>Attack Surface</h1>
+              <p class="page-description">
+                Prototype of red-team oriented fields from <span class="mono">metadata.adversarial_surface</span> —
+                tools, instructions, knowledge bases, IAM blast radius, and data reach.
+              </p>
+            </div>
+            <span class="status-pill">Schema v1.0.0</span>
+          </header>
+
+          <section class="card-grid">
+            <article class="kpi"><div class="kpi-label">Agents enriched</div><div class="kpi-value">47</div><div class="kpi-trend">AWS deep scan</div></article>
+            <article class="kpi bad"><div class="kpi-label">Tool-calling agents</div><div class="kpi-value">22</div><div class="kpi-trend">Action groups present</div></article>
+            <article class="kpi warn"><div class="kpi-label">Instruction exposure</div><div class="kpi-value">18</div><div class="kpi-trend">System prompts captured</div></article>
+            <article class="kpi warn"><div class="kpi-label">KB-backed</div><div class="kpi-value">15</div><div class="kpi-trend">Knowledge bases linked</div></article>
+            <article class="kpi bad"><div class="kpi-label">Broad IAM</div><div class="kpi-value">9</div><div class="kpi-trend">Admin / * scopes</div></article>
+          </section>
+
+          <section class="panel">
+            <h2>Risk density</h2>
+            <div class="risk-matrix">
+              <div class="risk-cell high">
+                <strong>P0 · Prompt + tools</strong>
+                <p class="muted" style="margin:6px 0 0">Agents with instructions and callable action groups — primary jailbreak / tool-abuse targets.</p>
+                <p style="margin:10px 0 0"><strong>12</strong> agents</p>
+              </div>
+              <div class="risk-cell med">
+                <strong>P1 · Data reach</strong>
+                <p class="muted" style="margin:6px 0 0">KB / S3 / DB connectors that can surface PII, PHI, or secrets into context.</p>
+                <p style="margin:10px 0 0"><strong>15</strong> agents</p>
+              </div>
+              <div class="risk-cell low">
+                <strong>P2 · Identity plane</strong>
+                <p class="muted" style="margin:6px 0 0">Execution roles and trust policies that expand lateral movement after compromise.</p>
+                <p style="margin:10px 0 0"><strong>9</strong> agents</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="split-grid">
+            <section class="panel">
+              <h2>Top exposed tools</h2>
+              <div class="bar-list">
+                <div class="bar-row"><span>lambda:InvokeFunction</span><strong>14</strong><div class="bar-track"><div class="bar-fill" style="width:90%"></div></div></div>
+                <div class="bar-row"><span>s3:GetObject</span><strong>11</strong><div class="bar-track"><div class="bar-fill" style="width:72%"></div></div></div>
+                <div class="bar-row"><span>bedrock:Retrieve</span><strong>9</strong><div class="bar-track"><div class="bar-fill" style="width:58%"></div></div></div>
+                <div class="bar-row"><span>dynamodb:Query</span><strong>7</strong><div class="bar-track"><div class="bar-fill" style="width:45%"></div></div></div>
+                <div class="bar-row"><span>secretsmanager:GetSecretValue</span><strong>4</strong><div class="bar-track"><div class="bar-fill" style="width:28%"></div></div></div>
+              </div>
+            </section>
+            <section class="panel">
+              <h2>Sample agent · claims-intake-bedrock</h2>
+              <ul class="chart-list">
+                <li><span>Model</span><span class="mono">anthropic.claude-3-5-sonnet</span></li>
+                <li><span>Action groups</span><span class="mono">3 · OpenAPI</span></li>
+                <li><span>Knowledge bases</span><span class="mono">claims-kb · policy-kb</span></li>
+                <li><span>Instruction length</span><span class="mono">4,820 chars</span></li>
+                <li><span>Data classes</span><span><span class="badge warn">PII</span> <span class="badge bad">PHI</span></span></li>
+                <li><span>IAM blast</span><span class="badge bad">high</span></li>
+              </ul>
+            </section>
+          </section>
+
+          <section class="panel">
+            <h2>Enriched agents</h2>
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Agent</th>
+                    <th>Provider</th>
+                    <th>Tools</th>
+                    <th>Instructions</th>
+                    <th>KB</th>
+                    <th>Blast</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>claims-intake-bedrock</strong></td>
+                    <td>Bedrock</td>
+                    <td>12</td>
+                    <td><span class="badge good">captured</span></td>
+                    <td>2</td>
+                    <td><span class="badge bad">high</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>support-rag-kb</strong></td>
+                    <td>Bedrock</td>
+                    <td>4</td>
+                    <td><span class="badge good">captured</span></td>
+                    <td>1</td>
+                    <td><span class="badge warn">medium</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>finance-lambda-agent</strong></td>
+                    <td>Lambda</td>
+                    <td>6</td>
+                    <td><span class="badge brand">partial</span></td>
+                    <td>0</td>
+                    <td><span class="badge bad">high</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>hr-copilot-studio</strong></td>
+                    <td>Azure</td>
+                    <td>8</td>
+                    <td><span class="badge good">captured</span></td>
+                    <td>1</td>
+                    <td><span class="badge warn">medium</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script src="shell.js"></script>
+  </body>
+</html>

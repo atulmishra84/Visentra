@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Asset Inventory · Visentra</title>
+    <link rel="stylesheet" href="prototypes.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="app-shell">
+      <div class="main">
+        <div class="page">
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Inventory</p>
+              <h1>Asset Inventory</h1>
+              <p class="page-description">
+                Layered view: resource discovery ≠ confirmed agent ≠ runtime evidence. Confidence reflects
+                identity strength, not mesh placement.
+              </p>
+            </div>
+            <div class="toolbar">
+              <button class="button ghost active" type="button">All</button>
+              <button class="button ghost" type="button">Confirmed</button>
+              <button class="button ghost" type="button">Candidate</button>
+              <button class="button ghost" type="button">Resource</button>
+              <a class="button primary" href="mesh.html">View mesh</a>
+            </div>
+          </header>
+
+          <section class="card-grid">
+            <article class="kpi"><div class="kpi-label">Total rows</div><div class="kpi-value">128</div></article>
+            <article class="kpi good"><div class="kpi-label">Confirmed agents</div><div class="kpi-value">91</div></article>
+            <article class="kpi"><div class="kpi-label">Candidates</div><div class="kpi-value">28</div></article>
+            <article class="kpi"><div class="kpi-label">Resources only</div><div class="kpi-value">9</div></article>
+            <article class="kpi"><div class="kpi-label">Runtime observed</div><div class="kpi-value">36</div></article>
+          </section>
+
+          <section class="panel">
+            <h2>Inventory</h2>
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Layer</th>
+                    <th>Provider</th>
+                    <th>Category</th>
+                    <th>Confidence</th>
+                    <th>Owner</th>
+                    <th>Runtime</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>claims-intake-bedrock</strong></td>
+                    <td><span class="badge good">agent</span></td>
+                    <td>AWS / Bedrock</td>
+                    <td>Orchestrator</td>
+                    <td class="mono">0.92</td>
+                    <td>platform-sec</td>
+                    <td><span class="badge brand">alias PREP</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>hr-copilot-studio</strong></td>
+                    <td><span class="badge good">agent</span></td>
+                    <td>Azure</td>
+                    <td>Copilot</td>
+                    <td class="mono">0.88</td>
+                    <td>hr-ops</td>
+                    <td><span class="badge good">published</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>finance-lambda-agent</strong></td>
+                    <td><span class="badge good">agent</span></td>
+                    <td>AWS / Lambda</td>
+                    <td>Automation</td>
+                    <td class="mono">0.81</td>
+                    <td>finops</td>
+                    <td><span class="badge good">active</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>laptop-1188 Cursor</strong></td>
+                    <td><span class="badge warn">candidate</span></td>
+                    <td>EDR</td>
+                    <td>IDE</td>
+                    <td class="mono">0.55</td>
+                    <td>—</td>
+                    <td><span class="badge warn">process seen</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>sm-endpoint-legacy</strong></td>
+                    <td><span class="badge">resource</span></td>
+                    <td>AWS / SageMaker</td>
+                    <td>Inference</td>
+                    <td class="mono">0.30</td>
+                    <td>ml-platform</td>
+                    <td><span class="badge">InService</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>crowdstrike · cortex-agent</strong></td>
+                    <td><span class="badge good">agent</span></td>
+                    <td>EDR</td>
+                    <td>Runtime</td>
+                    <td class="mono">0.94</td>
+                    <td>endpoint-sec</td>
+                    <td><span class="badge good">running</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>vertex-doc-agent</strong></td>
+                    <td><span class="badge good">agent</span></td>
+                    <td>GCP</td>
+                    <td>RAG</td>
+                    <td class="mono">0.79</td>
+                    <td>data-eng</td>
+                    <td><span class="badge good">deployed</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>intune · ChatGPT app</strong></td>
+                    <td><span class="badge warn">candidate</span></td>
+                    <td>Intune</td>
+                    <td>SaaS app</td>
+                    <td class="mono">0.42</td>
+                    <td>—</td>
+                    <td><span class="badge">installed</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script src="shell.js"></script>
+  </body>
+</html>
