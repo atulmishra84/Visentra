@@ -193,14 +193,50 @@ export function chatDeploymentModel(deployments = [], agentNameOrHint = "") {
   return unique[0] || null;
 }
 
-function modelFromAgent(agent) {
+export function modelFromAgent(agent) {
   const latest = agent?.versions?.latest || agent?.version || {};
   const def = latest.definition || {};
   const raw = def.model || def.modelName || agent?.model || agent?.model_name || null;
   if (raw && typeof raw === "object") return raw.name || raw.id || null;
   const text = String(raw || "").trim();
-  if (!text || /microsoft-agent-identity|azure-foundry-agent|entra-agent-identity/i.test(text)) return null;
-  return text;
+  if (text && !/microsoft-agent-identity|azure-foundry-agent|entra-agent-identity/i.test(text)) {
+    return text;
+  }
+
+  // HostedAgentDefinition / ContainerAppAgentDefinition: check environment variables
+  const env = def.environment_variables || def.environmentVariables || agent?.environment_variables || {};
+  if (typeof env === "object" && env !== null) {
+    const envKeys = [
+      "AZURE_OPENAI_DEPLOYMENT_NAME",
+      "AZURE_OPENAI_MODEL_NAME",
+      "AZURE_OPENAI_MODEL",
+      "OPENAI_MODEL",
+      "MODEL_NAME",
+      "DEPLOYMENT_NAME",
+      "CHAT_MODEL",
+      "LLM_MODEL"
+    ];
+    for (const key of envKeys) {
+      const val = String(env[key] || "").trim();
+      if (val && !/microsoft-agent-identity|azure-foundry-agent|entra-agent-identity/i.test(val)) {
+        return val;
+      }
+    }
+  }
+
+  // Check tools array for agent_reference, model, or tool-level model definitions
+  const tools = def.tools || agent?.tools || [];
+  if (Array.isArray(tools)) {
+    for (const t of tools) {
+      if (!t || typeof t !== "object") continue;
+      const toolModel = t.model || t.model_name || t.agent_reference?.model || t.agent_reference?.model_name;
+      if (toolModel && typeof toolModel === "string" && !/microsoft-agent-identity|azure-foundry-agent|entra-agent-identity/i.test(toolModel.trim())) {
+        return toolModel.trim();
+      }
+    }
+  }
+
+  return null;
 }
 
 function agentNameOf(agent) {
@@ -548,7 +584,7 @@ export async function discoverAzureScanner(conn, deps = {}) {
 
   for (const sp of identityResult.items || []) {
     const tags = parseFoundryTags(sp.tags || []);
-    const inferred = tags.accountName && tags.projectName ? inferFoundryName(sp.displayName, tags) : null;
+    let inferred = tags.accountName && tags.projectName ? inferFoundryName(sp.displayName, tags) : null;
     const evidence = [
       "Listed via Microsoft Graph agentIdentity (azure scanner v2).",
       "Entra Agent ID does not carry the foundation model."
@@ -594,10 +630,6 @@ export async function discoverAzureScanner(conn, deps = {}) {
         if (model) {
           modelSource = "azure_foundry_agents";
           evidence.push(`Foundation model ${model} read from the Foundry definition.`);
-        } else {
-          evidence.push("Foundry agent was found, but its definition did not include a model.");
-        }
-        if (foundryName) {
           observations.push(
             observation({
               conn,
@@ -613,6 +645,11 @@ export async function discoverAzureScanner(conn, deps = {}) {
             })
           );
           continue;
+        } else {
+          evidence.push("Foundry agent was found, but its definition did not include a model.");
+          // Do not continue early! Fall through so hosted agents and unmodeled definitions
+          // can inherit the Cognitive Account's chat deployment fallback (e.g. gpt-4o).
+          if (foundryName) inferred = foundryName;
         }
       } else if (last && !last.ok) {
         const why = explainStatus(last.status, last.error);
