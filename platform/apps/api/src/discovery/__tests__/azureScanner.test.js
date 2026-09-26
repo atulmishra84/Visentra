@@ -171,6 +171,95 @@ describe("Azure scanner v2", () => {
     assert.match(result.message, /foundryAgentRead=true/);
   });
 
+  it("extracts model from hosted agent environment variables or tool definitions", async () => {
+    const { modelFromAgent } = await import("../azureScanner.js");
+    // Standard prompt agent
+    assert.equal(modelFromAgent({ versions: { latest: { definition: { model: "gpt-4o" } } } }), "gpt-4o");
+    // Hosted agent with environment variable
+    assert.equal(
+      modelFromAgent({
+        versions: {
+          latest: {
+            definition: {
+              kind: "hosted",
+              environment_variables: { AZURE_OPENAI_DEPLOYMENT_NAME: "gpt-4o" }
+            }
+          }
+        }
+      }),
+      "gpt-4o"
+    );
+    // Hosted agent with tool definition referencing model
+    assert.equal(
+      modelFromAgent({
+        versions: {
+          latest: {
+            definition: {
+              kind: "hosted",
+              tools: [{ type: "custom", model: "gpt-4o-mini" }]
+            }
+          }
+        }
+      }),
+      "gpt-4o-mini"
+    );
+  });
+
+  it("falls back to chat deployment when hosted agent definition has no model", async () => {
+    const hostedAgentIdentity = {
+      id: "39ae895a-8f0f-4bef-8077-d13e3039beb0",
+      displayName: "foundry-baseline-agents-resource-foundry-baseline-agents-agent-framework-agent-with-foundry-toolbox-responses-AgentIdentity",
+      servicePrincipalType: "ServiceIdentity",
+      tags: [
+        "region:eastus2",
+        "agentGuid:4a095557-9bfa-435a-bea4-58dd52d8f18a",
+        "projectId:foundry-baseline-agents-resource@foundry-baseline-agents@AML"
+      ]
+    };
+    const endpoint = "https://real.services.ai.azure.com/api/projects/foundry-baseline-agents";
+    const result = await discoverAzureScanner(conn, {
+      getToken: async () => "token",
+      listIdentities: async () => ({ ok: true, items: [hostedAgentIdentity] }),
+      listAccounts: async () => [
+        {
+          id: "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/foundry-baseline-agents-resource",
+          name: "foundry-baseline-agents-resource"
+        }
+      ],
+      listProjects: async () => [
+        { name: "foundry-baseline-agents", properties: { endpoints: { "AI Foundry API": endpoint } } }
+      ],
+      listDeployments: async () => [
+        { name: "gpt-4o", properties: { model: { name: "gpt-4o" } } }
+      ],
+      request: async (_token, url) => {
+        // Return agent from Foundry without model in definition (hosted agent style)
+        if (url.startsWith(`${endpoint}/assistants?`)) {
+          return {
+            ok: true,
+            status: 200,
+            json: {
+              data: [
+                {
+                  id: "4a095557-9bfa-435a-bea4-58dd52d8f18a",
+                  name: "agent-framework-agent-with-foundry-toolbox-responses",
+                  versions: { latest: { definition: { kind: "hosted" } } }
+                }
+              ]
+            }
+          };
+        }
+        return { ok: false, status: 404, json: {}, error: "404" };
+      }
+    });
+
+    assert.equal(result.observations.length, 1);
+    assert.equal(result.observations[0].name, "agent-framework-agent-with-foundry-toolbox-responses");
+    assert.equal(result.observations[0].model, "gpt-4o");
+    assert.equal(result.observations[0].metadata.modelSource, "azure_cognitive_deployment");
+    assert.ok(result.observations[0].metadata.evidence.some(e => e.includes("Foundation model gpt-4o mapped from chat deployment")));
+  });
+
   it("matches an ARM project whose name is account/project", () => {
     const project = {
       name: "foundry-baseline-agents-resource/foundry-baseline-agents",
