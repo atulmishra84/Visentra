@@ -224,6 +224,36 @@ export const PROVIDER_FIELDS = {
       namespace: "Alias for group (optional)",
       token: "GitLab personal/project access token (read_api, read_repository)"
     }
+  },
+  api_gateway: {
+    category: "gateway",
+    config: ["baseUrl", "gatewayType", "environment"],
+    secrets: ["apiKey"],
+    labels: {
+      baseUrl: "API Gateway admin/management URL (e.g. https://kong.internal:8001 or https://apim.azure.com)",
+      gatewayType: "Gateway type (kong, apim, aws_apigw, envoy)",
+      apiKey: "API Gateway admin API key / Bearer token"
+    }
+  },
+  otel_tracing: {
+    category: "tracing",
+    config: ["endpoint", "serviceName", "environment"],
+    secrets: ["apiKey"],
+    labels: {
+      endpoint: "OpenTelemetry collector HTTP/OTLP endpoint (e.g. https://otel.internal:4318)",
+      serviceName: "Target service name filter (optional)",
+      apiKey: "Collector auth token / API key (optional)"
+    }
+  },
+  network_proxy: {
+    category: "network",
+    config: ["logSourceUrl", "proxyType", "environment"],
+    secrets: ["apiKey"],
+    labels: {
+      logSourceUrl: "Proxy access log endpoint / syslog collector URL",
+      proxyType: "Proxy type (squid, envoy, zscaler, nginx)",
+      apiKey: "Log access API key / token (optional)"
+    }
   }
 };
 
@@ -234,6 +264,9 @@ export const IDENTITY_PROVIDERS = ["entra_identity", "kubernetes_identity"];
 export const EDR_PROVIDERS = ["crowdstrike", "defender", "intune", "cortex", "netskope"];
 export const SAAS_PROVIDERS = ["m365_copilot", "salesforce", "workday", "servicenow", "openai"];
 export const CI_PROVIDERS = ["jenkins", "github_actions", "gitlab_ci"];
+export const GATEWAY_PROVIDERS = ["api_gateway"];
+export const TRACING_PROVIDERS = ["otel_tracing"];
+export const NETWORK_PROVIDERS = ["network_proxy"];
 export const ALL_PROVIDERS = [
   ...new Set([
     ...CLOUD_PROVIDERS,
@@ -242,7 +275,10 @@ export const ALL_PROVIDERS = [
     ...IDENTITY_PROVIDERS,
     ...EDR_PROVIDERS,
     ...SAAS_PROVIDERS,
-    ...CI_PROVIDERS
+    ...CI_PROVIDERS,
+    ...GATEWAY_PROVIDERS,
+    ...TRACING_PROVIDERS,
+    ...NETWORK_PROVIDERS
   ])
 ];
 
@@ -549,6 +585,21 @@ export async function testConnector(pool, tenantId, id) {
       const result = await validateEntra({ id: row.id, name: row.name, config, secrets });
       ok = result.ok;
       message = result.message;
+    } else if (row.provider === "api_gateway") {
+      const { validateApiGatewayConnector } = await import("../discovery/networkGatewayConnectors.js");
+      const result = await validateApiGatewayConnector({ config, secrets });
+      ok = result.ok;
+      message = result.message;
+    } else if (row.provider === "otel_tracing") {
+      const { validateOtelTracingConnector } = await import("../discovery/networkGatewayConnectors.js");
+      const result = await validateOtelTracingConnector({ config, secrets });
+      ok = result.ok;
+      message = result.message;
+    } else if (row.provider === "network_proxy") {
+      const { validateNetworkProxyConnector } = await import("../discovery/networkGatewayConnectors.js");
+      const result = await validateNetworkProxyConnector({ config, secrets });
+      ok = result.ok;
+      message = result.message;
     }
   } catch (err) {
     ok = false;
@@ -609,4 +660,16 @@ export async function listActiveIdentityConnectors(pool, tenantId) {
 
 export async function listActiveCiConnectors(pool, tenantId) {
   return listActiveConnectorsByProviders(pool, tenantId, CI_PROVIDERS);
+}
+
+export async function listActiveGatewayConnectors(pool, tenantId) {
+  return listActiveConnectorsByProviders(pool, tenantId, GATEWAY_PROVIDERS);
+}
+
+export async function listActiveTracingConnectors(pool, tenantId) {
+  return listActiveConnectorsByProviders(pool, tenantId, TRACING_PROVIDERS);
+}
+
+export async function listActiveNetworkConnectors(pool, tenantId) {
+  return listActiveConnectorsByProviders(pool, tenantId, NETWORK_PROVIDERS);
 }

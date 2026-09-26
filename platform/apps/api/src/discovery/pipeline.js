@@ -82,7 +82,10 @@ const CONNECTOR_META_CLASSES = new Set([
   "source_connector",
   "identity_connector",
   "platform_capability_hint",
-  "ai_model_catalog"
+  "ai_model_catalog",
+  "gateway_connector",
+  "tracing_connector",
+  "network_connector"
 ]);
 
 export function isConnectorMetaObservation(obs) {
@@ -95,6 +98,9 @@ export function isConnectorMetaObservation(obs) {
   if (/^edr-connector:/.test(fingerprint)) return true;
   if (/^saas-connector:/.test(fingerprint)) return true;
   if (/^saas:.*:connector:/.test(fingerprint)) return true;
+  if (/^gateway-connector:/.test(fingerprint)) return true;
+  if (/^otel-connector:/.test(fingerprint)) return true;
+  if (/^proxy-connector:/.test(fingerprint)) return true;
   // Names like "Azure scan — <connector name>" / "Azure connector error — …"
   const name = String(obs?.name || "");
   if (/\b(scan|connector error)\s+[—-]\s+/i.test(name) && meta.connectorId) return true;

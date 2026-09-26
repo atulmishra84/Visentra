@@ -910,6 +910,171 @@ export const collectors = {
     }
   },
 
+  api_gateway: {
+    id: "api_gateway",
+    async scan(ctx) {
+      const out = [];
+      if (!ctx.pool || !ctx.tenantId) return out;
+      try {
+        const { listActiveGatewayConnectors } = await import("../services/connectors.js");
+        const { discoverApiGatewayConnector } = await import("./networkGatewayConnectors.js");
+        const connectors = await listActiveGatewayConnectors(ctx.pool, ctx.tenantId);
+        for (const conn of connectors) {
+          try {
+            const { observations, stats } = await discoverApiGatewayConnector(conn);
+            out.push(...observations);
+            await ctx.pool.query(
+              `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId]
+            );
+            await ctx.pool.query(
+              `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+               VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
+              [
+                ctx.tenantId,
+                `API Gateway "${conn.name}" scanned ${stats.routesScanned || 0} routes — discovered ${stats.agentsDiscovered || 0} AI agents`,
+                JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "gateway", ...stats })
+              ]
+            );
+          } catch (err) {
+            const message = err.message || String(err);
+            console.warn("API Gateway scan failed:", message);
+            await ctx.pool.query(
+              `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId, message]
+            );
+            out.push({
+              collector_id: "api_gateway",
+              fingerprint: `gateway-connector-error:${conn.id}`,
+              name: `API Gateway error — ${conn.name}`,
+              category: "gateway",
+              provider: conn.provider,
+              confidence_score: 0.2,
+              running_status: "unknown",
+              risk_indicators: ["connector_auth_failed"],
+              metadata: { connectorId: conn.id, connectorName: conn.name, error: message }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("API Gateway collector:", err.message);
+      }
+      return out;
+    }
+  },
+
+  otel_tracing: {
+    id: "otel_tracing",
+    async scan(ctx) {
+      const out = [];
+      if (!ctx.pool || !ctx.tenantId) return out;
+      try {
+        const { listActiveTracingConnectors } = await import("../services/connectors.js");
+        const { discoverOtelTracingConnector } = await import("./networkGatewayConnectors.js");
+        const connectors = await listActiveTracingConnectors(ctx.pool, ctx.tenantId);
+        for (const conn of connectors) {
+          try {
+            const { observations, stats } = await discoverOtelTracingConnector(conn);
+            out.push(...observations);
+            await ctx.pool.query(
+              `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId]
+            );
+            await ctx.pool.query(
+              `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+               VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
+              [
+                ctx.tenantId,
+                `OpenTelemetry collector "${conn.name}" parsed ${stats.spansParsed || 0} spans — discovered ${stats.agentsDiscovered || 0} AI agents`,
+                JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "tracing", ...stats })
+              ]
+            );
+          } catch (err) {
+            const message = err.message || String(err);
+            console.warn("OTel tracing scan failed:", message);
+            await ctx.pool.query(
+              `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId, message]
+            );
+            out.push({
+              collector_id: "otel_tracing",
+              fingerprint: `otel-connector-error:${conn.id}`,
+              name: `OpenTelemetry error — ${conn.name}`,
+              category: "autonomous",
+              provider: conn.provider,
+              confidence_score: 0.2,
+              running_status: "unknown",
+              risk_indicators: ["connector_auth_failed"],
+              metadata: { connectorId: conn.id, connectorName: conn.name, error: message }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("OTel tracing collector:", err.message);
+      }
+      return out;
+    }
+  },
+
+  network_proxy: {
+    id: "network_proxy",
+    async scan(ctx) {
+      const out = [];
+      if (!ctx.pool || !ctx.tenantId) return out;
+      try {
+        const { listActiveNetworkConnectors } = await import("../services/connectors.js");
+        const { discoverNetworkProxyConnector } = await import("./networkGatewayConnectors.js");
+        const connectors = await listActiveNetworkConnectors(ctx.pool, ctx.tenantId);
+        for (const conn of connectors) {
+          try {
+            const { observations, stats } = await discoverNetworkProxyConnector(conn);
+            out.push(...observations);
+            await ctx.pool.query(
+              `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId]
+            );
+            await ctx.pool.query(
+              `INSERT INTO discovery_events (tenant_id, event_type, severity, message, payload)
+               VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
+              [
+                ctx.tenantId,
+                `Network Proxy "${conn.name}" analyzed ${stats.sessionsAnalyzed || 0} sessions — discovered ${stats.agentsDiscovered || 0} AI agents`,
+                JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "network", ...stats })
+              ]
+            );
+          } catch (err) {
+            const message = err.message || String(err);
+            console.warn("Network proxy scan failed:", message);
+            await ctx.pool.query(
+              `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
+               WHERE id=$1 AND tenant_id=$2`,
+              [conn.id, ctx.tenantId, message]
+            );
+            out.push({
+              collector_id: "network_proxy",
+              fingerprint: `proxy-connector-error:${conn.id}`,
+              name: `Network proxy error — ${conn.name}`,
+              category: "network",
+              provider: conn.provider,
+              confidence_score: 0.2,
+              running_status: "unknown",
+              risk_indicators: ["connector_auth_failed"],
+              metadata: { connectorId: conn.id, connectorName: conn.name, error: message }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("Network proxy collector:", err.message);
+      }
+      return out;
+    }
+  },
+
   // demo collector removed — inventory comes from live connectors/discovery only
 };
 
@@ -922,7 +1087,10 @@ export const DEFAULT_COLLECTORS = [
   "identity_entra",
   "edr",
   "saas_platform",
-  "ci_platform"
+  "ci_platform",
+  "api_gateway",
+  "otel_tracing",
+  "network_proxy"
 ];
 
 const LOCAL_COLLECTORS = ["ide_filesystem", "process", "mcp"];

@@ -17,7 +17,10 @@ type ProviderKey =
   | "openai"
   | "github"
   | "gitlab"
-  | "jenkins";
+  | "jenkins"
+  | "api_gateway"
+  | "otel_tracing"
+  | "network_proxy";
 
 type ProviderSchema = {
   category?: string;
@@ -42,7 +45,10 @@ const PROVIDER_LABELS: Record<ProviderKey, string> = {
   openai: "OpenAI / ChatGPT",
   github: "GitHub (repos / Actions / Copilot markers)",
   gitlab: "GitLab",
-  jenkins: "Jenkins CI"
+  jenkins: "Jenkins CI",
+  api_gateway: "API Gateway (Kong / APIM / AWS GW)",
+  otel_tracing: "OpenTelemetry GenAI Tracing",
+  network_proxy: "Network & Proxy Egress Logs"
 };
 
 const EMPTY_FORM = {
@@ -80,7 +86,12 @@ const EMPTY_FORM = {
   apiBase: "https://api.github.com",
   host: "gitlab.com",
   projectGroup: "",
-  token: ""
+  token: "",
+  gatewayType: "kong",
+  endpoint: "",
+  serviceName: "",
+  logSourceUrl: "",
+  proxyType: "squid"
 };
 
 export function ConnectorsPage() {
@@ -103,9 +114,11 @@ export function ConnectorsPage() {
         ? "saas"
         : ["github", "gitlab"].includes(form.provider)
           ? "source"
-          : form.provider === "jenkins"
+          : ["jenkins", "github_actions", "gitlab_ci"].includes(form.provider)
             ? "ci"
-            : "cloud");
+            : ["api_gateway", "otel_tracing", "network_proxy"].includes(form.provider)
+              ? "network"
+              : "cloud");
 
   const load = async () => {
     setLoading(true);
@@ -216,6 +229,11 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
       apiBase: config.apiBase || "https://api.github.com",
       host: config.host || "gitlab.com",
       projectGroup: config.projectGroup || "",
+      gatewayType: config.gatewayType || "kong",
+      endpoint: config.endpoint || "",
+      serviceName: config.serviceName || "",
+      logSourceUrl: config.logSourceUrl || "",
+      proxyType: config.proxyType || "squid",
       clientSecret: "",
       secretAccessKey: "",
       privateKey: "",
@@ -307,7 +325,7 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
     }
   };
 
-  const scanNow = async (mode: "cloud" | "edr" | "saas" | "source" | "ci" | "all") => {
+  const scanNow = async (mode: "cloud" | "edr" | "saas" | "source" | "ci" | "network" | "all") => {
     setError(null);
     setMessage(null);
     const collectors =
@@ -321,7 +339,20 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
               ? ["git_sources"]
               : mode === "ci"
                 ? ["ci_platform"]
-                : ["cloud_stub", "edr", "saas_platform", "git_sources", "ci_platform", "ide_filesystem", "process"];
+                : mode === "network"
+                  ? ["api_gateway", "otel_tracing", "network_proxy"]
+                  : [
+                      "cloud_stub",
+                      "edr",
+                      "saas_platform",
+                      "git_sources",
+                      "ci_platform",
+                      "api_gateway",
+                      "otel_tracing",
+                      "network_proxy",
+                      "ide_filesystem",
+                      "process"
+                    ];
     try {
       await apiRequest("/api/discovery/jobs", {
         method: "POST",
@@ -338,7 +369,9 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
                 ? "GitHub/GitLab discovery started (AI repos, Actions, Copilot markers)."
                 : mode === "ci"
                   ? "Jenkins CI discovery started."
-                  : "Full discovery started (cloud, EDR, SaaS, Git, CI, IDE)."
+                  : mode === "network"
+                    ? "Gateway, Tracing & Proxy discovery started (Kong, APIM, OTel, Proxies)."
+                    : "Full discovery started (cloud, EDR, SaaS, Git, CI, Gateway, OTel, Proxy, IDE)."
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start discovery.");
@@ -363,7 +396,10 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
       source: keys.filter(
         (k) => schema[k]?.category === "source" || ["github", "gitlab"].includes(k)
       ),
-      ci: keys.filter((k) => schema[k]?.category === "ci" || k === "jenkins")
+      ci: keys.filter((k) => schema[k]?.category === "ci" || ["jenkins", "github_actions", "gitlab_ci"].includes(k)),
+      network: keys.filter(
+        (k) => schema[k]?.category === "network" || schema[k]?.category === "gateway" || schema[k]?.category === "tracing" || ["api_gateway", "otel_tracing", "network_proxy"].includes(k)
+      )
     };
   }, [schema]);
 
@@ -376,8 +412,10 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
         : category === "source"
           ? "Add Git / source connector"
           : category === "ci"
-            ? "Add CI / Jenkins connector"
-            : "Add cloud environment";
+            ? "Add CI / Build connector"
+            : category === "network"
+              ? "Add Gateway, Tracing & Proxy integration"
+              : "Add cloud environment";
 
   return (
     <div className="page">
@@ -406,6 +444,9 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
           </button>
           <button className="button" type="button" onClick={() => void scanNow("ci")}>
             Scan Jenkins
+          </button>
+          <button className="button" type="button" onClick={() => void scanNow("network")}>
+            Scan Gateway & Proxies
           </button>
           <button className="button primary" type="button" onClick={() => void scanNow("all")}>
             Scan all
@@ -504,6 +545,13 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
                   </optgroup>
                   <optgroup label="EDR / endpoint">
                     {providerOptions.edr.map((key) => (
+                      <option key={key} value={key}>
+                        {PROVIDER_LABELS[key] || key}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Gateway, Tracing & Proxy">
+                    {providerOptions.network.map((key) => (
                       <option key={key} value={key}>
                         {PROVIDER_LABELS[key] || key}
                       </option>
