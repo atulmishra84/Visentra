@@ -586,12 +586,28 @@ export const collectors = {
       try {
         const { listActiveIdentityConnectors } = await import("../services/connectors.js");
         const { discoverEntra } = await import("./entraIdentity.js");
+        const { discoverKubernetesIdentity } = await import("./k8sApi.js");
         const connectors = await listActiveIdentityConnectors(ctx.pool, ctx.tenantId);
+        const discoverers = {
+          entra_identity: discoverEntra,
+          kubernetes_identity: discoverKubernetesIdentity
+        };
+        const labels = {
+          entra_identity: "Entra ID",
+          kubernetes_identity: "Kubernetes identity"
+        };
 
         for (const conn of connectors) {
+          const discoverer = discoverers[conn.provider];
+          const label = labels[conn.provider] || conn.provider;
+          if (!discoverer) continue;
           try {
-            const { observations, stats } = await discoverEntra(conn);
+            const { observations, stats } = await discoverer(conn);
             out.push(...observations);
+            const scanned =
+              (stats.servicePrincipalsScanned || 0) +
+              (stats.applicationsScanned || 0) +
+              (stats.serviceAccountsScanned || 0);
             await ctx.pool.query(
               `UPDATE connectors SET last_tested_at=NOW(), last_error=NULL, status='active', updated_at=NOW()
                WHERE id=$1 AND tenant_id=$2`,
@@ -602,13 +618,13 @@ export const collectors = {
                VALUES ($1,'connector.scan','info',$2,$3::jsonb)`,
               [
                 ctx.tenantId,
-                `Entra ID connector "${conn.name}" scanned ${(stats.servicePrincipalsScanned || 0) + (stats.applicationsScanned || 0)} identities — ingested ${stats.identitiesIngested || 0} AI-related identities`,
+                `${label} connector "${conn.name}" scanned ${scanned} identities — ingested ${stats.identitiesIngested || 0} AI-related identities`,
                 JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "identity", ...stats })
               ]
             );
           } catch (err) {
             const message = err.message || String(err);
-            console.warn("Entra identity connector scan failed:", message);
+            console.warn(`${label} connector scan failed:`, message);
             await ctx.pool.query(
               `UPDATE connectors SET status='error', last_tested_at=NOW(), last_error=$3, updated_at=NOW()
                WHERE id=$1 AND tenant_id=$2`,
@@ -619,23 +635,23 @@ export const collectors = {
                VALUES ($1,'connector.scan.error','error',$2,$3::jsonb)`,
               [
                 ctx.tenantId,
-                `Entra ID connector "${conn.name}" failed: ${message}`,
+                `${label} connector "${conn.name}" failed: ${message}`,
                 JSON.stringify({ connectorId: conn.id, provider: conn.provider, category: "identity" })
               ]
             );
             out.push({
               collector_id: "identity_entra",
-              fingerprint: `entra-connector-error:${conn.id}`,
-              name: `Entra ID connector error — ${conn.name}`,
+              fingerprint: `identity-connector-error:${conn.provider}:${conn.id}`,
+              name: `${label} connector error — ${conn.name}`,
               category: "identity",
-              provider: "entra_identity",
+              provider: conn.provider,
               confidence_score: 0.2,
               running_status: "unknown",
               risk_indicators: ["connector_auth_failed"],
               metadata: {
                 connectorId: conn.id,
                 connectorName: conn.name,
-                discoveryMode: "entra-graph-error",
+                discoveryMode: "identity-connector-error",
                 inventoryClass: "identity_connector",
                 error: message
               }
