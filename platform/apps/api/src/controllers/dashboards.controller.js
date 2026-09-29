@@ -2,6 +2,7 @@ import { pool } from "../db/postgres.js";
 import { summarizeShadowFindings } from "../services/shadowAi.js";
 import { usageBreakdown as usageBreakdownService, buildUsageDashboard, buildExecutiveInsights } from "../services/usageAnalytics.js";
 import { computeDiscoveryChanges, computeBlastRadius } from "../services/agentDepth.js";
+import { buildTimelineActivity } from "../services/timelineActivity.js";
 import { DEFAULT_COLLECTORS, PRODUCTION_COLLECTORS } from "../discovery/collectors.js";
 import { IS_PROD } from "../config.js";
 
@@ -254,14 +255,36 @@ export async function getDashboard(req, res) {
     return res.json({ dashboard, ...dashboard });
   }
   if (name === "timeline") {
-    const timeline = await pool.query(
-      `SELECT id, name, first_discovered, last_seen, category, owner, framework, model
-       FROM agents WHERE tenant_id=$1 ORDER BY first_discovered DESC LIMIT 100`,
-      [req.tenantId]
+    const [agents, discovery, relationships] = await Promise.all([
+      pool.query(
+        `SELECT id, name, first_discovered, last_seen, category, owner, framework, model
+         FROM agents WHERE tenant_id=$1 ORDER BY first_discovered DESC LIMIT 100`,
+        [req.tenantId]
+      ),
+      pool.query(
+        `SELECT id, event_type, message, created_at
+         FROM discovery_events WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100`,
+        [req.tenantId]
+      ),
+      pool.query(
+        `SELECT r.id, r.rel_type, r.from_type, r.to_type, r.last_seen, r.created_at,
+                a.name AS from_name, ast.name AS to_name
+         FROM relationships r
+         LEFT JOIN agents a ON r.from_type = 'Agent' AND a.id = r.from_id
+         LEFT JOIN assets ast ON ast.id = r.to_id
+         WHERE r.tenant_id=$1
+         ORDER BY r.last_seen DESC
+         LIMIT 100`,
+        [req.tenantId]
+      )
+    ]);
+    return res.json(
+      buildTimelineActivity({
+        agents: agents.rows,
+        events: discovery.rows,
+        relationships: relationships.rows
+      })
     );
-    return res.json({
-      dashboard: { items: timeline.rows, events: timeline.rows, timeline: timeline.rows }
-    });
   }
   return res.status(404).json({ error: { message: `Unknown dashboard ${name}` } });
 }
