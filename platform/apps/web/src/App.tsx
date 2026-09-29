@@ -24,6 +24,7 @@ import { AiBomPage } from "./pages/AiBomPage";
 import { GovernancePage } from "./pages/GovernancePage";
 import { GovernanceAssessmentPage } from "./pages/GovernanceAssessmentPage";
 import { GovernanceCatalogPage } from "./pages/GovernanceCatalogPage";
+import { AssurancePage } from "./pages/AssurancePage";
 import { NaxriIntegrationPage } from "./pages/NaxriIntegrationPage";
 
 function LegacyNeighborhoodRedirect() {
@@ -71,6 +72,8 @@ export default function App() {
         <Route path="/governance" element={<GovernancePage />} />
         <Route path="/governance/catalog" element={<GovernanceCatalogPage />} />
         <Route path="/governance/agents/:agentId" element={<GovernanceAssessmentPage />} />
+        <Route path="/assurance" element={<AssurancePage />} />
+        <Route path="/assurance/:agentId" element={<AssurancePage />} />
         <Route path="/inventory" element={<InventoryPage title="Asset Inventory" />} />
         <Route path="/inventory/explorer" element={<Navigate to="/inventory" replace />} />
         <Route path="/agents/:id" element={<AgentDetailPage />} />
