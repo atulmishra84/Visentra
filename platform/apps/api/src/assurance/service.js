@@ -7,6 +7,7 @@ import {
   permissionFingerprint,
   postureFromSnapshot
 } from "./effectiveness.js";
+import { projectAssuranceFacts } from "./projectDiscovery.js";
 
 const SAMPLE_MAX = 80;
 
@@ -141,17 +142,139 @@ export async function assuranceSummary(pool, tenantId) {
   };
 }
 
+function eventKey(event) {
+  return createHash("sha256")
+    .update([event.source, event.operation, event.resource, event.occurredAt || ""].join("|"))
+    .digest("hex")
+    .slice(0, 24);
+}
+
+export async function syncDiscoveryFacts(pool, tenantId, agentId) {
+  const agentRes = await pool.query(`SELECT * FROM agents WHERE tenant_id=$1 AND id=$2`, [tenantId, agentId]);
+  const agent = agentRes.rows[0];
+  if (!agent) return null;
+  const observations = await pool.query(
+    `SELECT collector_id, payload, observed_at FROM agent_observations
+     WHERE tenant_id=$1 AND agent_id=$2
+     ORDER BY observed_at DESC
+     LIMIT 50`,
+    [tenantId, agentId]
+  );
+  const facts = projectAssuranceFacts(agent, observations.rows);
+  if (!facts.hasFacts) return facts;
+
+  const counts = countsFrom(agent.tools, agent.mcp_connections);
+  const fingerprint = createHash("sha256").update(permissionFingerprint(facts.snapshot.capabilities)).digest("hex").slice(0, 16);
+  const existing = await pool.query(
+    `SELECT id FROM permission_snapshots WHERE tenant_id=$1 AND agent_id=$2 AND source='discovery' ORDER BY captured_at DESC LIMIT 1`,
+    [tenantId, agentId]
+  );
+  if (existing.rows[0]) {
+    await pool.query(
+      `UPDATE permission_snapshots
+       SET chain=$3::jsonb, capabilities=$4::jsonb, coverage=$5::jsonb, fingerprint=$6, tool_count=$7, mcp_count=$8, captured_at=NOW()
+       WHERE id=$1 AND tenant_id=$2`,
+      [
+        existing.rows[0].id,
+        tenantId,
+        JSON.stringify(facts.snapshot.chain),
+        JSON.stringify(facts.snapshot.capabilities),
+        JSON.stringify(facts.snapshot.coverage),
+        fingerprint,
+        counts.toolCount,
+        counts.mcpCount
+      ]
+    );
+  } else {
+    await pool.query(
+      `INSERT INTO permission_snapshots
+         (tenant_id, agent_id, source, chain, capabilities, coverage, fingerprint, tool_count, mcp_count, recorded_by)
+       VALUES ($1,$2,'discovery',$3::jsonb,$4::jsonb,$5::jsonb,$6,$7,$8,'discovery')`,
+      [
+        tenantId,
+        agentId,
+        JSON.stringify(facts.snapshot.chain),
+        JSON.stringify(facts.snapshot.capabilities),
+        JSON.stringify(facts.snapshot.coverage),
+        fingerprint,
+        counts.toolCount,
+        counts.mcpCount
+      ]
+    );
+  }
+
+  await pool.query(`DELETE FROM runtime_events WHERE tenant_id=$1 AND agent_id=$2 AND source LIKE 'discovery:%'`, [
+    tenantId,
+    agentId
+  ]);
+  for (const event of facts.events) {
+    const clean = sanitizeRuntimeEvent(event);
+    await pool.query(
+      `INSERT INTO runtime_events
+         (tenant_id, agent_id, occurred_at, source, action, operation, resource, kind, data_class, decision, identity, destructive, field_names, content_hash, redacted_sample)
+       VALUES ($1,$2,COALESCE($3::timestamptz, NOW()),$4,$5,$6,$7,$8,$9,$10,$11,false,'[]'::jsonb,$12,null)`,
+      [
+        tenantId,
+        agentId,
+        clean.occurredAt,
+        clean.source,
+        clean.action,
+        clean.operation,
+        clean.resource,
+        clean.kind,
+        clean.dataClass,
+        clean.decision,
+        clean.identity,
+        eventKey(clean)
+      ]
+    );
+  }
+  return facts;
+}
+
+async function loadSnapshot(pool, tenantId, agentId) {
+  const res = await pool.query(
+    `SELECT * FROM permission_snapshots WHERE tenant_id=$1 AND agent_id=$2 ORDER BY captured_at DESC LIMIT 5`,
+    [tenantId, agentId]
+  );
+  const discovery = res.rows.find((row) => row.source === "discovery") || null;
+  const operator = res.rows.find((row) => row.source !== "discovery") || null;
+  if (!discovery) return operator;
+  if (!operator) return discovery;
+  const coverage = { ...(discovery.coverage || {}) };
+  const capabilities = Array.isArray(discovery.capabilities) ? [...discovery.capabilities] : [];
+  const kindsByPlane = {
+    authorization: new Set(["role", "scope"]),
+    database: new Set(["database"]),
+    api: new Set(["api"])
+  };
+  for (const [plane, on] of Object.entries(operator.coverage || {})) {
+    if (on === true && coverage[plane] !== true) {
+      coverage[plane] = true;
+      const kinds = kindsByPlane[plane];
+      if (!kinds) continue;
+      for (const item of operator.capabilities || []) {
+        if (kinds.has(item?.kind)) capabilities.push(item);
+      }
+    }
+  }
+  return {
+    ...discovery,
+    coverage,
+    capabilities,
+    chain: (discovery.chain || []).length ? discovery.chain : operator.chain
+  };
+}
+
 export async function getAgentAssurance(pool, tenantId, agentId) {
+  await syncDiscoveryFacts(pool, tenantId, agentId);
   const agent = await requireAgent(pool, tenantId, agentId);
   const [assignments, snapshot, events, evaluations, baseline, drift] = await Promise.all([
     pool.query(
       `SELECT * FROM assurance_assignments WHERE tenant_id=$1 AND agent_id=$2 ORDER BY control_id`,
       [tenantId, agentId]
     ),
-    pool.query(
-      `SELECT * FROM permission_snapshots WHERE tenant_id=$1 AND agent_id=$2 ORDER BY captured_at DESC LIMIT 1`,
-      [tenantId, agentId]
-    ),
+    loadSnapshot(pool, tenantId, agentId).then((snapshot) => ({ rows: snapshot ? [snapshot] : [] })),
     pool.query(
       `SELECT * FROM runtime_events WHERE tenant_id=$1 AND agent_id=$2 ORDER BY occurred_at DESC LIMIT 100`,
       [tenantId, agentId]
@@ -290,16 +413,14 @@ export async function recordRuntimeEvents(pool, tenantId, agentId, body) {
 }
 
 export async function evaluateAgent(pool, tenantId, agentId) {
+  await syncDiscoveryFacts(pool, tenantId, agentId);
   const agent = await requireAgent(pool, tenantId, agentId);
   const assignments = await pool.query(
     `SELECT * FROM assurance_assignments WHERE tenant_id=$1 AND agent_id=$2`,
     [tenantId, agentId]
   );
   if (!assignments.rows.length) throw httpError("Assign at least one control before evaluation");
-  const snapshotRes = await pool.query(
-    `SELECT * FROM permission_snapshots WHERE tenant_id=$1 AND agent_id=$2 ORDER BY captured_at DESC LIMIT 1`,
-    [tenantId, agentId]
-  );
+  const snapshotRes = await loadSnapshot(pool, tenantId, agentId).then((snapshot) => ({ rows: snapshot ? [snapshot] : [] }));
   const eventRes = await pool.query(
     `SELECT * FROM runtime_events WHERE tenant_id=$1 AND agent_id=$2 ORDER BY occurred_at DESC LIMIT 500`,
     [tenantId, agentId]
@@ -395,11 +516,9 @@ export async function evaluateAgent(pool, tenantId, agentId) {
 }
 
 export async function approveBaseline(pool, tenantId, agentId, actor) {
+  await syncDiscoveryFacts(pool, tenantId, agentId);
   const agent = await requireAgent(pool, tenantId, agentId);
-  const snapshotRes = await pool.query(
-    `SELECT * FROM permission_snapshots WHERE tenant_id=$1 AND agent_id=$2 ORDER BY captured_at DESC LIMIT 1`,
-    [tenantId, agentId]
-  );
+  const snapshotRes = await loadSnapshot(pool, tenantId, agentId).then((snapshot) => ({ rows: snapshot ? [snapshot] : [] }));
   if (!snapshotRes.rows[0]) throw httpError("Record a permission snapshot before approving a baseline");
   const counts = countsFrom(agent.tools, agent.mcp_connections);
   const posture = postureFromSnapshot({

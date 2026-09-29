@@ -274,6 +274,12 @@ export async function ingestObservations(pool, neo4j, tenantId, jobId, observati
 
         await client.query("COMMIT");
         await projectNeo4j(neo4j, tenantId, agent, assetIdsByKey, rels);
+        try {
+          const { syncDiscoveryFacts } = await import("../assurance/service.js");
+          await syncDiscoveryFacts(pool, tenantId, agent.id);
+        } catch (syncErr) {
+          console.warn("assurance sync:", syncErr.message);
+        }
         emitEvent?.({ type: "inventory.agent.updated", agentId: agent.id });
       } catch (err) {
         await client.query("ROLLBACK");
