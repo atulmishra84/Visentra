@@ -18,10 +18,16 @@ export function TimelinePage() {
     };
   }, []);
 
-  const rows = useMemo(
-    () => listFromPayload<Record<string, unknown>>(payload, ["items", "events", "timeline", "activity"]),
-    [payload]
-  );
+  const rows = useMemo(() => {
+    const keys = ["items", "events", "timeline", "activity"];
+    const top = listFromPayload<Record<string, unknown>>(payload, keys);
+    if (top.length) return top;
+    const dashboard =
+      payload && typeof payload === "object" && "dashboard" in payload
+        ? (payload as { dashboard?: unknown }).dashboard
+        : null;
+    return listFromPayload<Record<string, unknown>>(dashboard, keys);
+  }, [payload]);
 
   return (
     <div className="page">
@@ -41,16 +47,21 @@ export function TimelinePage() {
         <section className="panel timeline">
           {rows.map((row, index) => (
             <article className="timeline-item" key={String(row.id ?? index)}>
-              <span className="mono muted">{compactDate(row.timestamp ?? row.createdAt ?? row.observedAt)}</span>
+              <span className="mono muted">
+                {compactDate(row.timestamp ?? row.createdAt ?? row.created_at ?? row.first_discovered ?? row.last_seen ?? row.observedAt)}
+              </span>
               <div>
-                <strong>{valueAt(row, ["title", "name", "type"], "Timeline event")}</strong>
+                <strong>{valueAt(row, ["title", "name", "event_type"], "Timeline event")}</strong>
                 <p className="muted">{valueAt(row, ["description", "message", "summary"], "No details supplied.")}</p>
               </div>
             </article>
           ))}
         </section>
       ) : (
-        <div className="empty-state">No timeline events returned by `/api/dashboards/timeline`.</div>
+        <div className="empty-state">
+          No inventory, discovery, or relationship activity is stored yet. Run discovery from a connector and agents,
+          scan events, and relationships will appear here in time order.
+        </div>
       )}
     </div>
   );
