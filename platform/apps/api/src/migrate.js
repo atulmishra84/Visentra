@@ -203,6 +203,117 @@ export async function migrate(pool) {
       ON compliance_custom_controls(tenant_id, framework)
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS assurance_assignments (
+      id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      agent_id      UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      control_id    TEXT NOT NULL,
+      framework     TEXT,
+      parameters    JSONB NOT NULL DEFAULT '{}'::jsonb,
+      assigned_by   TEXT,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (tenant_id, agent_id, control_id)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS permission_snapshots (
+      id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      agent_id      UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      source        TEXT NOT NULL DEFAULT 'operator',
+      chain         JSONB NOT NULL DEFAULT '[]'::jsonb,
+      capabilities  JSONB NOT NULL DEFAULT '[]'::jsonb,
+      coverage      JSONB NOT NULL DEFAULT '{}'::jsonb,
+      fingerprint   TEXT,
+      tool_count    INT,
+      mcp_count     INT,
+      recorded_by   TEXT,
+      captured_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_permission_snapshots_agent
+      ON permission_snapshots(tenant_id, agent_id, captured_at DESC)
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS runtime_events (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      agent_id        UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      occurred_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      source          TEXT NOT NULL DEFAULT 'operator',
+      action          TEXT,
+      operation       TEXT,
+      resource        TEXT,
+      kind            TEXT,
+      data_class      TEXT,
+      decision        TEXT,
+      identity        TEXT,
+      destructive     BOOLEAN NOT NULL DEFAULT FALSE,
+      field_names     JSONB NOT NULL DEFAULT '[]'::jsonb,
+      content_hash    TEXT,
+      redacted_sample TEXT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_runtime_events_agent
+      ON runtime_events(tenant_id, agent_id, occurred_at DESC)
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS control_evaluations (
+      id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id             UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      agent_id              UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      control_id            TEXT NOT NULL,
+      status                TEXT NOT NULL
+                              CHECK (status IN (
+                                'effective', 'ineffective', 'violated',
+                                'blocked_violation', 'unknown', 'not_tested'
+                              )),
+      summary               TEXT NOT NULL,
+      requirement           JSONB NOT NULL DEFAULT '{}'::jsonb,
+      effective_permission  JSONB,
+      evidence              JSONB NOT NULL DEFAULT '[]'::jsonb,
+      missing               JSONB NOT NULL DEFAULT '[]'::jsonb,
+      snapshot_id           UUID,
+      evaluated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_control_evaluations_agent
+      ON control_evaluations(tenant_id, agent_id, control_id, evaluated_at DESC)
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS assurance_baselines (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id    UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      agent_id     UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      snapshot     JSONB NOT NULL,
+      approved_by  TEXT,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS assurance_drift (
+      id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id      UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      agent_id       UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      severity       TEXT NOT NULL,
+      baseline       JSONB NOT NULL DEFAULT '{}'::jsonb,
+      current        JSONB NOT NULL DEFAULT '{}'::jsonb,
+      changes        JSONB NOT NULL DEFAULT '[]'::jsonb,
+      evaluation_id  UUID,
+      detected_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_assurance_drift_agent
+      ON assurance_drift(tenant_id, agent_id, detected_at DESC)
+  `);
+
   const isProd = process.env.NODE_ENV === "production";
   const email = process.env.BOOTSTRAP_ADMIN_EMAIL || "admin@agentradar.local";
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || (isProd ? null : "AgentRadar!dev");

@@ -3636,3 +3636,25 @@ tbody tr:hover {
   color: var(--text);
   border-color: var(--panel-border);
 }
+
+.assurance-pill {
+  display: inline-flex;
+  margin: 0 6px 6px 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.assurance-pill[data-status="effective"] { color: #0f7a5c; background: #e1f3ec; }
+.assurance-pill[data-status="ineffective"] { color: #9a5b00; background: #faedd8; }
+.assurance-pill[data-status="violated"],
+.assurance-pill[data-status="critical"] { color: #b8272c; background: #fbe4e4; }
+.assurance-pill[data-status="blocked_violation"] { color: #3457d5; background: #e2e8ff; }
+.assurance-pill[data-status="unknown"],
+.assurance-pill[data-status="not_tested"] { color: var(--text-muted); background: var(--bg-elevated); }
+.assurance-card { border-top: 1px solid var(--panel-border); padding: 12px 0; }
+.assurance-evidence { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); }
+.chain-line { font-family: var(--font-mono); font-size: 0.85rem; }

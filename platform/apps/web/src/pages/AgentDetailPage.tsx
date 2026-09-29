@@ -181,6 +181,9 @@ export function AgentDetailPage() {
           >
             Refresh
           </button>
+          <Link className="button" to={`/assurance/${encodeURIComponent(String(agent.id ?? id))}`}>
+            Control assurance
+          </Link>
           <Link className="button primary" to={`/relationships?agentId=${encodeURIComponent(String(agent.id ?? id))}`}>
             Open anatomy
           </Link>

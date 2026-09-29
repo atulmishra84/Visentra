@@ -30,7 +30,8 @@ const sections = [
     heading: "Governance & Compliance",
     items: [
       { to: "/governance", label: "Assessments" },
-      { to: "/governance/catalog", label: "Control catalog" }
+      { to: "/governance/catalog", label: "Control catalog" },
+      { to: "/assurance", label: "Control assurance" }
     ]
   },
   {
