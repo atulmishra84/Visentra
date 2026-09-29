@@ -57,6 +57,8 @@ function statusLabel(status?: string | null) {
   return STATUS_LABEL[status] || status;
 }
 
+const PLANES = ["authorization", "database", "api", "runtime"] as const;
+
 export function AssurancePage() {
   const { agentId } = useParams();
   const [agents, setAgents] = useState<AgentRow[]>([]);
@@ -64,23 +66,23 @@ export function AssurancePage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [controlId, setControlId] = useState("C-001");
-  const [allowlist, setAllowlist] = useState("/patient\n/diagnosis");
+  const [allowlist, setAllowlist] = useState("");
   const [coverage, setCoverage] = useState({ authorization: false, database: false, api: false, runtime: false });
-  const [chainText, setChainText] = useState("credential: svc-patient-support\nidentity: service-principal");
+  const [chainText, setChainText] = useState("");
   const [capability, setCapability] = useState({
     kind: "database",
     operation: "UPDATE",
-    resource: "Patient DB",
-    dataClass: "phi",
+    resource: "",
+    dataClass: "",
     allowed: true
   });
   const [capabilities, setCapabilities] = useState<Array<Record<string, unknown>>>([]);
   const [eventForm, setEventForm] = useState({
-    kind: "database",
-    operation: "UPDATE",
-    action: "PUT",
-    resource: "Patient DB",
-    dataClass: "phi",
+    kind: "api",
+    operation: "",
+    action: "",
+    resource: "",
+    dataClass: "none",
     decision: "allowed"
   });
 
@@ -204,8 +206,8 @@ export function AssurancePage() {
           <p className="eyebrow">Governance</p>
           <h1>Control assurance</h1>
           <p className="page-description">
-            For each agent: what policy requires, what the credential can do, what runtime showed, and whether the
-            control held. Unknown stays unknown until the permission plane and runtime plane were actually read.
+            Identity, Foundry tools, gateway routes, and traces already stored by discovery are projected here.
+            A plane that was not read stays Unknown. Silence is not Effective.
           </p>
         </div>
       </header>
@@ -324,14 +326,55 @@ export function AssurancePage() {
                 ))}
             </div>
 
-            <h2>Capability</h2>
+            <h2>Discovered facts</h2>
+            <p className="muted">
+              Source {detail?.snapshot?.source || "none"}
+              {detail?.snapshot?.captured_at ? ` · ${new Date(detail.snapshot.captured_at).toLocaleString()}` : ""}.
+              Planes marked not read were not in the stored inventory, so their controls stay Unknown.
+            </p>
+            <div className="form-row">
+              {PLANES.map((plane) => (
+                <span key={plane} className="assurance-pill" data-status={detail?.snapshot?.coverage?.[plane] ? "effective" : "unknown"}>
+                  {plane} {detail?.snapshot?.coverage?.[plane] ? "read" : "not read"}
+                </span>
+              ))}
+            </div>
             {detail?.snapshot?.chain?.length ? (
               <p className="chain-line">
-                {detail.snapshot.chain.map((step) => step.name || step.step).filter(Boolean).join(" → ")}
+                {detail.snapshot.chain
+                  .map((step) => (step.step && step.name ? `${step.step}: ${step.name}` : step.name || step.step))
+                  .filter(Boolean)
+                  .join(" → ")}
               </p>
             ) : (
-              <p className="muted">No permission chain recorded.</p>
+              <p className="muted">No identity, Foundry, or model chain in the stored inventory.</p>
             )}
+            {detail?.snapshot?.capabilities?.length ? (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Kind</th>
+                    <th>Operation</th>
+                    <th>Resource</th>
+                    <th>Class</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.snapshot.capabilities.map((row, index) => (
+                    <tr key={`${String(row.kind)}-${String(row.resource)}-${index}`}>
+                      <td>{String(row.kind || "—")}</td>
+                      <td>{String(row.operation || "—")}</td>
+                      <td>{String(row.resource || "—")}</td>
+                      <td>{String(row.dataClass || "—")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="muted">No tools, routes, or permissions were stored for this agent.</p>
+            )}
+
+            <h2>Add a plane discovery did not read</h2>
             <form className="connector-form" onSubmit={(event) => void saveSnapshot(event)}>
               <label>
                 Chain, one step per line (credential: name)
@@ -406,6 +449,7 @@ export function AssurancePage() {
                 <thead>
                   <tr>
                     <th>When</th>
+                    <th>Source</th>
                     <th>Operation</th>
                     <th>Resource</th>
                     <th>Class</th>
@@ -416,6 +460,7 @@ export function AssurancePage() {
                   {detail.events.map((row) => (
                     <tr key={String(row.id)}>
                       <td className="muted">{row.occurred_at ? new Date(String(row.occurred_at)).toLocaleString() : "—"}</td>
+                      <td>{String(row.source || "—")}</td>
                       <td>{String(row.operation || row.action || "—")}</td>
                       <td>{String(row.resource || "—")}</td>
                       <td>{String(row.data_class || "—")}</td>

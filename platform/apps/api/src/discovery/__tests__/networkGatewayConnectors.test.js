@@ -55,6 +55,17 @@ describe("Network, Gateway & Tracing Connectors", () => {
       assert.equal(observations[0].model, "gpt-4o");
       assert.equal(observations[1].model, "claude-3-5-sonnet");
       assert.equal(observations[0].collector_id, "api_gateway");
+      assert.equal(observations[0].metadata.modelSource, "host_inference");
+    });
+
+    it("records an error instead of inventing a route when the gateway returns none", async () => {
+      const { observations, discoveryErrors, stats } = await discoverApiGatewayConnector(conn, {
+        fetcher: async () => ({ ok: false, status: 401, json: {} })
+      });
+      assert.equal(stats.agentsDiscovered, 0);
+      assert.equal(observations.length, 0);
+      assert.equal(discoveryErrors.length, 1);
+      assert.match(discoveryErrors[0].error, /401/);
     });
   });
 
@@ -110,6 +121,32 @@ describe("Network, Gateway & Tracing Connectors", () => {
       assert.equal(observations[1].name, "doc_researcher_subagent");
       assert.equal(observations[1].model, "gpt-4o-mini");
       assert.equal(observations[0].collector_id, "otel_tracing");
+    });
+
+    it("does not invent a model and keeps the observed http path", async () => {
+      const { observations } = await discoverOtelTracingConnector(conn, {
+        mockTraces: [
+          {
+            name: "POST /v1/responses",
+            endTime: "2026-09-17T12:00:00.000Z",
+            attributes: {
+              "gen_ai.agent.name": "doc-researcher",
+              "http.request.method": "POST",
+              "url.path": "/v1/responses",
+              "gen_ai.operation.name": "chat",
+              "gen_ai.tool.name": "patient_lookup"
+            }
+          }
+        ]
+      });
+      assert.equal(observations.length, 1);
+      assert.equal(observations[0].model, null);
+      assert.equal(observations[0].metadata.modelSource, "unread");
+      assert.equal(observations[0].metadata.runtime.httpMethod, "POST");
+      assert.equal(observations[0].metadata.runtime.httpTarget, "/v1/responses");
+      assert.equal(observations[0].metadata.runtime.operation, "chat");
+      assert.equal(observations[0].metadata.runtime.toolName, "patient_lookup");
+      assert.equal(observations[0].metadata.runtime.occurredAt, "2026-09-17T12:00:00.000Z");
     });
   });
 
