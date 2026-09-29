@@ -282,7 +282,14 @@ function pickAgent(agents, tags, inferred) {
   );
 }
 
-function observation({ conn, tenantId, sp, tags, inferred, model, modelSource, evidence, lastError, lastStatus }) {
+function foundryToolsOf(agent) {
+  const latest = agent?.versions?.latest || agent?.version || {};
+  const def = latest.definition || {};
+  const tools = def.tools || agent?.tools || [];
+  return Array.isArray(tools) ? tools : [];
+}
+
+function observation({ conn, tenantId, sp, tags, inferred, model, modelSource, evidence, lastError, lastStatus, tools = [], foundryDefinitionRead = false }) {
   const entraName = sp.displayName || sp.id;
   const name = inferred || entraName;
   const isRestricted = modelSource === "permission_denied" || lastStatus === 401 || lastStatus === 403 || (lastError && /403|denied|forbidden/i.test(lastError));
@@ -315,6 +322,7 @@ function observation({ conn, tenantId, sp, tags, inferred, model, modelSource, e
     confidence_score: 0.95,
     framework: "entra-agent-identity",
     model: model || null,
+    tools,
     metadata: {
       connectorId: conn.id,
       connectorName: conn.name,
@@ -334,6 +342,8 @@ function observation({ conn, tenantId, sp, tags, inferred, model, modelSource, e
       agentName: name,
       modelSource: modelSource || "unknown",
       foundationModel: model || null,
+      foundryTools: tools,
+      foundryDefinitionRead,
       modelAccessStatus,
       remediationGuide,
       evidence,
@@ -613,6 +623,8 @@ export async function discoverAzureScanner(conn, deps = {}) {
     }
 
     let last = null;
+    let foundryTools = [];
+    let foundryDefinitionRead = false;
     if (dataToken && endpoints.length) {
       let matched = null;
       const routes = preferredAgentRoutes(tags);
@@ -625,6 +637,8 @@ export async function discoverAzureScanner(conn, deps = {}) {
       }
       if (matched) {
         model = modelFromAgent(matched);
+        foundryTools = foundryToolsOf(matched);
+        foundryDefinitionRead = true;
         const foundryName = agentNameOf(matched);
         if (foundryName) evidence.push(`Agent name ${foundryName} read from the Foundry project endpoint.`);
         if (model) {
@@ -641,7 +655,9 @@ export async function discoverAzureScanner(conn, deps = {}) {
               modelSource,
               evidence,
               lastError: last?.error,
-              lastStatus: last?.status
+              lastStatus: last?.status,
+              tools: foundryTools,
+              foundryDefinitionRead
             })
           );
           continue;
@@ -689,7 +705,9 @@ export async function discoverAzureScanner(conn, deps = {}) {
         modelSource,
         evidence,
         lastError: last?.error,
-        lastStatus: last?.status
+        lastStatus: last?.status,
+        tools: foundryTools,
+        foundryDefinitionRead
       })
     );
   }

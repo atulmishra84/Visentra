@@ -35,6 +35,18 @@ export function identifyLlmTarget(hostOrUrl) {
   return null;
 }
 
+function spanHttpTarget(attrs) {
+  const direct = String(attrs["url.path"] || attrs["http.target"] || attrs["http.route"] || "").trim();
+  if (direct) return direct.slice(0, 240);
+  const full = String(attrs["url.full"] || "").trim();
+  if (!full) return "";
+  try {
+    return new URL(full).pathname.slice(0, 240);
+  } catch {
+    return full.startsWith("/") ? full.slice(0, 240) : "";
+  }
+}
+
 function dynamicNetworkPolicy(rawUrl) {
   const parsed = assertAllowedUrl(rawUrl, { allowPrivate: true });
   return {
@@ -83,8 +95,11 @@ export async function discoverApiGatewayConnector(conn, deps = {}) {
       if (result.ok && Array.isArray(result.json?.data || result.json?.value || result.json)) {
         routes = result.json.data || result.json.value || result.json;
       } else {
-        // Mock fallback if gateway returns single status or health
-        routes = [{ name: "ai-gateway-proxy", paths: ["/v1/chat/completions"], service: { host: "api.openai.com" } }];
+        discoveryErrors.push({
+          collector: "api_gateway",
+          discoveryStatus: "error",
+          error: result.error || `Gateway routes were not returned (${result.status || "no status"})`
+        });
       }
     }
 
@@ -120,6 +135,7 @@ export async function discoverApiGatewayConnector(conn, deps = {}) {
             gatewayType,
             routePath: pathList,
             targetHost: serviceHost,
+            modelSource: "host_inference",
             evidence: [
               `API Gateway route '${name}' forwards traffic to AI backend '${serviceHost}'`,
               `Gateway type: ${gatewayType}`
@@ -194,13 +210,18 @@ export async function discoverOtelTracingConnector(conn, deps = {}) {
     // Process GenAI agent spans
     spansParsed = traces.length;
     for (const span of traces) {
-      const explicitName = String(span.attributes?.["gen_ai.agent.name"] || span.attributes?.["agent.name"] || "").trim();
-      const model = String(span.attributes?.["gen_ai.response.model"] || span.attributes?.["gen_ai.request.model"] || span.attributes?.["llm.model"] || "").trim();
-      const framework = String(span.attributes?.["gen_ai.framework"] || "opentelemetry");
-      const isAgentSpan = explicitName || Boolean(model) || /invoke_agent|subagent|agent/i.test(span.name);
+      const attrs = span.attributes || {};
+      const explicitName = String(attrs["gen_ai.agent.name"] || attrs["agent.name"] || "").trim();
+      const model = String(attrs["gen_ai.response.model"] || attrs["gen_ai.request.model"] || attrs["llm.model"] || "").trim();
+      const framework = String(attrs["gen_ai.framework"] || "opentelemetry");
+      const isAgentSpan = explicitName || Boolean(model) || /invoke_agent|subagent|agent/i.test(span.name || "");
+      const httpMethod = String(attrs["http.request.method"] || attrs["http.method"] || "").trim();
+      const httpTarget = spanHttpTarget(attrs);
+      const toolName = String(attrs["gen_ai.tool.name"] || attrs["tool.name"] || "").trim();
+      const operation = String(attrs["gen_ai.operation.name"] || span.name || "").trim();
 
       if (isAgentSpan) {
-        const agentName = explicitName || span.name.replace(/^(invoke_agent|chat)\s+/i, "");
+        const agentName = explicitName || String(span.name || "otel-span").replace(/^(invoke_agent|chat)\s+/i, "");
         observations.push({
           collector_id: "otel_tracing",
           fingerprint: `otel:${conn.id}:${agentName}`,
@@ -210,7 +231,7 @@ export async function discoverOtelTracingConnector(conn, deps = {}) {
           cloud_provider: "runtime",
           deployment_type: "in_process",
           framework,
-          model: model || "gpt-4o",
+          model: model || null,
           running_status: "running",
           confidence_score: 0.95,
           metadata: {
@@ -223,9 +244,17 @@ export async function discoverOtelTracingConnector(conn, deps = {}) {
             aiRelevant: true,
             spanName: span.name,
             traceId: span.traceId || null,
+            modelSource: model ? "span_attribute" : "unread",
+            runtime: {
+              operation: operation || null,
+              httpMethod: httpMethod || null,
+              httpTarget: httpTarget || null,
+              toolName: toolName || null,
+              occurredAt: span.endTime || span.timestamp || span.startTime || null
+            },
             evidence: [
               `Captured active sub-agent invocation from OpenTelemetry GenAI span: '${span.name}'`,
-              model ? `Runtime LLM model observed in OTel attributes: '${model}'` : "Model inferred from trace"
+              model ? `Runtime LLM model observed in OTel attributes: '${model}'` : "No model attribute on this span"
             ]
           },
           relationships: []
@@ -321,6 +350,13 @@ export async function discoverNetworkProxyConnector(conn, deps = {}) {
             aiRelevant: true,
             clientIp,
             targetDomain: target.hostname,
+            modelSource: "host_inference",
+            runtime: {
+              destHost: target.hostname,
+              method: String(log.method || "CONNECT"),
+              clientIp,
+              occurredAt: log.timestamp || log.time || null
+            },
             evidence: [
               `Network proxy observed active AI egress from client ${clientIp} to LLM domain ${target.hostname}`,
               `Inferred default provider model: ${target.defaultModel}`
