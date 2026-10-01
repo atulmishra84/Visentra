@@ -655,7 +655,7 @@ export async function listActiveGitSourceConnectors(pool, tenantId) {
 }
 
 export async function listActiveIdentityConnectors(pool, tenantId) {
-  return listActiveConnectorsByProviders(pool, tenantId, ["entra_identity"]);
+  return listActiveConnectorsByProviders(pool, tenantId, IDENTITY_PROVIDERS);
 }
 
 export async function listActiveCiConnectors(pool, tenantId) {

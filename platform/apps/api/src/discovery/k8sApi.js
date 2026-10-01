@@ -217,3 +217,116 @@ export async function discoverK8sConnector(conn) {
     }
   };
 }
+
+function serviceAccountText(account) {
+  const labels = asObject(account.metadata?.labels);
+  const annotations = asObject(account.metadata?.annotations);
+  return [
+    account.metadata?.name,
+    account.metadata?.namespace,
+    Object.keys(labels).join(" "),
+    Object.values(labels).join(" "),
+    Object.keys(annotations).join(" "),
+    Object.values(annotations).join(" ")
+  ].join(" ");
+}
+
+function serviceAccountObservation(conn, account, clusterKey) {
+  const namespace = account.metadata?.namespace || "default";
+  const name = account.metadata?.name || "serviceaccount";
+  const labels = asObject(account.metadata?.labels);
+  const annotations = asObject(account.metadata?.annotations);
+  return {
+    collector_id: "identity_entra",
+    fingerprint: `k8s-sa:${clusterKey}:${namespace}:${name}`,
+    name: `Kubernetes ServiceAccount — ${namespace}/${name}`,
+    category: "identity",
+    provider: "kubernetes_identity",
+    deployment_type: "identity",
+    identity_used: `${namespace}/${name}`,
+    running_status: "unknown",
+    confidence_score: 0.8,
+    framework: "ServiceAccount",
+    metadata: {
+      connectorId: conn.id,
+      connectorName: conn.name,
+      discoveryMode: "kubernetes-identity-live",
+      inventoryClass: "kubernetes_service_account",
+      evidenceClass: "repo_candidate",
+      agentStatus: "candidate",
+      apiServer: conn.config?.apiServer || null,
+      namespace,
+      kind: "ServiceAccount",
+      uid: account.metadata?.uid || null,
+      labels,
+      annotations,
+      identityProvider: "kubernetes",
+      aiRelevant: true,
+      environment: conn.environment,
+      howIdentified: "Kubernetes ServiceAccount with AI-relevant name, labels, or annotations"
+    },
+    relationships: [
+      {
+        rel_type: "USES_IDENTITY",
+        to_type: "ServiceAccount",
+        to_key: `${clusterKey}:${namespace}:${name}`,
+        to_name: `${namespace}/${name}`
+      },
+      {
+        rel_type: "RUNS_IN",
+        to_type: "KubernetesCluster",
+        to_key: clusterKey,
+        to_name: conn.name || clusterKey
+      }
+    ]
+  };
+}
+
+/**
+ * Identity-plane Kubernetes connector: AI-relevant ServiceAccounts only.
+ * Workload discovery stays on the kubernetes connector.
+ */
+export async function discoverKubernetesIdentity(conn, deps = {}) {
+  const cfg = requireK8sConfig(conn);
+  const clusterKey = `k8s-${new URL(cfg.apiServer).hostname}`;
+  const list = deps.list || ((path) => k8sJson(conn, path));
+  const observations = [
+    {
+      collector_id: "identity_entra",
+      fingerprint: `k8s-identity-connector-scan:${conn.id}:${clusterKey}`,
+      name: `Kubernetes identity scan — ${conn.name}`,
+      category: "identity",
+      provider: "kubernetes_identity",
+      deployment_type: "identity",
+      running_status: "running",
+      confidence_score: 0.9,
+      framework: "service-account-scan",
+      metadata: {
+        connectorId: conn.id,
+        connectorName: conn.name,
+        discoveryMode: "kubernetes-identity-live",
+        inventoryClass: "identity_connector",
+        apiServer: cfg.apiServer,
+        environment: conn.environment
+      }
+    }
+  ];
+
+  const json = await list("/api/v1/serviceaccounts?limit=250").catch(() => ({ items: [] }));
+  const items = Array.isArray(json.items) ? json.items : [];
+  let identitiesIngested = 0;
+  for (const account of items) {
+    if (!isAiRelevantText(serviceAccountText(account))) continue;
+    if (observations.length > K8S_MAX_WORKLOADS) break;
+    observations.push(serviceAccountObservation(conn, account, clusterKey));
+    identitiesIngested += 1;
+  }
+
+  return {
+    observations,
+    stats: {
+      serviceAccountsScanned: items.length,
+      identitiesIngested
+    }
+  };
+}

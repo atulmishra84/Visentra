@@ -18,6 +18,11 @@ type ProviderKey =
   | "github"
   | "gitlab"
   | "jenkins"
+  | "github_actions"
+  | "gitlab_ci"
+  | "kubernetes"
+  | "kubernetes_identity"
+  | "entra_identity"
   | "api_gateway"
   | "otel_tracing"
   | "network_proxy";
@@ -46,6 +51,11 @@ const PROVIDER_LABELS: Record<ProviderKey, string> = {
   github: "GitHub (repos / Actions / Copilot markers)",
   gitlab: "GitLab",
   jenkins: "Jenkins CI",
+  github_actions: "GitHub Actions",
+  gitlab_ci: "GitLab CI",
+  kubernetes: "Kubernetes workloads",
+  kubernetes_identity: "Kubernetes service accounts",
+  entra_identity: "Microsoft Entra ID",
   api_gateway: "API Gateway (Kong / APIM / AWS GW)",
   otel_tracing: "OpenTelemetry GenAI Tracing",
   network_proxy: "Network & Proxy Egress Logs"
@@ -91,7 +101,13 @@ const EMPTY_FORM = {
   endpoint: "",
   serviceName: "",
   logSourceUrl: "",
-  proxyType: "squid"
+  proxyType: "squid",
+  apiServer: "",
+  skipTlsVerify: "false",
+  org: "",
+  owner: "",
+  group: "",
+  namespace: ""
 };
 
 export function ConnectorsPage() {
@@ -116,9 +132,13 @@ export function ConnectorsPage() {
           ? "source"
           : ["jenkins", "github_actions", "gitlab_ci"].includes(form.provider)
             ? "ci"
-            : ["api_gateway", "otel_tracing", "network_proxy"].includes(form.provider)
-              ? "network"
-              : "cloud");
+            : form.provider === "kubernetes"
+              ? "container"
+              : ["entra_identity", "kubernetes_identity"].includes(form.provider)
+                ? "identity"
+                : ["api_gateway", "otel_tracing", "network_proxy"].includes(form.provider)
+                  ? "network"
+                  : "cloud");
 
   const load = async () => {
     setLoading(true);
@@ -201,39 +221,17 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
   const startEdit = (connector: Record<string, unknown>) => {
     const config = (connector.config as Record<string, string>) || {};
     setEditingId(String(connector.id));
+    const restored: Record<string, string> = {};
+    for (const [key, value] of Object.entries(config)) {
+      if (value != null && value !== "") restored[key] = String(value);
+    }
     setForm({
       ...EMPTY_FORM,
+      ...restored,
       name: String(connector.name || ""),
       provider: String(connector.provider || "azure") as ProviderKey,
       environment: String(connector.environment || "production"),
       status: String(connector.status || "active"),
-      tenantId: config.tenantId || "",
-      subscriptionId: config.subscriptionId || "",
-      clientId: config.clientId || "",
-      accountId: config.accountId || "",
-      region: config.region || "us-east-1",
-      accessKeyId: config.accessKeyId || "",
-      projectId: config.projectId || "",
-      clientEmail: config.clientEmail || "",
-      baseUrl: config.baseUrl || "https://api.crowdstrike.com",
-      fqdn: config.fqdn || "",
-      apiKeyId: config.apiKeyId || "",
-      tenant: config.tenant || "",
-      loginUrl: config.loginUrl || "https://login.salesforce.com",
-      username: config.username || "",
-      instanceUrl: config.instanceUrl || "",
-      apiVersion: config.apiVersion || "v59.0",
-      instance: config.instance || "",
-      organizationId: config.organizationId || "",
-      orgOrUser: config.orgOrUser || "",
-      apiBase: config.apiBase || "https://api.github.com",
-      host: config.host || "gitlab.com",
-      projectGroup: config.projectGroup || "",
-      gatewayType: config.gatewayType || "kong",
-      endpoint: config.endpoint || "",
-      serviceName: config.serviceName || "",
-      logSourceUrl: config.logSourceUrl || "",
-      proxyType: config.proxyType || "squid",
       clientSecret: "",
       secretAccessKey: "",
       privateKey: "",
@@ -325,7 +323,9 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
     }
   };
 
-  const scanNow = async (mode: "cloud" | "edr" | "saas" | "source" | "ci" | "network" | "all") => {
+  const scanNow = async (
+    mode: "cloud" | "edr" | "saas" | "source" | "ci" | "kubernetes" | "identity" | "network" | "all"
+  ) => {
     setError(null);
     setMessage(null);
     const collectors =
@@ -339,20 +339,26 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
               ? ["git_sources"]
               : mode === "ci"
                 ? ["ci_platform"]
-                : mode === "network"
-                  ? ["api_gateway", "otel_tracing", "network_proxy"]
-                  : [
-                      "cloud_stub",
-                      "edr",
-                      "saas_platform",
-                      "git_sources",
-                      "ci_platform",
-                      "api_gateway",
-                      "otel_tracing",
-                      "network_proxy",
-                      "ide_filesystem",
-                      "process"
-                    ];
+                : mode === "kubernetes"
+                  ? ["k8s_api"]
+                  : mode === "identity"
+                    ? ["identity_entra"]
+                    : mode === "network"
+                      ? ["api_gateway", "otel_tracing", "network_proxy"]
+                      : [
+                          "cloud_stub",
+                          "k8s_api",
+                          "identity_entra",
+                          "edr",
+                          "saas_platform",
+                          "git_sources",
+                          "ci_platform",
+                          "api_gateway",
+                          "otel_tracing",
+                          "network_proxy",
+                          "ide_filesystem",
+                          "process"
+                        ];
     try {
       await apiRequest("/api/discovery/jobs", {
         method: "POST",
@@ -368,10 +374,14 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
               : mode === "source"
                 ? "GitHub/GitLab discovery started (AI repos, Actions, Copilot markers)."
                 : mode === "ci"
-                  ? "Jenkins CI discovery started."
-                  : mode === "network"
-                    ? "Gateway, Tracing & Proxy discovery started (Kong, APIM, OTel, Proxies)."
-                    : "Full discovery started (cloud, EDR, SaaS, Git, CI, Gateway, OTel, Proxy, IDE)."
+                  ? "CI discovery started (Jenkins, GitHub Actions, GitLab CI)."
+                  : mode === "kubernetes"
+                    ? "Kubernetes workload discovery started."
+                    : mode === "identity"
+                      ? "Identity discovery started (Entra ID and Kubernetes service accounts)."
+                      : mode === "network"
+                        ? "Gateway, Tracing & Proxy discovery started (Kong, APIM, OTel, Proxies)."
+                        : "Full discovery started (cloud, Kubernetes, identity, EDR, SaaS, Git, CI, Gateway, OTel, Proxy, IDE)."
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start discovery.");
@@ -397,6 +407,10 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
         (k) => schema[k]?.category === "source" || ["github", "gitlab"].includes(k)
       ),
       ci: keys.filter((k) => schema[k]?.category === "ci" || ["jenkins", "github_actions", "gitlab_ci"].includes(k)),
+      kubernetes: keys.filter((k) => schema[k]?.category === "container" || k === "kubernetes"),
+      identity: keys.filter(
+        (k) => schema[k]?.category === "identity" || ["entra_identity", "kubernetes_identity"].includes(k)
+      ),
       network: keys.filter(
         (k) => schema[k]?.category === "network" || schema[k]?.category === "gateway" || schema[k]?.category === "tracing" || ["api_gateway", "otel_tracing", "network_proxy"].includes(k)
       )
@@ -413,9 +427,13 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
           ? "Add Git / source connector"
           : category === "ci"
             ? "Add CI / Build connector"
-            : category === "network"
-              ? "Add Gateway, Tracing & Proxy integration"
-              : "Add cloud environment";
+            : category === "container"
+              ? "Add Kubernetes connector"
+              : category === "identity"
+                ? "Add identity connector"
+                : category === "network"
+                  ? "Add Gateway, Tracing & Proxy integration"
+                  : "Add cloud environment";
 
   return (
     <div className="page">
@@ -424,9 +442,8 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
           <p className="eyebrow">Settings</p>
           <h1>Connectors</h1>
           <p className="page-description">
-            Connect cloud, EDR, SaaS, GitHub, and Jenkins to discover AI agents — Cursor/Claude IDE agents, ChatGPT /
-            OpenAI assistants, GitHub Copilot markers, and Jenkins AI jobs. Secrets are encrypted. Save →{" "}
-            <strong>Test</strong> → scan.
+            Connect cloud, Kubernetes, Entra ID, EDR, SaaS, Git, CI, and gateway sources to discover AI agents.
+            Secrets are encrypted. Save → <strong>Test</strong> → scan.
           </p>
         </div>
         <div className="toolbar" style={{ gap: 8, flexWrap: "wrap" }}>
@@ -443,7 +460,13 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
             Scan GitHub
           </button>
           <button className="button" type="button" onClick={() => void scanNow("ci")}>
-            Scan Jenkins
+            Scan CI
+          </button>
+          <button className="button" type="button" onClick={() => void scanNow("kubernetes")}>
+            Scan Kubernetes
+          </button>
+          <button className="button" type="button" onClick={() => void scanNow("identity")}>
+            Scan identity
           </button>
           <button className="button" type="button" onClick={() => void scanNow("network")}>
             Scan Gateway & Proxies
@@ -538,6 +561,20 @@ echo "=== Setup complete! In Visentra Connectors page, click 'Test' then 'Scan c
                   </optgroup>
                   <optgroup label="CI / build">
                     {providerOptions.ci.map((key) => (
+                      <option key={key} value={key}>
+                        {PROVIDER_LABELS[key] || key}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Kubernetes">
+                    {providerOptions.kubernetes.map((key) => (
+                      <option key={key} value={key}>
+                        {PROVIDER_LABELS[key] || key}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Identity">
+                    {providerOptions.identity.map((key) => (
                       <option key={key} value={key}>
                         {PROVIDER_LABELS[key] || key}
                       </option>
