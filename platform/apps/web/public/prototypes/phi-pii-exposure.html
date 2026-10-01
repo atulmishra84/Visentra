@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PHI / PII Exposure · Visentra</title>
+    <link rel="stylesheet" href="prototypes.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="app-shell">
+      <div class="main">
+        <div class="page">
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Data exposure</p>
+              <h1>PHI / PII Exposure</h1>
+              <p class="page-description">
+                Agentless classification of sensitive data reach across all scanners — entitlements,
+                knowledge stores, scopes, and connected apps. No prompt or file content inspection.
+              </p>
+            </div>
+            <div class="toolbar">
+              <span class="status-pill">All scanners · mock</span>
+              <a class="button" href="inventory.html">Inventory</a>
+              <a class="button primary" href="adversarial.html">Attack surface</a>
+            </div>
+          </header>
+
+          <p class="usage-insight">
+            33 agents can reach PII · 6 can reach PHI · primary signals from Bedrock knowledge bases,
+            Azure Copilot connectors, EDR-installed health apps, and SaaS CRM scopes. Classification
+            confidence is evidence-backed, not inferred from traffic.
+          </p>
+
+          <section class="card-grid">
+            <article class="kpi warn">
+              <div class="kpi-label">PII reach</div>
+              <div class="kpi-value">33</div>
+              <div class="kpi-trend">Agents with PII class</div>
+            </article>
+            <article class="kpi bad">
+              <div class="kpi-label">PHI reach</div>
+              <div class="kpi-value">6</div>
+              <div class="kpi-trend">Agents with PHI class</div>
+            </article>
+            <article class="kpi warn">
+              <div class="kpi-label">High confidence</div>
+              <div class="kpi-value">18</div>
+              <div class="kpi-trend">Entitlement / explicit label</div>
+            </article>
+            <article class="kpi">
+              <div class="kpi-label">Ownerless + sensitive</div>
+              <div class="kpi-value">9</div>
+              <div class="kpi-trend">Needs attribution</div>
+            </article>
+            <article class="kpi warn">
+              <div class="kpi-label">Shadow + sensitive</div>
+              <div class="kpi-value">4</div>
+              <div class="kpi-trend">Unmanaged surface</div>
+            </article>
+            <article class="kpi">
+              <div class="kpi-label">Scanners contributing</div>
+              <div class="kpi-value">8</div>
+              <div class="kpi-trend">Cloud · SaaS · EDR · IDE</div>
+            </article>
+          </section>
+
+          <section class="panel">
+            <h2>Exposure by scanner</h2>
+            <p class="filter-note">
+              Counts are agents with <span class="mono">dataAccessClassification.hasPii</span> /
+              <span class="mono">hasPhi</span> after each connector’s discovery pass.
+            </p>
+            <div class="scanner-grid" id="scanner-grid">
+              <article class="scanner-card phi">
+                <div class="scanner-name">AWS deep scan <span class="badge bad">PHI</span></div>
+                <div class="scanner-meta">Bedrock · Lambda · SageMaker · IAM</div>
+                <div class="scanner-stats">
+                  <div><strong>11</strong><span>PII</span></div>
+                  <div><strong>3</strong><span>PHI</span></div>
+                </div>
+              </article>
+              <article class="scanner-card phi">
+                <div class="scanner-name">Azure ARM / Foundry <span class="badge bad">PHI</span></div>
+                <div class="scanner-meta">Copilot Studio · Assistants · Bot Service</div>
+                <div class="scanner-stats">
+                  <div><strong>8</strong><span>PII</span></div>
+                  <div><strong>2</strong><span>PHI</span></div>
+                </div>
+              </article>
+              <article class="scanner-card">
+                <div class="scanner-name">GCP Vertex <span class="badge warn">PII</span></div>
+                <div class="scanner-meta">Agents · Reasoning Engine · Cloud Run</div>
+                <div class="scanner-stats">
+                  <div><strong>4</strong><span>PII</span></div>
+                  <div><strong>0</strong><span>PHI</span></div>
+                </div>
+              </article>
+              <article class="scanner-card">
+                <div class="scanner-name">OpenAI SaaS <span class="badge warn">PII</span></div>
+                <div class="scanner-meta">Assistants API · tools · files</div>
+                <div class="scanner-stats">
+                  <div><strong>3</strong><span>PII</span></div>
+                  <div><strong>0</strong><span>PHI</span></div>
+                </div>
+              </article>
+              <article class="scanner-card">
+                <div class="scanner-name">SaaS platforms <span class="badge warn">PII</span></div>
+                <div class="scanner-meta">Copilot · Agentforce · Now Assist</div>
+                <div class="scanner-stats">
+                  <div><strong>5</strong><span>PII</span></div>
+                  <div><strong>0</strong><span>PHI</span></div>
+                </div>
+              </article>
+              <article class="scanner-card phi">
+                <div class="scanner-name">EDR / endpoint <span class="badge bad">PHI</span></div>
+                <div class="scanner-meta">CrowdStrike · Defender · Intune · Netskope</div>
+                <div class="scanner-stats">
+                  <div><strong>2</strong><span>PII</span></div>
+                  <div><strong>1</strong><span>PHI</span></div>
+                </div>
+              </article>
+              <article class="scanner-card">
+                <div class="scanner-name">IDE / MCP <span class="badge warn">PII</span></div>
+                <div class="scanner-meta">Cursor · VS Code · MCP configs</div>
+                <div class="scanner-stats">
+                  <div><strong>2</strong><span>PII</span></div>
+                  <div><strong>0</strong><span>PHI</span></div>
+                </div>
+              </article>
+              <article class="scanner-card">
+                <div class="scanner-name">Git / CI <span class="badge brand">Low</span></div>
+                <div class="scanner-meta">Repos · pipelines · CODEOWNERS</div>
+                <div class="scanner-stats">
+                  <div><strong>1</strong><span>PII</span></div>
+                  <div><strong>0</strong><span>PHI</span></div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="split-grid">
+            <section class="panel">
+              <h2>Signal sources (how we classify)</h2>
+              <div class="evidence-chain">
+                <div class="evidence-item">
+                  <span class="src">entitlement</span>
+                  <div>
+                    <strong>IAM / Graph / OAuth scopes</strong>
+                    <div class="detail">health.read, Mail.Read, patient/*, secretsmanager:GetSecretValue</div>
+                  </div>
+                </div>
+                <div class="evidence-item">
+                  <span class="src">knowledge</span>
+                  <div>
+                    <strong>KB / vector / memory stores</strong>
+                    <div class="detail">claims-kb, hr-payroll-index, clinical-notes-rag, SharePoint HR</div>
+                  </div>
+                </div>
+                <div class="evidence-item">
+                  <span class="src">scope</span>
+                  <div>
+                    <strong>Access scopes on agent</strong>
+                    <div class="detail">email, crm, sharepoint, phi, ehr, fhir</div>
+                  </div>
+                </div>
+                <div class="evidence-item">
+                  <span class="src">app</span>
+                  <div>
+                    <strong>Connected apps / tools</strong>
+                    <div class="detail">Salesforce, Workday, Epic, Cerner, Outlook, ServiceNow</div>
+                  </div>
+                </div>
+                <div class="evidence-item">
+                  <span class="src">explicit</span>
+                  <div>
+                    <strong>Collector labels</strong>
+                    <div class="detail">metadata.dataClasses / primaryDataClass from deep scan</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section class="panel">
+              <h2>Plane × class heat</h2>
+              <table class="heat-table" aria-label="Exposure heat by mesh plane">
+                <thead>
+                  <tr>
+                    <th>Plane</th>
+                    <th>PII</th>
+                    <th>PHI</th>
+                    <th>Secrets</th>
+                    <th>Financial</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>SaaS / cloud AI</td>
+                    <td class="heat-cell hot">19</td>
+                    <td class="heat-cell warm">4</td>
+                    <td class="heat-cell warm">7</td>
+                    <td class="heat-cell cool">3</td>
+                  </tr>
+                  <tr>
+                    <td>Serverless</td>
+                    <td class="heat-cell warm">6</td>
+                    <td class="heat-cell cool">1</td>
+                    <td class="heat-cell hot">5</td>
+                    <td class="heat-cell warm">4</td>
+                  </tr>
+                  <tr>
+                    <td>Container</td>
+                    <td class="heat-cell cool">3</td>
+                    <td class="heat-cell none">0</td>
+                    <td class="heat-cell cool">2</td>
+                    <td class="heat-cell none">0</td>
+                  </tr>
+                  <tr>
+                    <td>Endpoint / IDE</td>
+                    <td class="heat-cell warm">5</td>
+                    <td class="heat-cell cool">1</td>
+                    <td class="heat-cell cool">1</td>
+                    <td class="heat-cell none">0</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="muted" style="margin:12px 0 0">
+                Derived from mesh placement + <span class="mono">dataAccessClassification</span>.
+              </p>
+            </section>
+          </section>
+
+          <div class="toolbar" style="margin-bottom:12px" id="expo-filters">
+            <button class="button primary" type="button" data-filter="all" aria-pressed="true">All</button>
+            <button class="button ghost" type="button" data-filter="phi">PHI only</button>
+            <button class="button ghost" type="button" data-filter="pii">PII only</button>
+            <button class="button ghost" type="button" data-filter="ownerless">Ownerless</button>
+            <button class="button ghost" type="button" data-filter="shadow">Shadow</button>
+            <button class="button ghost" type="button" data-filter="aws">AWS</button>
+            <button class="button ghost" type="button" data-filter="azure">Azure</button>
+            <button class="button ghost" type="button" data-filter="edr">EDR</button>
+          </div>
+
+          <section class="panel">
+            <h2>Exposed agents</h2>
+            <p class="filter-note">
+              Sample rows spanning every scanner. Evidence column mirrors
+              <span class="mono">dataAccessClassification.evidence[]</span>.
+            </p>
+            <div class="table-wrap">
+              <table class="data" id="expo-table">
+                <thead>
+                  <tr>
+                    <th>Agent</th>
+                    <th>Scanner</th>
+                    <th>Class</th>
+                    <th>Confidence</th>
+                    <th>Evidence</th>
+                    <th>Owner</th>
+                    <th>Plane</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr data-class="phi" data-scanner="aws" data-owner="owned" data-shadow="no">
+                    <td><strong>claims-intake-bedrock</strong></td>
+                    <td>AWS deep</td>
+                    <td><span class="badge bad">PHI</span> <span class="badge warn">PII</span></td>
+                    <td class="mono">high</td>
+                    <td>
+                      <div class="signal-pills">
+                        <span class="badge">knowledge: claims-kb</span>
+                        <span class="badge">knowledge: policy-kb</span>
+                        <span class="badge">entitlement: fhir-read</span>
+                      </div>
+                    </td>
+                    <td>platform-sec</td>
+                    <td>SaaS</td>
+                  </tr>
+                  <tr data-class="phi" data-scanner="aws" data-owner="owned" data-shadow="no">
+                    <td><strong>clinical-summary-agent</strong></td>
+                    <td>AWS deep</td>
+                    <td><span class="badge bad">PHI</span></td>
+                    <td class="mono">high</td>
+                    <td>
+                      <div class="signal-pills">
+                        <span class="badge">app: Epic</span>
+                        <span class="badge">scope: phi</span>
+                      </div>
+                    </td>
+                    <td>clinical-it</td>
+                    <td>SaaS</td>
+                  </tr>
+                  <tr data-class="pii" data-scanner="aws" data-owner="owned" data-shadow="no">
+                    <td><strong>finance-lambda-agent</strong></td>
+                    <td>AWS deep</td>
+                    <td><span class="badge warn">PII</span> <span class="badge">financial</span></td>
+                    <td class="mono">medium</td>
+                    <td>
+                      <div class="signal-pills">
+                        <span class="badge">entitlement: dynamodb:Query</span>
+                        <span class="badge">knowledge: customer-db</span>
+                      </div>
+                    </td>
+                    <td>finops</td>
+                    <td>Serverless</td>
+                  </tr>
+                  <tr data-class="phi" data-scanner="azure" data-owner="owned" data-shadow="no">
+                    <td><strong>patient-intake-foundry</strong></td>
+                    <td>Azure</td>
+                    <td><span class="badge bad">PHI</span></td>
+                    <td class="mono">high</td>
+                    <td>
+                      <div class="signal-pills">
+                        <span class="badge">knowledge: clinical-notes</span>
+                        <span class="badge">entitlement: health.read</span>
+                      </div>
+                    </td>
+                    <td>clinical-it</td>
+                    <td>SaaS</td>
+                  </tr>
+                  <tr data-class="pii" data-scanner="azure" data-owner="owned" data-shadow="no">
+                    <td><strong>hr-copilot-studio</strong></td>
+                    <td>Azure</td>
+                    <td><span class="badge warn">PII</span></td>
+                    <td class="mono">high</td>
+                    <td>
+                      <div class="signal-pills">
+                        <span class="badge">app: Workday</span>
+                        <span class="badge">scope: sharepoint</span>
+                        <span class="badge">knowledge: hr-payroll</span>
+                      </div>
+                    </td>
+                    <td>hr-ops</td>
+                    <td>SaaS</td>
+                  </tr>
+                  <tr data-class="pii" data-scanner="azure" data-owner="ownerless" data-shadow="no">
+                    <td><strong>support-rag-kb</strong></td>
+                    <td>Azure</td>
+                    <td><span class="badge warn">PII</span></td>
+                    <td class="mono">medium</td>
+                    <td>
+                      <div class="signal-pills">
+                        <span class="badge">scope: email</span>
+                        <span class="badge">app: Outlook</span>
+                      </div>
+                    </td>
+                    <td>—</td>
+                    <td>SaaS</td>
+                  </tr>
+                  <tr data-class="pii" data-scanner="gcp" data-owner="owned" data-shadow="no">
+                    <td><strong>vertex-doc-agent</strong></td>
+                    <td>GCP</td>
+                    <td><span class="badge warn">PII</span></td>
+                    <td class="mono">medium</td>
+                    <td>
+                      <div class="signal-pills">
+                        <span class="badge">knowledge: customer-contracts</span>
+                      </div>
+                    </td>
+                    <td>data-eng</td>
+                    <td>SaaS</td>
+                  </tr>
+                  <tr data-class="pii" data-scanner="openai" data-owner="ownerless" data-shadow="yes">
+                    <td><strong>openai-asst-crm-helper</strong></td>
+                    <td>OpenAI</td>
+                    <td><span class="badge warn">PII</span></td>
+                    <td class="mono">medium</td>
+                    <td>
+                      <div class="signal-pills">
+                        <span class="badge">app: Salesforce</span>
+                        <span class="badge">scope: crm</span>
+                      </div>
+                    </td>
+                    <td>—</td>
+                    <td>SaaS</td>
+                  </tr>
+                  <tr data-class="pii" data-scanner="saas" data-owner="owned" data-shadow="no">
+                    <td><strong>salesforce-agentforce-lead</strong></td>
+                    <td>SaaS</td>
+                    <td><span class="badge warn">PII</span></td>
+                    <td class="mono">high</td>
+                    <td>
+                      <div class="signal-pills">
+                        <span class="badge">explicit: pii</span>
+                        <span class="badge">scope: crm</span>
+                      </div>
+                    </td>
+                    <td>revops</td>
+                    <td>SaaS</td>
+                  </tr>
+                  <tr data-class="phi" data-scanner="edr" data-owner="ownerless" data-shadow="yes">
+                    <td><strong>personal-claude + Epic web</strong></td>
+                    <td>EDR</td>
+                    <td><span class="badge bad">PHI</span></td>
+                    <td class="mono">low</td>
+                    <td>
+                      <div class="signal-pills">
+                        <span class="badge">app: Epic (Intune)</span>
+                        <span class="badge">process: Claude</span>
+                      </div>
+                    </td>
+                    <td>—</td>
+                    <td>Endpoint</td>
+                  </tr>
+                  <tr data-class="pii" data-scanner="edr" data-owner="ownerless" data-shadow="yes">
+                    <td><strong>local-cursor-agent</strong></td>
+                    <td>EDR / IDE</td>
+                    <td><span class="badge warn">PII</span></td>
+                    <td class="mono">low</td>
+                    <td>
+                      <div class="signal-pills">
+                        <span class="badge">mcp: filesystem</span>
+                        <span class="badge">knowledge: ~/Documents/hr</span>
+                      </div>
+                    </td>
+                    <td>—</td>
+                    <td>Endpoint</td>
+                  </tr>
+                  <tr data-class="pii" data-scanner="git" data-owner="owned" data-shadow="no">
+                    <td><strong>langchain-hr-bot (repo)</strong></td>
+                    <td>Git / CI</td>
+                    <td><span class="badge warn">PII</span></td>
+                    <td class="mono">low</td>
+                    <td>
+                      <div class="signal-pills">
+                        <span class="badge">knowledge: workday SDK</span>
+                        <span class="badge">package: workday-api</span>
+                      </div>
+                    </td>
+                    <td>hr-eng</td>
+                    <td>Repo candidate</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Method note</h2>
+            <p class="muted" style="margin:0">
+              Classification uses agentless metadata only
+              (<span class="mono">buildDataAccessClassification</span>): permissions, granted scopes,
+              knowledge/vector/memory store names, connected apps, and explicit collector labels.
+              Visentra does <strong>not</strong> open documents or read prompts to decide PHI/PII.
+              PHI outranks PII when both are present (<span class="mono">primaryDataClass</span>).
+            </p>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script src="shell.js"></script>
+    <script>
+      (function () {
+        const filters = document.getElementById("expo-filters");
+        const rows = [...document.querySelectorAll("#expo-table tbody tr")];
+        filters.addEventListener("click", (event) => {
+          const btn = event.target.closest("button[data-filter]");
+          if (!btn) return;
+          filters.querySelectorAll("button").forEach((b) => {
+            b.classList.toggle("primary", b === btn);
+            b.classList.toggle("ghost", b !== btn);
+            b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+          });
+          const f = btn.dataset.filter;
+          rows.forEach((row) => {
+            let show = true;
+            if (f === "phi") show = row.dataset.class === "phi";
+            else if (f === "pii") show = row.dataset.class === "pii";
+            else if (f === "ownerless") show = row.dataset.owner === "ownerless";
+            else if (f === "shadow") show = row.dataset.shadow === "yes";
+            else if (f === "aws" || f === "azure" || f === "edr") show = row.dataset.scanner === f;
+            row.style.display = f === "all" || show ? "" : "none";
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Discovery · Visentra</title>
+    <link rel="stylesheet" href="prototypes.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="app-shell">
+      <div class="main">
+        <div class="page">
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Discovery</p>
+              <h1>Discovery Dashboard</h1>
+              <p class="page-description">
+                Run scans against configured connectors. Azure uses live ARM; AWS deep scan enriches Bedrock,
+                SageMaker, and Lambda. EDR connectors surface endpoint visibility sources.
+              </p>
+            </div>
+            <div class="toolbar">
+              <a class="button" href="#">Discovery events</a>
+              <a class="button" href="operations.html">Change intelligence</a>
+              <button class="button primary" type="button" id="run-scan">Run discovery scan</button>
+            </div>
+          </header>
+
+          <div class="status-pill" id="scan-message" style="display:none;margin-bottom:16px"></div>
+
+          <section class="two-grid">
+            <div class="panel">
+              <h2>Connectors</h2>
+              <ul class="chart-list">
+                <li><span>AWS Production (AWS · cloud)</span><span class="badge good">healthy</span></li>
+                <li><span>Azure Contoso (AZURE · cloud)</span><span class="badge good">healthy</span></li>
+                <li><span>GCP Analytics (GCP · cloud)</span><span class="badge warn">degraded</span></li>
+                <li><span>CrowdStrike Falcon (EDR)</span><span class="badge good">healthy</span></li>
+                <li><span>Microsoft Defender (EDR)</span><span class="badge good">healthy</span></li>
+                <li><span>Netskope Private Access (EDR)</span><span class="badge brand">idle</span></li>
+              </ul>
+            </div>
+            <div class="panel">
+              <h2>How to verify</h2>
+              <p class="muted">
+                1) Test connector in Settings<br />
+                2) Click <strong>Run discovery scan</strong><br />
+                3) Check Inventory for cloud scan rows and AI resources<br />
+                4) Check Discovery Events for scan counts<br />
+                5) Confirm mesh planes: SaaS / serverless / container / endpoint
+              </p>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Recent Jobs</h2>
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Job</th>
+                    <th>Provider</th>
+                    <th>Status</th>
+                    <th>Found</th>
+                    <th>Started</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>aws-deep-scan</strong></td>
+                    <td>AWS</td>
+                    <td><span class="badge good">succeeded</span></td>
+                    <td class="mono">47 agents · 112 resources</td>
+                    <td class="mono">2026-08-14 08:12</td>
+                  </tr>
+                  <tr>
+                    <td><strong>azure-arm-scan</strong></td>
+                    <td>Azure</td>
+                    <td><span class="badge good">succeeded</span></td>
+                    <td class="mono">31 agents · 64 resources</td>
+                    <td class="mono">2026-08-14 07:55</td>
+                  </tr>
+                  <tr>
+                    <td><strong>crowdstrike-edr</strong></td>
+                    <td>EDR</td>
+                    <td><span class="badge good">succeeded</span></td>
+                    <td class="mono">18 candidates · 6 confirmed runtime</td>
+                    <td class="mono">2026-08-14 07:40</td>
+                  </tr>
+                  <tr>
+                    <td><strong>gcp-discovery</strong></td>
+                    <td>GCP</td>
+                    <td><span class="badge warn">partial</span></td>
+                    <td class="mono">9 agents · auth retry</td>
+                    <td class="mono">2026-08-13 22:10</td>
+                  </tr>
+                  <tr>
+                    <td><strong>netskope-apps</strong></td>
+                    <td>EDR</td>
+                    <td><span class="badge brand">queued</span></td>
+                    <td class="mono">—</td>
+                    <td class="mono">2026-08-15 09:00</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script src="shell.js"></script>
+    <script>
+      document.getElementById("run-scan").addEventListener("click", function () {
+        const msg = document.getElementById("scan-message");
+        msg.style.display = "inline-flex";
+        msg.textContent = "Scan queued (prototype) — would call POST /api/discovery/run";
+      });
+    </script>
+  </body>
+</html>
