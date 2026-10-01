@@ -170,6 +170,12 @@ export async function migrate(pool) {
     CREATE INDEX IF NOT EXISTS idx_outbound_integrations_tenant
       ON outbound_integrations(tenant_id, provider)
   `);
+  await pool.query(`ALTER TABLE outbound_integrations DROP CONSTRAINT IF EXISTS outbound_integrations_provider_check`);
+  await pool.query(`
+    ALTER TABLE outbound_integrations
+      ADD CONSTRAINT outbound_integrations_provider_check
+      CHECK (provider IN ('naxri', 'attest'))
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS compliance_custom_frameworks (

@@ -416,6 +416,12 @@ export async function executeDiscoveryJob(pool, neo4j, job, { tenantId, triggere
     } catch (err) {
       console.warn("NAXRI auto-push schedule failed:", err.message);
     }
+    try {
+      const { scheduleAttestAutoPush } = await import("../services/attestDecisions.js");
+      scheduleAttestAutoPush(pool, tenantId);
+    } catch (err) {
+      console.warn("Attest decisions push schedule failed:", err.message);
+    }
     return { ...job, status: "complete", agents_found: agentsFound };
   } catch (err) {
     await pool.query(

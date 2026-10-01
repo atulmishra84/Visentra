@@ -26,6 +26,7 @@ import { GovernanceAssessmentPage } from "./pages/GovernanceAssessmentPage";
 import { GovernanceCatalogPage } from "./pages/GovernanceCatalogPage";
 import { AssurancePage } from "./pages/AssurancePage";
 import { NaxriIntegrationPage } from "./pages/NaxriIntegrationPage";
+import { AttestDecisionsPage } from "./pages/AttestDecisionsPage";
 
 function LegacyNeighborhoodRedirect() {
   const [params] = useSearchParams();
@@ -92,6 +93,7 @@ export default function App() {
         <Route path="/search" element={<SearchPage />} />
         <Route path="/settings/connectors" element={<ConnectorsPage />} />
         <Route path="/settings/naxri" element={<NaxriIntegrationPage />} />
+        <Route path="/settings/attest" element={<AttestDecisionsPage />} />
         <Route path="/settings/sso" element={<SsoSettingsPage />} />
         <Route path="/settings/audit" element={<AuditPage />} />
       </Route>
