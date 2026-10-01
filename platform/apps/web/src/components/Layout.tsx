@@ -50,6 +50,7 @@ const sections = [
     items: [
       { to: "/settings/connectors", label: "Connectors" },
       { to: "/settings/naxri", label: "NAXRI ASPM" },
+      { to: "/settings/attest", label: "Attest decisions" },
       { to: "/settings/sso", label: "IAM & SSO" },
       { to: "/settings/audit", label: "Audit Log" }
     ]
